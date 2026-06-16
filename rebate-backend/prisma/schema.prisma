@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model IbNode {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String   // bcrypt hash
+  level     Int      // 0=MIB, 1, 2, 3, 4, 5
+  parentId  String?
+  parent    IbNode?  @relation("IbTree", fields: [parentId], references: [id])
+  children  IbNode[] @relation("IbTree")
+
+  rebateConfig    RebateConfig[]
+  transactions    RebateTransaction[]
+  refreshTokens   RefreshToken[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
+  @@map("ib_nodes")
+}
+
+model RebateConfig {
+  id             String    @id @default(uuid())
+  ibId           String
+  ib             IbNode    @relation(fields: [ibId], references: [id])
+  assetType      AssetType
+  rebatePips     Decimal   @db.Decimal(10, 4)
+  markupPips     Decimal   @db.Decimal(10, 4) @default(0)
+  markupPercent  Decimal   @db.Decimal(5, 2)  @default(100)  // 100% hoặc 80%
+  maxPips        Decimal   @db.Decimal(10, 4) // giới hạn từ cấp trên
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ibId, assetType])
+  @@map("rebate_configs")
+}
+
+model RebateTransaction {
+  id           String    @id @default(uuid())
+  ibId         String
+  ib           IbNode    @relation(fields: [ibId], references: [id])
+  assetType    AssetType
+  lots         Decimal   @db.Decimal(10, 4)
+  rebateAmount Decimal   @db.Decimal(10, 4)
+  currency     String    @default("USD")
+  tradedAt     DateTime
+
+  createdAt DateTime @default(now())
+
+  @@index([ibId, tradedAt])
+  @@index([assetType, tradedAt])
+  @@map("rebate_transactions")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  ibId      String
+  ib        IbNode   @relation(fields: [ibId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@map("refresh_tokens")
+}
+
+enum AssetType {
+  D_FOREX
+  FOREX
+  GOLD
+  SILVER_5000
+  SILVER_1000
+  OIL
+  NATURE_GAS
+  COMMODITIES
+  HKG50
+  A50
+  JPN225
+  US_INDEX
+  SHARES
+  ETHEREUM
+  PRECIOUS_METAL
+  BITCOIN
+  CRYPTO
+  GAUCNH
+}

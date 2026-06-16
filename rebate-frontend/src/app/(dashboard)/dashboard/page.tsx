@@ -1,0 +1,188 @@
+'use client';
+
+import React, { useEffect, useState } from 'react';
+import { ibApi } from '@/lib/api/ib';
+import { rebateApi } from '@/lib/api/rebate';
+import { useAuthStore } from '@/store/auth.store';
+import { AssetType, RebateConfig, RebateCalculation } from '@/types';
+
+export default function DashboardPage() {
+  const { user } = useAuthStore();
+  const [profile, setProfile] = useState<any>(null);
+  const [config, setConfig] = useState<RebateConfig | null>(null);
+  
+  // Calculator States
+  const [calcAsset, setCalcAsset] = useState<AssetType>(AssetType.FOREX);
+  const [calcLots, setCalcLots] = useState<number>(10);
+  const [calcResult, setCalcResult] = useState<RebateCalculation | null>(null);
+  const [calcLoading, setCalcLoading] = useState(false);
+
+  useEffect(() => {
+    if (user) {
+      const loadDashboardData = async () => {
+        try {
+          const profileData = await ibApi.getMe();
+          setProfile(profileData);
+          const configData = await rebateApi.getConfig(user.id);
+          setConfig(configData);
+        } catch (e) {
+          console.error(e);
+        }
+      };
+      loadDashboardData();
+    }
+  }, [user]);
+
+  const handleCalculate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setCalcLoading(true);
+    try {
+      const result = await rebateApi.calculate(user.id, calcAsset, calcLots);
+      setCalcResult(result);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setCalcLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Welcome Card */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+        <h1 className="text-2xl font-bold text-white">Xin chào, {user?.email}</h1>
+        <p className="text-slate-400 mt-1">Thông tin quản lý và phân phối hoa hồng Introducer Broker của bạn.</p>
+
+        {profile && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-800">
+            <div>
+              <div className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Cấp bậc</div>
+              <div className="text-lg font-bold text-white mt-1">Level {profile.level}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Số cấp dưới trực tiếp</div>
+              <div className="text-lg font-bold text-white mt-1">{profile.totalChildren}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Parent ID</div>
+              <div className="text-sm font-medium text-slate-300 mt-1 truncate" title={profile.parentId || 'N/A'}>
+                {profile.parentId || 'N/A'}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Ngày tham gia</div>
+              <div className="text-sm font-medium text-slate-300 mt-1">
+                {new Date(profile.createdAt).toLocaleDateString('vi-VN')}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Configurations Table */}
+        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <h2 className="text-lg font-bold text-white mb-4">Cấu hình Rebate hiện tại</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left text-slate-300">
+              <thead className="text-xs uppercase bg-slate-950 text-slate-500 border-b border-slate-800">
+                <tr>
+                  <th className="px-4 py-3">Asset Type</th>
+                  <th className="px-4 py-3 text-right">Rebate Pips (Giữ lại)</th>
+                  <th className="px-4 py-3 text-right">Markup Pips (Chuyển tiếp)</th>
+                  <th className="px-4 py-3 text-right">Max Pips</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800">
+                {config && config.assets.filter(a => a.rebatePips > 0 || a.markupPips > 0).map((asset) => (
+                  <tr key={asset.assetType} className="hover:bg-slate-800/40">
+                    <td className="px-4 py-3 font-semibold text-white">{asset.assetType}</td>
+                    <td className="px-4 py-3 text-right text-emerald-400 font-semibold">{asset.rebatePips} pips</td>
+                    <td className="px-4 py-3 text-right text-slate-400">{asset.markupPips} pips</td>
+                    <td className="px-4 py-3 text-right text-slate-500">{asset.maxPips} pips</td>
+                  </tr>
+                ))}
+                {(!config || config.assets.filter(a => a.rebatePips > 0 || a.markupPips > 0).length === 0) && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
+                      Chưa có cấu hình Rebate nào được kích hoạt.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Rebate Calculator */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+          <h2 className="text-lg font-bold text-white mb-4">Trình tính hoa hồng</h2>
+          <form onSubmit={handleCalculate} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                Loại tài sản
+              </label>
+              <select
+                value={calcAsset}
+                onChange={(e) => setCalcAsset(e.target.value as AssetType)}
+                className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-white focus:border-emerald-500 focus:outline-none text-sm"
+              >
+                {Object.values(AssetType).map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                Số lót giao dịch
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={calcLots}
+                onChange={(e) => setCalcLots(parseFloat(e.target.value) || 0)}
+                className="w-full rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-white focus:border-emerald-500 focus:outline-none text-sm"
+                placeholder="10"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={calcLoading}
+              className="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 focus:outline-none disabled:opacity-55 transition"
+            >
+              {calcLoading ? 'Đang tính...' : 'Tính hoa hồng'}
+            </button>
+          </form>
+
+          {calcResult && (
+            <div className="mt-6 pt-6 border-t border-slate-800 space-y-3">
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-400">Rebate của bạn (Self):</span>
+                <span className="font-bold text-emerald-400 text-lg">${calcResult.breakdown.self.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-400">Tổng Rebate phân phối:</span>
+                <span className="font-semibold text-white">${calcResult.totalRebate.toFixed(2)}</span>
+              </div>
+              {calcResult.breakdown.distributed.length > 0 && (
+                <div className="space-y-1 pt-2">
+                  <div className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-1">Chi tiết cấp dưới</div>
+                  {calcResult.breakdown.distributed.map((dist, idx) => (
+                    <div key={idx} className="flex justify-between text-xs text-slate-400">
+                      <span>Cấp dưới (Lv{dist.level}):</span>
+                      <span>${dist.amount.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
