@@ -1,6 +1,9 @@
 .env
+.env.production
 node_modules/
 dist/
 
 migrations/
 prisma/generated/
+
+Sample Image
