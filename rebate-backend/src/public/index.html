@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IB Rebate System API</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+  <!-- NAVBAR -->
+  <nav id="navbar">
+    <div class="nav-container">
+      <div class="nav-logo">
+        <div class="nav-logo-icon">💱</div>
+        <span>IB Rebate API</span>
+      </div>
+      <div class="nav-links">
+        <a href="#features">Tính năng</a>
+        <a href="#endpoints">API Endpoints</a>
+        <a href="#docs">Tài liệu</a>
+        <a href="#login" class="nav-btn">Đăng nhập</a>
+      </div>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section id="hero" class="hero">
+    <div class="hero-container">
+      <div class="hero-left">
+        <div class="hero-badge">
+          <span id="hero-env">LOCAL</span>
+          <span>· API đang hoạt động</span>
+        </div>
+        <h1>IB Rebate<br>System API</h1>
+        <p class="hero-desc">
+          Hệ thống tính toán và phân phối Rebate cho IB theo cấu
+          trúc phân cấp đa tầng, bảo mật và hiệu suất cao.
+        </p>
+        <div class="hero-actions">
+          <a href="#login" class="btn-primary">Bắt đầu ngay →</a>
+          <a href="/api/docs" class="btn-secondary">Xem tài liệu</a>
+        </div>
+        <div class="hero-stats">
+          <div class="stat">
+            <span class="stat-number" id="stat-endpoints">0</span>
+            <span class="stat-label">API Endpoints</span>
+          </div>
+          <div class="stat">
+            <span class="stat-number">Multi</span>
+            <span class="stat-label">Level IB</span>
+          </div>
+          <div class="stat">
+            <span class="stat-number" id="stat-uptime">0</span>
+            <span class="stat-label">Uptime</span>
+          </div>
+        </div>
+      </div>
+      <div class="hero-right">
+        <div class="terminal">
+          <div class="terminal-header">
+            <span class="dot red"></span>
+            <span class="dot yellow"></span>
+            <span class="dot green"></span>
+            <span class="terminal-title">terminal — IB Rebate API</span>
+          </div>
+          <div class="terminal-body">
+            <div class="terminal-line">
+              <span class="prompt">$</span>
+              <span id="terminal-cmd"></span>
+              <span class="cursor" id="terminal-cursor">|</span>
+            </div>
+            <div id="terminal-response" class="terminal-response" style="display:none">
+<pre>{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGci...",
+    "user": {
+      "email": "lv1-a@test.com",
+      "level": 1
+    }
+  }
+}</pre>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FEATURES -->
+  <section id="features" class="section">
+    <div class="container">
+      <div class="section-label">TÍNH NĂNG</div>
+      <h2 class="section-title">Tính năng nổi bật</h2>
+      <p class="section-desc">Xây dựng trên NestJS + Prisma, đảm bảo hiệu suất và độ tin cậy.</p>
+      <div class="features-grid">
+        <div class="feature-card animate-on-scroll">
+          <div class="feature-icon">🔐</div>
+          <h3>Bảo mật JWT</h3>
+          <p>Access token 15 phút + Refresh token 7 ngày. Blacklist token khi logout để bảo mật tuyệt đối.</p>
+        </div>
+        <div class="feature-card animate-on-scroll">
+          <div class="feature-icon">🌳</div>
+          <h3>IB Hierarchy</h3>
+          <p>Cây phân cấp đa cấp với recursive CTE query. Hỗ trợ unlimited levels cho cấu trúc IB phức tạp.</p>
+        </div>
+        <div class="feature-card animate-on-scroll">
+          <div class="feature-icon">💰</div>
+          <h3>Rebate Engine</h3>
+          <p>Tính toán và phân phối rebate tự động theo asset type, lots giao dịch và cấu hình từng IB.</p>
+        </div>
+        <div class="feature-card animate-on-scroll">
+          <div class="feature-icon">🛡️</div>
+          <h3>Phân quyền Subtree</h3>
+          <p>Mỗi IB chỉ thấy và thao tác được subtree của mình. Guard kiểm tra recursive mọi request.</p>
+        </div>
+        <div class="feature-card animate-on-scroll">
+          <div class="feature-icon">📊</div>
+          <h3>Reports</h3>
+          <p>Báo cáo rebate theo tháng và theo IB. Lọc theo asset type, phân trang linh hoạt.</p>
+        </div>
+        <div class="feature-card animate-on-scroll">
+          <div class="feature-icon">⚡</div>
+          <h3>NestJS + Prisma</h3>
+          <p>Backend type-safe với NestJS 11, Prisma v5 ORM và PostgreSQL. Hiệu suất cao, dễ mở rộng.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- API ENDPOINTS -->
+  <section id="endpoints" class="section section-gray">
+    <div class="container">
+      <div class="section-label">API</div>
+      <h2 class="section-title">API Endpoints</h2>
+      <p class="section-desc">RESTful API với đầy đủ CRUD operations, chuẩn response envelope <code>{success, data, error}</code></p>
+      <div class="endpoints-grid">
+        <div class="endpoint-group animate-on-scroll">
+          <div class="group-title">🔐 Authentication</div>
+          <div class="endpoint-item"><span class="badge post">POST</span>/api/auth/login</div>
+          <div class="endpoint-item"><span class="badge post">POST</span>/api/auth/refresh</div>
+          <div class="endpoint-item"><span class="badge post">POST</span>/api/auth/logout</div>
+        </div>
+        <div class="endpoint-group animate-on-scroll">
+          <div class="group-title">💰 Rebate</div>
+          <div class="endpoint-item"><span class="badge get">GET</span>/api/rebate/config/:ibId</div>
+          <div class="endpoint-item"><span class="badge put">PUT</span>/api/rebate/config/:ibId</div>
+          <div class="endpoint-item"><span class="badge get">GET</span>/api/rebate/calculate</div>
+        </div>
+        <div class="endpoint-group animate-on-scroll">
+          <div class="group-title">🌳 IB Management</div>
+          <div class="endpoint-item"><span class="badge get">GET</span>/api/ib/me</div>
+          <div class="endpoint-item"><span class="badge get">GET</span>/api/ib/tree</div>
+          <div class="endpoint-item"><span class="badge get">GET</span>/api/ib/:id</div>
+          <div class="endpoint-item"><span class="badge post">POST</span>/api/ib</div>
+        </div>
+        <div class="endpoint-group animate-on-scroll">
+          <div class="group-title">📊 Report</div>
+          <div class="endpoint-item"><span class="badge get">GET</span>/api/report/summary</div>
+          <div class="endpoint-item"><span class="badge get">GET</span>/api/report/transactions</div>
+        </div>
+      </div>
+      <div class="endpoints-link">
+        <a href="/api/docs">Xem đầy đủ trong Swagger UI →</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- LOGIN -->
+  <section id="login" class="section">
+    <div class="container">
+      <div class="section-label">TRUY CẬP</div>
+      <h2 class="section-title">Đăng nhập</h2>
+      <p class="section-desc">Truy cập Swagger UI để test API trực tiếp</p>
+      <div class="login-card">
+        <div class="form-group">
+          <label>Email</label>
+          <div class="input-wrapper">
+            <span class="input-icon">✉️</span>
+            <input type="email" id="login-email" placeholder="email@example.com" autocomplete="email">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Mật khẩu</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🔒</span>
+            <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+            <button type="button" id="toggle-password" class="toggle-btn" aria-label="Toggle password">
+              <!-- SVG eye icon -->
+              <svg id="eye-open" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+              <svg id="eye-closed" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div id="login-error" class="error-box" style="display:none">
+          <span id="error-msg">Email hoặc mật khẩu không đúng</span>
+        </div>
+        <button id="login-btn" class="btn-login">Đăng nhập →</button>
+        <p class="login-hint">Sau khi đăng nhập, bạn sẽ được chuyển đến Swagger UI</p>
+        <div class="contact-box">
+          <div class="contact-title">ℹ️ Liên hệ Admin</div>
+          <p>Vui lòng liên hệ <a href="mailto:hoangtuanft0802@gmail.com">hoangtuanft0802@gmail.com</a> để được cấp tài khoản Demo và hướng dẫn sử dụng.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer class="footer">
+    <div class="footer-container">
+      <div class="footer-col">
+        <div class="footer-logo">
+          <div class="footer-logo-icon">💱</div>
+          <span>IB Rebate API</span>
+        </div>
+        <p>IB Rebate System API — Hệ thống tính rebate IB chuyên nghiệp, bảo mật và hiệu suất cao.</p>
+      </div>
+      <div class="footer-col">
+        <h4>PRODUCT</h4>
+        <a href="#features">Tính năng</a>
+        <a href="/api/docs">API Docs</a>
+      </div>
+      <div class="footer-col">
+        <h4>RESOURCES</h4>
+        <a href="/api/docs">Documentation</a>
+        <a href="#">GitHub</a>
+      </div>
+      <div class="footer-col">
+        <h4>COMPANY</h4>
+        <a href="#">About</a>
+        <a href="mailto:hoangtuanft0802@gmail.com">Contact</a>
+        <a href="#">Privacy</a>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 IB Rebate System. All rights reserved.</span>
+      <div class="footer-socials">
+        <a href="#" aria-label="Twitter">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+        </a>
+        <a href="#" aria-label="GitHub">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+        </a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
