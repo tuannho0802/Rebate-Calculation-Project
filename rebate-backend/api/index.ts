@@ -18,7 +18,6 @@ const swaggerHtml = `<!DOCTYPE html>
 <body>
 <div id="swagger-ui"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.29.1/swagger-ui-bundle.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.29.1/swagger-ui-standalone-preset.min.js"></script>
 <script src="/swagger-custom.js"></script>
 <script src="/swagger-inject.js"></script>
 <script>
@@ -27,9 +26,9 @@ window.onload = function() {
     url: '/api/docs-json',
     dom_id: '#swagger-ui',
     deepLinking: true,
-    presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+    presets: [SwaggerUIBundle.presets.apis],
     plugins: [SwaggerUIBundle.plugins.DownloadUrl],
-    layout: 'StandaloneLayout',
+    layout: 'BaseLayout',
     persistAuthorization: true,
   });
 };
