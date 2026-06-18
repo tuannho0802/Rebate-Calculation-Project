@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, UnprocessableEntityException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateRebateConfigDto } from './dto/update-config.dto';
-import { AssetType } from '@prisma/client';
+import { AssetType, RebateType } from '@prisma/client';
 
 export const MAX_PIPS: Record<AssetType, number> = {
   [AssetType.D_FOREX]: 12,
@@ -31,6 +31,7 @@ export class RebateService {
   async getConfig(ibId: string) {
     const configs = await this.prisma.rebateConfig.findMany({
       where: { ibId },
+      orderBy: { updatedAt: 'desc' },
     });
 
     return {
@@ -42,6 +43,7 @@ export class RebateService {
         markupPips: Number(c.markupPips),
         markupPercent: Number(c.markupPercent),
         maxPips: Number(c.maxPips),
+        updatedAt: c.updatedAt,
       })),
       updatedAt: configs.length > 0 ? configs[0].updatedAt : new Date(),
     };
@@ -55,7 +57,7 @@ export class RebateService {
       });
     }
 
-    return this.prisma.$transaction(async (tx: any) => {
+    await this.prisma.$transaction(async (tx: any) => {
       for (const assetConfig of updateDto.assets) {
         const { assetType, rebateType = 'STP_REBATE', rebatePips, markupPips, markupPercent } = assetConfig;
 
@@ -103,14 +105,19 @@ export class RebateService {
           },
         });
       }
-
-      return this.getConfig(targetIbId);
     });
+
+    return this.getConfig(targetIbId);
   }
 
-  async calculateCascadeDistribution(ibId: string, assetType: AssetType, lots: number) {
+  async calculateCascadeDistribution(
+    ibId: string, 
+    assetType: AssetType, 
+    lots: number,
+    rebateType: RebateType = RebateType.STP_REBATE
+  ) {
     const config = await this.prisma.rebateConfig.findUnique({
-      where: { ibId_assetType_rebateType: { ibId, assetType, rebateType: 'STP_REBATE' } },
+      where: { ibId_assetType_rebateType: { ibId, assetType, rebateType } },
     });
 
     if (!config) {
@@ -145,7 +152,7 @@ export class RebateService {
       JOIN rebate_configs c
         ON c."ibId" = a.id
         AND c."assetType" = ${assetType}::"AssetType"
-        AND c."rebateType" = 'STP_REBATE'::"RebateType"
+        AND c."rebateType" = ${rebateType}::"RebateType"
       ORDER BY a.level ASC
     `;
 
@@ -158,6 +165,7 @@ export class RebateService {
     return {
       ibId,
       assetType,
+      rebateType,
       lots,
       rebatePips,
       totalRebate,

@@ -5,7 +5,7 @@ import { UpdateRebateConfigDto } from './dto/update-config.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { AssetType } from '@prisma/client';
+import { AssetType, RebateType } from '@prisma/client';
 
 @ApiTags('💰 Rebate')
 @ApiBearerAuth('Bearer')
@@ -50,6 +50,7 @@ export class RebateController {
   @ApiQuery({ name: 'ibId', description: 'The IB account ID', example: 'clxyz123' })
   @ApiQuery({ name: 'assetType', enum: AssetType, description: 'Asset type for the calculation', example: AssetType.FOREX })
   @ApiQuery({ name: 'lots', description: 'Number of lots traded', example: '1.5' })
+  @ApiQuery({ name: 'rebateType', enum: RebateType, required: false, description: 'Rebate type (default: STP_REBATE)' })
   @ApiResponse({ status: 200, description: 'Rebate calculation result returned successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden — not in subtree' })
   @ApiResponse({ status: 404, description: 'IB or config not found' })
@@ -57,8 +58,9 @@ export class RebateController {
     @Query('ibId') ibId: string,
     @Query('assetType') assetType: AssetType,
     @Query('lots') lots: string,
+    @Query('rebateType') rebateType: RebateType = RebateType.STP_REBATE,
   ) {
     const parsedLots = Number(lots);
-    return this.rebateService.calculateCascadeDistribution(ibId, assetType, parsedLots);
+    return this.rebateService.calculateCascadeDistribution(ibId, assetType, parsedLots, rebateType);
   }
 }
