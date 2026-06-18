@@ -2,30 +2,25 @@
     "version": 2,
     "builds": [
         {
-            "src": "api/index.ts",
-            "use": "@vercel/node"
-        },
-        {
-            "src": "src/public/*.html",
-            "use": "@vercel/static"
+            "src": "src/main.ts",
+            "use": "@vercel/node",
+            "config": {
+                "includeFiles": [
+                    "src/public/**/*",
+                    "public/**/*"
+                ],
+                "maxLambdaSize": "50mb"
+            }
         }
     ],
     "routes": [
         {
             "src": "/api/(.*)",
-            "dest": "api/index.ts"
+            "dest": "src/main.ts"
         },
         {
-            "src": "/",
-            "dest": "src/public/index.html"
-        },
-        {
-            "src": "/styles.css",
-            "dest": "src/public/styles.css"
-        },
-        {
-            "src": "/app.js",
-            "dest": "src/public/app.js"
+            "src": "/(.*)",
+            "dest": "src/main.ts"
         }
     ]
 }
