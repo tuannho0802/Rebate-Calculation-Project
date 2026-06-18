@@ -8,6 +8,10 @@
         {
             "src": "src/public/**",
             "use": "@vercel/static"
+        },
+        {
+            "src": "public/**",
+            "use": "@vercel/static"
         }
     ],
     "routes": [
@@ -16,8 +20,28 @@
             "dest": "api/index.ts"
         },
         {
-            "src": "/(styles\\.css|app\\.js|favicon\\.png)",
-            "dest": "src/public/$1"
+            "src": "/styles\\.css",
+            "dest": "src/public/styles.css"
+        },
+        {
+            "src": "/app\\.js",
+            "dest": "src/public/app.js"
+        },
+        {
+            "src": "/swagger-custom\\.js",
+            "dest": "src/public/swagger-custom.js"
+        },
+        {
+            "src": "/swagger-inject\\.js",
+            "dest": "src/public/swagger-inject.js"
+        },
+        {
+            "src": "/swagger-custom\\.css",
+            "dest": "public/swagger-custom.css"
+        },
+        {
+            "src": "/favicon\\.png",
+            "dest": "src/public/favicon.png"
         },
         {
             "src": "/",

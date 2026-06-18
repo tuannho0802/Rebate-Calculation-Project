@@ -13,23 +13,31 @@ async function bootstrap() {
         new ExpressAdapter(server),
     );
 
-    // Setup Swagger TRƯỚC khi setGlobalPrefix
     const config = new DocumentBuilder()
-        .setTitle('IB Rebate API')
+        .setTitle('IB Rebate System API')
         .setDescription('Rebate Calculation System')
         .setVersion('1.0')
         .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'Bearer')
         .build();
+
     const document = SwaggerModule.createDocument(app, config);
+
     SwaggerModule.setup('api/docs', app, document, {
-        customCssUrl: 'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui.min.css',
+        customCssUrl: [
+            'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui.min.css',
+            '/swagger-custom.css',
+        ],
         customJs: [
             'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-bundle.min.js',
             'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-standalone-preset.min.js',
+            '/swagger-custom.js',
+            '/swagger-inject.js',
         ],
+        swaggerOptions: {
+            persistAuthorization: true,
+        },
     });
 
-    // setGlobalPrefix SAU Swagger setup, exclude docs
     app.setGlobalPrefix('api', {
         exclude: ['api/docs', 'api/docs/(.*)'],
     });
