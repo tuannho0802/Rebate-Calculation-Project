@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
-import { ExpressAdapter } from '@nestjs/platform-express';
-import { NestExpressApplication } from '@nestjs/platform-express';
+import { ExpressAdapter, NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from '../src/app.module';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import express from 'express';
 
 let cachedServer: any;
@@ -14,6 +14,16 @@ async function bootstrap() {
     );
     app.setGlobalPrefix('api');
     app.enableCors();
+
+    const config = new DocumentBuilder()
+        .setTitle('IB Rebate API')
+        .setDescription('Rebate Calculation System')
+        .setVersion('1.0')
+        .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'Bearer')
+        .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+
     await app.init();
     return server;
 }
