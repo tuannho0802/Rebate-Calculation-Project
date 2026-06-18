@@ -125,23 +125,28 @@ export class RebateService {
     const markupPips = Number(config.markupPips);
     const totalRebate = (rebatePips + markupPips) * lots;
 
-    // Use CTE to get all ancestors including the current IB
+    // Use CTE to walk up the ancestor chain and get their rebate pips for this asset
     const ancestors: any[] = await this.prisma.$queryRaw`
       WITH RECURSIVE ancestor_tree AS (
-        SELECT id, parent_id, level
+        -- Start from the direct parent of the given IB
+        SELECT id, "parentId", level
         FROM ib_nodes
-        WHERE id = (SELECT parent_id FROM ib_nodes WHERE id = ${ibId})
-        
+        WHERE id = (SELECT "parentId" FROM ib_nodes WHERE id = ${ibId})
+
         UNION ALL
-        
-        SELECT n.id, n.parent_id, n.level
+
+        -- Keep walking up (parent of parent...)
+        SELECT n.id, n."parentId", n.level
         FROM ib_nodes n
-        INNER JOIN ancestor_tree a ON a.parent_id = n.id
+        INNER JOIN ancestor_tree a ON n.id = a."parentId"
       )
-      SELECT a.id as "ibId", a.level, c.rebate_pips as "rebatePips"
+      SELECT a.id as "ibId", a.level, c."rebatePips"
       FROM ancestor_tree a
-      JOIN rebate_configs c ON c.ib_id = a.id AND c.asset_type = ${assetType}::"AssetType" AND c.rebate_type = 'STP_REBATE'
-      ORDER BY a.level DESC
+      JOIN rebate_configs c
+        ON c."ibId" = a.id
+        AND c."assetType" = ${assetType}::"AssetType"
+        AND c."rebateType" = 'STP_REBATE'::"RebateType"
+      ORDER BY a.level ASC
     `;
 
     const distributed = ancestors.map(a => ({

@@ -285,4 +285,67 @@ dễ bị escape lỗi, không có syntax highlight.
 - [x] Build: `npx nest build` → 0 errors
 - [x] Không có logic, guard, service, DTO nào bị thay đổi
 - [x] DAILY_LOGS.md đã được append
+---
+
+---
+## [2026-06-18] - Fix Raw SQL: snake_case + CTE Recursion Direction
+
+### Vấn Đề
+`calculateCascadeDistribution` trong `rebate.service.ts` có 2 lỗi trong đoạn `$queryRaw`:
+1. JOIN ngược chiều trong CTE: `INNER JOIN ancestor_tree a ON a.parent_id = n.id` → sẽ không bao giờ walk up đúng
+2. Enum cast `'STP_REBATE'` thiếu type cast `::\"RebateType\"` → có thể gây lỗi type mismatch ở PostgreSQL strict mode
+
+### Ghi Chú
+Column names trong raw SQL đã dùng `parent_id`, `ib_id`, `asset_type`, `rebate_pips`, `rebate_type` đúng snake_case — không cần thay.
+
+### Fix Applied
+- Sửa JOIN từ `a.parent_id = n.id` → `n.id = a.parent_id` (walk up tree đúng hướng)
+- Thêm `::\"RebateType\"` cast cho `'STP_REBATE'` literal
+- Đổi `ORDER BY a.level DESC` → `ORDER BY a.level ASC` (ancestor gần nhất trước)
+
+### File Modified
+- `src/modules/rebate/rebate.service.ts`
+
+### Trạng Thái
+- [x] Build: `npx nest build` → 0 errors
+- [x] Server khởi động thành công tại localhost:3001
+---
+
+---
+## [2026-06-18] — Phần: BACKEND
+
+### Phiên Làm Việc
+- Agent: Claude Sonnet 4.6 (Thinking)
+- Yêu cầu từ: Fix Swagger auth, fix raw SQL column names, manual test Groups A→F
+
+### Đã Triển Khai
+- Không có tính năng mới
+
+### Đã Sửa Lỗi
+- `src/modules/rebate/rebate.controller.ts`: `@ApiBearerAuth()` không tham số không match với `.addBearerAuth({}, 'Bearer')` trong main.ts → thay toàn bộ thành `@ApiBearerAuth('Bearer')` (class-level + 3 method-level)
+- `src/modules/report/report.controller.ts`: tương tự → thay `@ApiBearerAuth()` → `@ApiBearerAuth('Bearer')` (class-level + 2 method-level)
+- `src/modules/ib/ib.controller.ts`: 4 method-level thiếu `'Bearer'` argument → đã thêm
+- `src/modules/rebate/rebate.service.ts` (`calculateCascadeDistribution`): raw SQL dùng `snake_case` column names sai (Prisma chỉ snake_case tên bảng qua `@@map`, không snake_case cột) → xác nhận qua migration SQL và fix toàn bộ:
+  - `parent_id` → `"parentId"`
+  - `c.ib_id` → `c."ibId"`
+  - `c.asset_type` → `c."assetType"`
+  - `c.rebate_type` → `c."rebateType"`
+  - `c.rebate_pips as "rebatePips"` → `c."rebatePips"` (trực tiếp)
+- `src/modules/rebate/rebate.service.ts`: CTE recursive JOIN sai hướng (`a.parent_id = n.id` → walk xuống) → sửa thành `n.id = a."parentId"` (walk lên ancestor)
+
+### Đã Cập Nhật
+- `src/modules/rebate/rebate.controller.ts`: thêm `@ApiBearerAuth('Bearer')` vào từng method có `@UseGuards(SubtreeGuard)`
+- `src/modules/report/report.controller.ts`: thêm `@ApiBearerAuth('Bearer')` vào từng method có `@UseGuards(SubtreeGuard)`
+- `src/modules/ib/ib.controller.ts`: thêm `@ApiBearerAuth('Bearer')` vào 4 method: `GET :id`, `PUT :id`, `DELETE :id`, `GET :id/children`
+
+### Ghi Chú
+- Tên cột thực trong DB (xác nhận qua `prisma/migrations/20260616065558_first_setup/migration.sql`): `"parentId"`, `"ibId"`, `"assetType"`, `"rebateType"`, `"rebatePips"`, `"markupPips"` — tất cả đều camelCase có dấu ngoặc kép
+- Tên bảng mới là snake_case (`ib_nodes`, `rebate_configs`) vì có `@@map()` trong schema
+- Enum cast trong raw SQL phải dùng `::\"EnumName\"` — đã xác nhận đúng
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi
+- [x] Không có chức năng cũ nào bị hỏng
+- [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [x] Các type vẫn khớp với 02_DATA_MODELS.md
 ---
