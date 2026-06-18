@@ -2,11 +2,11 @@
     "version": 2,
     "builds": [
         {
-            "src": "rebate-backend/src/main.js",
+            "src": "src/main.js",
             "use": "@vercel/node",
             "config": {
                 "includeFiles": [
-                    "rebate-backend/**"
+                    "**"
                 ]
             }
         }
@@ -14,7 +14,7 @@
     "routes": [
         {
             "src": "/(.*)",
-            "dest": "rebate-backend/src/main.js"
+            "dest": "src/main.js"
         }
     ]
 }
