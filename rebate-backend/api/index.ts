@@ -3,7 +3,6 @@ import { ExpressAdapter } from '@nestjs/platform-express';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from '../src/app.module';
 import express from 'express';
-import { join } from 'path';
 
 let cachedServer: any;
 
@@ -15,7 +14,6 @@ async function bootstrap() {
     );
     app.setGlobalPrefix('api');
     app.enableCors();
-    app.useStaticAssets(join(__dirname, '..', 'public'));
     await app.init();
     return server;
 }
