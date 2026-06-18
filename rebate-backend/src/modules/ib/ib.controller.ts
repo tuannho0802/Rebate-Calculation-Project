@@ -114,6 +114,7 @@ export class IbController {
     }
   })
   @Get(':id')
+  @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   async getById(@Param('id') id: string) {
     return this.ibService.getById(id);
@@ -157,6 +158,7 @@ export class IbController {
     return this.ibService.create(user.sub, user.level, createIbDto);
   }
   @Put(':id')
+  @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Cập nhật thông tin Sub-IB (chỉ được sửa IB cấp dưới của mình)' })
   @ApiParam({ name: 'id', description: 'UUID của IB', example: 'uuid-here' })
@@ -170,6 +172,7 @@ export class IbController {
     return this.ibService.updateIb(id, dto);
   }
   @Delete(':id')
+  @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Deactivate Sub-IB (soft delete — không xóa khỏi DB)' })
   @ApiParam({ name: 'id', description: 'UUID của IB', example: 'uuid-here' })
@@ -183,6 +186,7 @@ export class IbController {
   }
 
   @Get(':id/children')
+  @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Danh sách Sub-IB trực tiếp của một IB (có phân trang)' })
   @ApiParam({ name: 'id', description: 'UUID của IB', example: 'uuid-here' })

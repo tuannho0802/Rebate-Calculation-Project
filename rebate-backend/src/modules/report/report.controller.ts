@@ -7,13 +7,14 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AssetType } from '@prisma/client';
 
 @ApiTags('📊 Report')
-@ApiBearerAuth()
+@ApiBearerAuth('Bearer')
 @Controller('report')
 @UseGuards(JwtAuthGuard)
 export class ReportController {
   constructor(private readonly reportService: ReportService) {}
 
   @Get('summary')
+  @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Get rebate summary report', description: 'Returns aggregated rebate summary for a specific IB or the authenticated user\'s entire subtree, optionally filtered by period (YYYY-MM).' })
   @ApiQuery({ name: 'ibId', required: false, description: 'Filter by specific IB account ID. Defaults to the authenticated user\'s subtree.', example: 'clxyz123' })
@@ -29,6 +30,7 @@ export class ReportController {
   }
 
   @Get('transactions')
+  @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Get rebate transactions list', description: 'Returns a paginated list of rebate transactions for a specific IB or the authenticated user\'s subtree, with optional filters for period and asset type.' })
   @ApiQuery({ name: 'ibId', required: false, description: 'Filter by specific IB account ID', example: 'clxyz123' })

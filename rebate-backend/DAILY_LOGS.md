@@ -249,4 +249,40 @@ dễ bị escape lỗi, không có syntax highlight.
 ### Trạng Thái
 - [x] Code đã được triển khai và pass qua `npx nest build`.
 - [ ] Database chưa chạy được migration do lỗi connection với Postgres DBngin (`localhost:5432` offline). Cần user bật DB và chạy `npx prisma migrate dev --name upgrade_schema && npx prisma generate`
+---
+
+---
+## [2026-06-18] - Add @ApiBearerAuth() to All Protected Endpoints
+
+### Phiên Làm Việc
+- Agent: Swagger Authorization Fix
+- Yêu cầu từ: Thêm @ApiBearerAuth() vào tất cả endpoint còn thiếu
+
+### Kiểm Tra & Phân Tích
+- `main.ts`: Đã có `.addBearerAuth()` đúng chuẩn với scheme `'Bearer'` → **không cần thay đổi**
+- `rebate.controller.ts`: Class-level `@ApiBearerAuth()` ở dòng 11 nhưng từng method cần gắn riêng để Swagger hiển thị lock icon đúng → **đã thêm**
+- `report.controller.ts`: Class-level `@ApiBearerAuth()` ở dòng 10 nhưng từng method thiếu → **đã thêm**
+- `ib.controller.ts`: Class-level `@ApiBearerAuth('Bearer')` nhưng từng method `@UseGuards(SubtreeGuard)` thiếu decorator → **đã thêm**
+- `auth.controller.ts`: `logout` và `change-password` đã có `@ApiBearerAuth('Bearer')` → **không cần thay đổi**
+
+### Endpoints Đã Thêm @ApiBearerAuth()
+**rebate.controller.ts:**
+- `GET /rebate/config/:ibId`
+- `PUT /rebate/config/:ibId`
+- `GET /rebate/calculate`
+
+**report.controller.ts:**
+- `GET /report/summary`
+- `GET /report/transactions`
+
+**ib.controller.ts:**
+- `GET /ib/:id`
+- `PUT /ib/:id`
+- `DELETE /ib/:id`
+- `GET /ib/:id/children`
+
+### Trạng Thái
+- [x] Build: `npx nest build` → 0 errors
+- [x] Không có logic, guard, service, DTO nào bị thay đổi
+- [x] DAILY_LOGS.md đã được append
 ---

@@ -8,13 +8,14 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AssetType } from '@prisma/client';
 
 @ApiTags('💰 Rebate')
-@ApiBearerAuth()
+@ApiBearerAuth('Bearer')
 @Controller('rebate')
 @UseGuards(JwtAuthGuard)
 export class RebateController {
   constructor(private readonly rebateService: RebateService) {}
 
   @Get('config/:ibId')
+  @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Get rebate config for an IB', description: 'Returns the rebate configuration for all asset types for a given IB. Requires the requesting user to be in the IB\'s upline subtree.' })
   @ApiParam({ name: 'ibId', description: 'The IB account ID', example: 'clxyz123' })
@@ -26,6 +27,7 @@ export class RebateController {
   }
 
   @Put('config/:ibId')
+  @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Update rebate config for an IB', description: 'Updates rebate configuration (rebatePips, markupPips, markupPercent) per asset type for the specified IB.' })
   @ApiParam({ name: 'ibId', description: 'The IB account ID to update', example: 'clxyz123' })
@@ -42,6 +44,7 @@ export class RebateController {
   }
 
   @Get('calculate')
+  @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Calculate rebate amount', description: 'Calculates the rebate amount for a given IB, asset type, and number of lots traded.' })
   @ApiQuery({ name: 'ibId', description: 'The IB account ID', example: 'clxyz123' })
