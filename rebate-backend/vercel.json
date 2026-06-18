@@ -2,11 +2,11 @@
     "version": 2,
     "builds": [
         {
-            "src": "src/main.js",
+            "src": "api/index.ts",
             "use": "@vercel/node",
             "config": {
                 "includeFiles": [
-                    "**"
+                    "src/public/**"
                 ]
             }
         }
@@ -14,7 +14,7 @@
     "routes": [
         {
             "src": "/(.*)",
-            "dest": "src/main.js"
+            "dest": "api/index.ts"
         }
     ]
 }
