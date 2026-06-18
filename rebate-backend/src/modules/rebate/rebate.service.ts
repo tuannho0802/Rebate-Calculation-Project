@@ -127,10 +127,12 @@ export class RebateService {
       });
     }
 
+    const toFloat = (val: number) => Number(val.toFixed(8));
+
     const rebatePips = Number(config.rebatePips);
-    const selfAmount = rebatePips * lots;
     const markupPips = Number(config.markupPips);
-    const totalRebate = (rebatePips + markupPips) * lots;
+    const selfAmount = toFloat(rebatePips * lots);
+    const totalRebate = toFloat((rebatePips + markupPips) * lots);
 
     // Use CTE to walk up the ancestor chain and get their rebate pips for this asset
     const ancestors: any[] = await this.prisma.$queryRaw`
@@ -159,7 +161,7 @@ export class RebateService {
     const distributed = ancestors.map(a => ({
       ibId: a.ibId,
       level: a.level,
-      amount: Number(a.rebatePips) * lots,
+      amount: toFloat(Number(a.rebatePips) * lots),
     }));
 
     return {
