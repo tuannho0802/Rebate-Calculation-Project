@@ -12,9 +12,8 @@ async function bootstrap() {
         AppModule,
         new ExpressAdapter(server),
     );
-    app.setGlobalPrefix('api');
-    app.enableCors();
 
+    // Setup Swagger TRƯỚC khi setGlobalPrefix
     const config = new DocumentBuilder()
         .setTitle('IB Rebate API')
         .setDescription('Rebate Calculation System')
@@ -22,7 +21,7 @@ async function bootstrap() {
         .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT' }, 'Bearer')
         .build();
     const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('docs', app, document, {
+    SwaggerModule.setup('api/docs', app, document, {
         customCssUrl: 'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui.min.css',
         customJs: [
             'https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.17.14/swagger-ui-bundle.min.js',
@@ -30,6 +29,12 @@ async function bootstrap() {
         ],
     });
 
+    // setGlobalPrefix SAU Swagger setup, exclude docs
+    app.setGlobalPrefix('api', {
+        exclude: ['api/docs', 'api/docs/(.*)'],
+    });
+
+    app.enableCors();
     await app.init();
     return server;
 }
