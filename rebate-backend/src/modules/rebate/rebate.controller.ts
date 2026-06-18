@@ -50,12 +50,12 @@ export class RebateController {
   @ApiResponse({ status: 200, description: 'Rebate calculation result returned successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden — not in subtree' })
   @ApiResponse({ status: 404, description: 'IB or config not found' })
-  async calculate(
+  async calculateCascadeDistribution(
     @Query('ibId') ibId: string,
     @Query('assetType') assetType: AssetType,
     @Query('lots') lots: string,
   ) {
-    const parsedLots = parseFloat(lots) || 0;
-    return this.rebateService.calculate(ibId, assetType, parsedLots);
+    const parsedLots = Number(lots);
+    return this.rebateService.calculateCascadeDistribution(ibId, assetType, parsedLots);
   }
 }

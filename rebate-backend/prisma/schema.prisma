@@ -10,7 +10,9 @@ datasource db {
 model IbNode {
   id        String   @id @default(uuid())
   email     String   @unique
+  name      String   @default("")
   password  String   // bcrypt hash
+  isActive  Boolean  @default(true)
   level     Int      // 0=MIB, 1, 2, 3, 4, 5
   parentId  String?
   parent    IbNode?  @relation("IbTree", fields: [parentId], references: [id])
@@ -28,20 +30,29 @@ model IbNode {
 }
 
 model RebateConfig {
-  id             String    @id @default(uuid())
+  id             String      @id @default(uuid())
   ibId           String
-  ib             IbNode    @relation(fields: [ibId], references: [id])
+  ib             IbNode      @relation(fields: [ibId], references: [id])
   assetType      AssetType
-  rebatePips     Decimal   @db.Decimal(10, 4)
-  markupPips     Decimal   @db.Decimal(10, 4) @default(0)
-  markupPercent  Decimal   @db.Decimal(5, 2)  @default(100)  // 100% hoặc 80%
-  maxPips        Decimal   @db.Decimal(10, 4) // giới hạn từ cấp trên
+  rebateType     RebateType  @default(STP_REBATE)
+  rebatePips     Decimal     @db.Decimal(10, 4)
+  markupPips     Decimal     @db.Decimal(10, 4) @default(0)
+  markupPercent  Decimal     @db.Decimal(5, 2)  @default(100)  // 100% hoặc 80%
+  maxPips        Decimal     @db.Decimal(10, 4) // giới hạn từ cấp trên
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([ibId, assetType])
+  @@unique([ibId, assetType, rebateType])
   @@map("rebate_configs")
+}
+
+enum RebateType {
+  STP_REBATE
+  CENT_REBATE
+  COMMISSION_PERCENT
+  STP_ADDED_POINTS
+  ECN_COPY_REBATE
 }
 
 model RebateTransaction {

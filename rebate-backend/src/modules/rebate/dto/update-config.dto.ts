@@ -1,6 +1,6 @@
 import { IsArray, IsEnum, IsNumber, IsNotEmpty, ValidateNested, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
-import { AssetType } from '@prisma/client';
+import { AssetType, RebateType } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class RebateAssetConfigDto {
@@ -8,6 +8,10 @@ export class RebateAssetConfigDto {
   @IsEnum(AssetType, { message: 'Loại tài sản không hợp lệ' })
   @IsNotEmpty()
   assetType!: AssetType;
+
+  @IsEnum(RebateType)
+  @ApiProperty({ enum: RebateType, default: 'STP_REBATE' })
+  rebateType!: RebateType;
 
   @ApiProperty({ example: 2.0, description: 'Pips retained by the IB' })
   @IsNumber({}, { message: 'rebatePips phải là số' })

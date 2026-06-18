@@ -18,6 +18,7 @@ async function main() {
     data: {
       email: 'mib@test.com',
       password: passwordHash,
+      name: 'Tran Cong Toai',
       level: 0,
     },
   });
@@ -27,6 +28,7 @@ async function main() {
     data: {
       email: 'lv1-a@test.com',
       password: passwordHash,
+      name: 'Dong Ho Nguyen',
       level: 1,
       parentId: mib.id,
     },
@@ -36,6 +38,7 @@ async function main() {
     data: {
       email: 'lv1-b@test.com',
       password: passwordHash,
+      name: 'Ngoc Duy Nguyen',
       level: 1,
       parentId: mib.id,
     },
@@ -46,6 +49,7 @@ async function main() {
     data: {
       email: 'lv2-a@test.com',
       password: passwordHash,
+      name: 'Level 2 A',
       level: 2,
       parentId: lv1A.id,
     },
@@ -55,6 +59,7 @@ async function main() {
     data: {
       email: 'lv2-b@test.com',
       password: passwordHash,
+      name: 'Level 2 B',
       level: 2,
       parentId: lv1A.id,
     },
@@ -64,6 +69,7 @@ async function main() {
     data: {
       email: 'lv2-c@test.com',
       password: passwordHash,
+      name: 'Level 2 C',
       level: 2,
       parentId: lv1A.id,
     },
@@ -74,6 +80,7 @@ async function main() {
     data: {
       email: 'lv3-a@test.com',
       password: passwordHash,
+      name: 'Level 3 A',
       level: 3,
       parentId: lv2A.id,
     },
@@ -83,6 +90,7 @@ async function main() {
     data: {
       email: 'lv3-b@test.com',
       password: passwordHash,
+      name: 'Level 3 B',
       level: 3,
       parentId: lv2A.id,
     },
@@ -94,8 +102,10 @@ async function main() {
   // Configure FOREX & GOLD configs for each IB
   const configs = [
     // MIB (Lv0) config
-    { ibId: mib.id, assetType: AssetType.FOREX, rebatePips: 2, markupPips: 10, maxPips: 12 },
-    { ibId: mib.id, assetType: AssetType.GOLD, rebatePips: 4, markupPips: 16, maxPips: 20 },
+    { ibId: mib.id, assetType: AssetType.FOREX, rebateType: 'STP_REBATE' as any, rebatePips: 2, markupPips: 10, maxPips: 12 },
+    { ibId: mib.id, assetType: AssetType.GOLD, rebateType: 'STP_REBATE' as any, rebatePips: 4, markupPips: 16, maxPips: 20 },
+    { ibId: mib.id, assetType: AssetType.FOREX, rebateType: 'CENT_REBATE' as any, rebatePips: 0.05, markupPips: 0.1, maxPips: 0.15 },
+    { ibId: mib.id, assetType: AssetType.COMMODITIES, rebateType: 'COMMISSION_PERCENT' as any, rebatePips: 50, markupPips: 50, maxPips: 100 },
     // Lv1 configs (maxPips = MIB's markupPips)
     { ibId: lv1A.id, assetType: AssetType.FOREX, rebatePips: 2, markupPips: 8, maxPips: 10 },
     { ibId: lv1A.id, assetType: AssetType.GOLD, rebatePips: 4, markupPips: 12, maxPips: 16 },

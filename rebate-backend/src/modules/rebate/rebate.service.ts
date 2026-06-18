@@ -37,6 +37,7 @@ export class RebateService {
       ibId,
       assets: configs.map((c: any) => ({
         assetType: c.assetType,
+        rebateType: c.rebateType,
         rebatePips: Number(c.rebatePips),
         markupPips: Number(c.markupPips),
         markupPercent: Number(c.markupPercent),
@@ -56,13 +57,13 @@ export class RebateService {
 
     return this.prisma.$transaction(async (tx: any) => {
       for (const assetConfig of updateDto.assets) {
-        const { assetType, rebatePips, markupPips, markupPercent } = assetConfig;
+        const { assetType, rebateType = 'STP_REBATE', rebatePips, markupPips, markupPercent } = assetConfig;
 
-        const existingChildConfig = await tx.rebateConfig.findUnique({
-          where: { ibId_assetType: { ibId: targetIbId, assetType } },
+        const parentConfig = await tx.rebateConfig.findUnique({
+          where: { ibId_assetType_rebateType: { ibId: currentUserId, assetType, rebateType: rebateType as any } },
         });
 
-        const limit = existingChildConfig ? Number(existingChildConfig.maxPips) : (MAX_PIPS[assetType] || 0);
+        const limit = parentConfig ? Number(parentConfig.markupPips) : (MAX_PIPS[assetType] || 0);
 
         if (rebatePips + markupPips > limit) {
           throw new UnprocessableEntityException({
@@ -73,7 +74,7 @@ export class RebateService {
 
         // Update target configuration
         await tx.rebateConfig.upsert({
-          where: { ibId_assetType: { ibId: targetIbId, assetType } },
+          where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
           update: {
             rebatePips,
             markupPips,
@@ -82,6 +83,7 @@ export class RebateService {
           create: {
             ibId: targetIbId,
             assetType,
+            rebateType: rebateType as any,
             rebatePips,
             markupPips,
             markupPercent,
@@ -89,14 +91,15 @@ export class RebateService {
           },
         });
 
-        // Cascading update child's children: child's rebatePips becomes their new maxPips limit
+        // Cascading update child's children: child's markupPips becomes their new maxPips limit
         await tx.rebateConfig.updateMany({
           where: {
             ib: { parentId: targetIbId },
             assetType,
+            rebateType: rebateType as any,
           },
           data: {
-            maxPips: rebatePips,
+            maxPips: markupPips,
           },
         });
       }
@@ -105,9 +108,9 @@ export class RebateService {
     });
   }
 
-  async calculate(ibId: string, assetType: AssetType, lots: number) {
+  async calculateCascadeDistribution(ibId: string, assetType: AssetType, lots: number) {
     const config = await this.prisma.rebateConfig.findUnique({
-      where: { ibId_assetType: { ibId, assetType } },
+      where: { ibId_assetType_rebateType: { ibId, assetType, rebateType: 'STP_REBATE' } },
     });
 
     if (!config) {
@@ -122,29 +125,30 @@ export class RebateService {
     const markupPips = Number(config.markupPips);
     const totalRebate = (rebatePips + markupPips) * lots;
 
-    // Traverse down to find distributed amounts
-    const distributed: Array<{ ibId: string; level: number; amount: number }> = [];
-    let currentId = ibId;
+    // Use CTE to get all ancestors including the current IB
+    const ancestors: any[] = await this.prisma.$queryRaw`
+      WITH RECURSIVE ancestor_tree AS (
+        SELECT id, parent_id, level
+        FROM ib_nodes
+        WHERE id = (SELECT parent_id FROM ib_nodes WHERE id = ${ibId})
+        
+        UNION ALL
+        
+        SELECT n.id, n.parent_id, n.level
+        FROM ib_nodes n
+        INNER JOIN ancestor_tree a ON a.parent_id = n.id
+      )
+      SELECT a.id as "ibId", a.level, c.rebate_pips as "rebatePips"
+      FROM ancestor_tree a
+      JOIN rebate_configs c ON c.ib_id = a.id AND c.asset_type = ${assetType}::"AssetType" AND c.rebate_type = 'STP_REBATE'
+      ORDER BY a.level DESC
+    `;
 
-    while (true) {
-      const child = await this.prisma.ibNode.findFirst({
-        where: { parentId: currentId },
-      });
-      if (!child) break;
-
-      const childConfig = await this.prisma.rebateConfig.findUnique({
-        where: { ibId_assetType: { ibId: child.id, assetType } },
-      });
-
-      const childRebatePips = childConfig ? Number(childConfig.rebatePips) : 0;
-      distributed.push({
-        ibId: child.id,
-        level: child.level,
-        amount: childRebatePips * lots,
-      });
-
-      currentId = child.id;
-    }
+    const distributed = ancestors.map(a => ({
+      ibId: a.ibId,
+      level: a.level,
+      amount: Number(a.rebatePips) * lots,
+    }));
 
     return {
       ibId,

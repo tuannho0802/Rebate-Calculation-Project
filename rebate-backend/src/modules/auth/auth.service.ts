@@ -28,6 +28,13 @@ export class AuthService {
       });
     }
 
+    if (!user.isActive) {
+      throw new UnauthorizedException({
+        code: 'AUTH_INVALID_CREDENTIALS',
+        message: 'Tài khoản đã bị vô hiệu hóa',
+      });
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       throw new UnauthorizedException({
@@ -132,6 +139,42 @@ export class AuthService {
       where: { ibId },
     });
     return null;
+  }
+
+  async changePassword(ibId: string, changePasswordDto: any) {
+    const { oldPassword, newPassword } = changePasswordDto;
+
+    const user = await this.prisma.ibNode.findUnique({ where: { id: ibId } });
+    if (!user) {
+      throw new UnauthorizedException({
+        code: 'AUTH_INVALID_CREDENTIALS',
+        message: 'Không tìm thấy người dùng',
+      });
+    }
+
+    const isPasswordValid = await bcrypt.compare(oldPassword, user.password);
+    if (!isPasswordValid) {
+      throw new UnauthorizedException({
+        code: 'AUTH_INVALID_CREDENTIALS',
+        message: 'Mật khẩu cũ không đúng',
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    await this.prisma.$transaction(async (tx: any) => {
+      await tx.ibNode.update({
+        where: { id: ibId },
+        data: { password: hashedPassword },
+      });
+
+      // Invalidate all refresh tokens for this user
+      await tx.refreshToken.deleteMany({
+        where: { ibId },
+      });
+    });
+
+    return { message: 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại.' };
   }
 
   private generateAccessToken(sub: string, email: string, level: number, role: string): string {

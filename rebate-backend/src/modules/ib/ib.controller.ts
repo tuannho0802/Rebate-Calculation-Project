@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Body, Param, Query, UseGuards, HttpStatus, HttpCode } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, HttpStatus, HttpCode } from '@nestjs/common';
 import { IbService } from './ib.service';
 import { CreateIbDto } from './dto/create-ib.dto';
+import { UpdateIbDto } from './dto/update-ib.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -155,6 +156,48 @@ export class IbController {
   ) {
     return this.ibService.create(user.sub, user.level, createIbDto);
   }
+  @Put(':id')
+  @UseGuards(SubtreeGuard)
+  @ApiOperation({ summary: 'Cập nhật thông tin Sub-IB (chỉ được sửa IB cấp dưới của mình)' })
+  @ApiParam({ name: 'id', description: 'UUID của IB', example: 'uuid-here' })
+  @ApiResponse({ status: 200, description: 'Thành công' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — không phải subtree' })
+  @ApiResponse({ status: 404, description: 'IB không tồn tại' })
+  @ApiResponse({ status: 422, description: 'Validation error' })
+  updateIb(@Param('id') id: string, @Body() dto: UpdateIbDto) {
+    return this.ibService.updateIb(id, dto);
+  }
+  @Delete(':id')
+  @UseGuards(SubtreeGuard)
+  @ApiOperation({ summary: 'Deactivate Sub-IB (soft delete — không xóa khỏi DB)' })
+  @ApiParam({ name: 'id', description: 'UUID của IB', example: 'uuid-here' })
+  @ApiResponse({ status: 200, description: 'Thành công' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — không phải subtree' })
+  @ApiResponse({ status: 404, description: 'IB không tồn tại' })
+  deactivateIb(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.ibService.deactivateIb(id, user.sub);
+  }
+
+  @Get(':id/children')
+  @UseGuards(SubtreeGuard)
+  @ApiOperation({ summary: 'Danh sách Sub-IB trực tiếp của một IB (có phân trang)' })
+  @ApiParam({ name: 'id', description: 'UUID của IB', example: 'uuid-here' })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 20 })
+  @ApiResponse({ status: 200, description: 'Thành công' })
+  @ApiResponse({ status: 400, description: 'Bad request' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — không phải subtree' })
+  @ApiResponse({ status: 404, description: 'IB không tồn tại' })
+  getChildren(
+    @Param('id') id: string,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+  ) {
+    return this.ibService.getChildren(id, +page, +limit);
+  }
 }
-
-

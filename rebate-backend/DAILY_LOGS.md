@@ -213,4 +213,40 @@ dễ bị escape lỗi, không có syntax highlight.
 
 ### Status
 ✅ Complete
+---
+
+---
+## [2026-06-18] - IB Rebate Backend: Improvement Pass
+
+### Phiên Làm Việc
+- Agent: Thực hiện các thay đổi schema & chức năng cho IB/Rebate
+- Yêu cầu từ: Task IB Rebate Backend (Improvement Pass)
+
+### Đã Triển Khai
+- TASK 1: Thêm field `name` vào `IbNode` (schema, seed, DTO, services, responses).
+- TASK 2: Thêm endpoint `PUT /ib/:id` để update profile IB (UpdateIbDto).
+- TASK 3: Thêm endpoint `DELETE /ib/:id` (Soft-delete/Deactivate) với trường `isActive`, chặn logic login ở guard.
+- TASK 4: Mở rộng `RebateConfig` với enum `RebateType` (schema, unique constraint, DTOs, GET config response, seed).
+- TASK 5: Thêm `GET /ib/:id/children` trả về danh sách sub-IB trực tiếp có phân trang.
+- TASK 6: Thay thế vòng lặp trong RebateService bằng CTE (`WITH RECURSIVE`) qua `calculateCascadeDistribution` query đệ quy lên cây ancestor.
+- TASK 7: Cập nhật `updateConfig` để tuân thủ cascade validation (`B.rebatePips + B.markupPips <= A.markupPips`).
+- TASK 8: Thêm `POST /auth/change-password` với `ChangePasswordDto`, verify pass cũ và vô hiệu hoá toàn bộ refresh token hiện có.
+
+### Files Modified
+- `prisma/schema.prisma`
+- `prisma/seed.ts`
+- `src/modules/ib/dto/create-ib.dto.ts`
+- `src/modules/ib/dto/update-ib.dto.ts` (new)
+- `src/modules/ib/ib.controller.ts`
+- `src/modules/ib/ib.service.ts`
+- `src/modules/auth/auth.service.ts`
+- `src/modules/auth/auth.controller.ts`
+- `src/modules/auth/dto/change-password.dto.ts` (new)
+- `src/modules/rebate/dto/update-config.dto.ts`
+- `src/modules/rebate/rebate.service.ts`
+- `src/modules/rebate/rebate.controller.ts`
+
+### Trạng Thái
+- [x] Code đã được triển khai và pass qua `npx nest build`.
+- [ ] Database chưa chạy được migration do lỗi connection với Postgres DBngin (`localhost:5432` offline). Cần user bật DB và chạy `npx prisma migrate dev --name upgrade_schema && npx prisma generate`
 ---

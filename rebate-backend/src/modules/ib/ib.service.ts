@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateIbDto } from './dto/create-ib.dto';
+import { UpdateIbDto } from './dto/update-ib.dto';
 import * as bcrypt from 'bcrypt';
 import { AssetType } from '@prisma/client';
 
@@ -26,6 +27,7 @@ export class IbService {
 
     return {
       id: user.id,
+      name: user.name,
       email: user.email,
       level: user.level,
       parentId: user.parentId,
@@ -52,6 +54,7 @@ export class IbService {
     allNodes.forEach((node: any) => {
       map.set(node.id, {
         id: node.id,
+        name: node.name,
         email: node.email,
         level: node.level,
         children: [],
@@ -71,6 +74,7 @@ export class IbService {
     if (depth === '1') {
       tree.children = tree.children.map((child: any) => ({
         id: child.id,
+        name: child.name,
         email: child.email,
         level: child.level,
         children: [],
@@ -109,6 +113,7 @@ export class IbService {
 
     return {
       id: user.id,
+      name: user.name,
       email: user.email,
       level: user.level,
       parentId: user.parentId,
@@ -143,6 +148,7 @@ export class IbService {
       const ib = await tx.ibNode.create({
         data: {
           email: createIbDto.email,
+          name: createIbDto.name,
           password: hashedPassword,
           level: newLevel,
           parentId: currentUserId,
@@ -181,9 +187,97 @@ export class IbService {
 
     return {
       id: newIb.id,
+      name: newIb.name,
       email: newIb.email,
       level: newIb.level,
       parentId: newIb.parentId,
+    };
+  }
+
+  async updateIb(id: string, dto: UpdateIbDto) {
+    if (dto.email) {
+      const existing = await this.prisma.ibNode.findUnique({ where: { email: dto.email } });
+      if (existing && existing.id !== id) {
+        throw new UnprocessableEntityException({
+          code: 'IB_EMAIL_TAKEN',
+          message: 'Email này đã được sử dụng',
+        });
+      }
+    }
+
+    const updated = await this.prisma.ibNode.update({
+      where: { id },
+      data: dto,
+    });
+
+    return {
+      id: updated.id,
+      name: updated.name,
+      email: updated.email,
+      level: updated.level,
+      parentId: updated.parentId,
+    };
+  }
+
+  async deactivateIb(id: string, currentUserId: string) {
+    if (id === currentUserId) {
+      throw new UnprocessableEntityException({
+        code: 'IB_ACTION_NOT_ALLOWED',
+        message: 'Không thể deactivate chính mình',
+      });
+    }
+
+    const node = await this.prisma.ibNode.findUnique({ where: { id } });
+    if (!node) {
+      throw new NotFoundException({
+        code: 'IB_NOT_FOUND',
+        message: 'Không tìm thấy IB',
+      });
+    }
+
+    if (node.level === 0) {
+      throw new UnprocessableEntityException({
+        code: 'IB_ACTION_NOT_ALLOWED',
+        message: 'Không thể deactivate MIB',
+      });
+    }
+
+    await this.prisma.ibNode.update({
+      where: { id },
+      data: { isActive: false },
+    });
+
+    return { message: 'IB đã bị deactivate' };
+  }
+
+  async getChildren(id: string, page: number, limit: number) {
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.prisma.ibNode.findMany({
+        where: { parentId: id },
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.ibNode.count({ where: { parentId: id } }),
+    ]);
+
+    return {
+      data: data.map((child: any) => ({
+        id: child.id,
+        name: child.name,
+        email: child.email,
+        level: child.level,
+        isActive: child.isActive,
+        createdAt: child.createdAt,
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
     };
   }
 }
