@@ -4,14 +4,18 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.constants';
+import { getSubtreeIds } from '../../common/utils/subtree.util';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { CreateBatchTransactionDto } from './dto/create-batch-transaction.dto';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '@prisma/client';
 
 @Injectable()
 export class TransactionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   /**
@@ -44,6 +48,15 @@ export class TransactionService {
       ipAddress,
     });
 
+    // System notification: TRANSACTION_ADDED — gửi cho IB của giao dịch
+    this.notificationService.createSystemNotification({
+      recipientId: tx.ibId,
+      type: NotificationType.TRANSACTION_ADDED,
+      title: 'Giao dich moi duoc ghi nhan',
+      body: `Giao dich ${tx.lots} lots (${tx.assetType}) da duoc ghi nhan cho tai khoan cua ban.`,
+      metadata: { transactionId: tx.id, assetType: tx.assetType, lots: tx.lots.toString() },
+    });
+
     return tx;
   }
 
@@ -53,7 +66,7 @@ export class TransactionService {
    */
   async createBatch(currentUserId: string, dto: CreateBatchTransactionDto, ipAddress?: string) {
     // Lấy subtree một lần, validate tất cả ibId trong batch
-    const subtreeIds = await this.getSubtreeIds(currentUserId);
+    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
     const invalidIbIds = dto.transactions
       .map((t) => t.ibId)
       .filter((ibId) => !subtreeIds.includes(ibId));
@@ -166,7 +179,7 @@ export class TransactionService {
    * Throw ForbiddenException nếu targetId không nằm trong subtree của rootId
    */
   private async assertInSubtree(rootId: string, targetId: string): Promise<void> {
-    const subtreeIds = await this.getSubtreeIds(rootId);
+    const subtreeIds = await getSubtreeIds(this.prisma, rootId);
     if (!subtreeIds.includes(targetId)) {
       throw new ForbiddenException({
         code: 'IB_NOT_IN_SUBTREE',
@@ -175,19 +188,4 @@ export class TransactionService {
     }
   }
 
-  /**
-   * CTE recursive — lấy tất cả IDs trong subtree của rootId (bao gồm rootId)
-   */
-  private async getSubtreeIds(rootId: string): Promise<string[]> {
-    const result = await this.prisma.$queryRaw<{ id: string }[]>`
-      WITH RECURSIVE subtree AS (
-        SELECT id FROM ib_nodes WHERE id = ${rootId}
-        UNION ALL
-        SELECT n.id FROM ib_nodes n
-        INNER JOIN subtree s ON n."parentId" = s.id
-      )
-      SELECT id FROM subtree
-    `;
-    return result.map((r) => r.id);
-  }
 }

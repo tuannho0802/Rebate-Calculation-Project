@@ -413,3 +413,277 @@ enum AssetType {
   GAUCNH        = "GAUCNH"
 }
 ```
+
+---
+---
+
+## Dashboard Endpoints
+
+### GET /dashboard/summary
+Lấy tổng quan thông số Dashboard của IB hiện tại và toàn bộ subtree.
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "ibStats": {
+      "totalInSubtree": 150
+    },
+    "transactionStats": {
+      "todayCount": 45,
+      "monthLots": 1200.5
+    },
+    "topIbsThisMonth": [
+      {
+        "ib": {
+          "id": "uuid",
+          "email": "top-ib@example.com",
+          "level": 2
+        },
+        "lots": 450.5
+      }
+    ],
+    "generatedAt": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+---
+
+## Notification Endpoints
+
+### GET /notifications
+Lấy danh sách thông báo của IB hiện tại.
+
+**Query params:**
+```
+?page=1
+?limit=20
+?isRead=false       // optional — Lọc theo trạng thái đọc
+?type=MANUAL        // optional — Lọc theo loại (MANUAL, IB_JOINED, v.v.)
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "recipientId": "uuid",
+      "senderId": "uuid",
+      "type": "MANUAL",
+      "title": "Tiêu đề thông báo",
+      "body": "Nội dung thông báo",
+      "metadata": {},
+      "isRead": false,
+      "readAt": null,
+      "createdAt": "2024-01-15T10:30:00Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 50,
+    "unreadCount": 5
+  }
+}
+```
+
+---
+
+### POST /notifications/send
+Gửi thông báo thủ công (chỉ gửi cho IB trong subtree).
+
+**Request:**
+```json
+{
+  "recipientId": "uuid",
+  "title": "Tiêu đề",
+  "body": "Nội dung",
+  "type": "MANUAL"
+}
+```
+
+**Response 201:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "recipientId": "uuid",
+    "senderId": "uuid",
+    "type": "MANUAL",
+    "title": "Tiêu đề",
+    "body": "Nội dung",
+    "isRead": false,
+    "createdAt": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+---
+
+### PATCH /notifications/read-all
+Đánh dấu tất cả thông báo là đã đọc.
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "updated": 5
+  }
+}
+```
+
+---
+
+### PATCH /notifications/:id/read
+Đánh dấu một thông báo cụ thể là đã đọc.
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "isRead": true,
+    "readAt": "2024-01-15T10:35:00Z"
+  }
+}
+```
+
+---
+
+### DELETE /notifications/:id
+Xóa một thông báo.
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Thông báo đã được xóa"
+  }
+}
+```
+
+---
+
+## IB Performance Endpoints
+
+### GET /ib/leaderboard
+Lấy bảng xếp hạng các IB trong subtree theo volume giao dịch tháng hiện tại.
+
+**Query params:**
+```
+?limit=10        // optional — Số lượng top IBs (mặc định 10)
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "rank": 1,
+      "ib": {
+        "id": "uuid",
+        "email": "top@example.com",
+        "level": 2
+      },
+      "monthLots": 450.5
+    }
+  ]
+}
+```
+
+---
+
+### GET /ib/:id/performance
+Lấy chi tiết hiệu suất giao dịch của một IB cụ thể (cấp dưới).
+
+**Query params:**
+```
+?month=2024-01   // optional — YYYY-MM (mặc định: tháng hiện tại)
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "ib": {
+      "id": "uuid",
+      "email": "child@example.com",
+      "level": 2
+    },
+    "period": {
+      "month": "2024-01"
+    },
+    "overall": {
+      "totalLots": 125.5,
+      "transactionCount": 42
+    },
+    "byAssetType": [
+      {
+        "assetType": "FOREX",
+        "totalLots": 100.0,
+        "transactionCount": 35
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Rebate History Endpoints
+
+### GET /rebate/config/:ibId/history
+Lịch sử thay đổi cấu hình rebate của một IB.
+
+**Query params:**
+```
+?page=1
+?limit=20
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "rebateConfigId": "uuid",
+      "before": {
+        "rebatePips": 2,
+        "markupPips": 8
+      },
+      "after": {
+        "rebatePips": 3,
+        "markupPips": 7
+      },
+      "createdAt": "2024-01-15T10:30:00Z",
+      "changedBy": {
+        "id": "uuid",
+        "email": "mib@example.com",
+        "name": "Admin"
+      },
+      "rebateConfig": {
+        "assetType": "FOREX",
+        "rebateType": "STP_REBATE"
+      }
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 5
+  }
+}
+```
+

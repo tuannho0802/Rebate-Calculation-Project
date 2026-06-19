@@ -88,7 +88,18 @@ export class IbController {
     return this.ibService.getTree(user.sub, depth);
   }
 
-  // ─── SEARCH — phải đặt TRƯỚC GET :id ────────────────────────────────────────
+  // ─── LEADERBOARD — phải đặt TRƯỜC GET :id ─────────────────────────────────────
+  @Get('leaderboard')
+  @ApiOperation({ summary: 'Top IB trong subtree theo lots tháng này' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, default: 10, description: 'Số IB top (tối đa 50)' })
+  getLeaderboard(
+    @CurrentUser() user: any,
+    @Query('limit') limit = '10',
+  ) {
+    return this.ibService.getLeaderboard(user.sub, Math.min(parseInt(limit, 10) || 10, 50));
+  }
+
+  // ─── SEARCH — phải đặt TRƯỚC GET :id ─────────────────────────────────────────
   @Get('search')
   @ApiOperation({ summary: 'Tìm kiếm IB theo email hoặc tên trong subtree của mình' })
   @ApiQuery({ name: 'q', required: true, description: 'Từ khóa tìm kiếm (ít nhất 2 ký tự)' })
@@ -97,7 +108,7 @@ export class IbController {
   @ApiQuery({ name: 'limit', required: false, type: Number, default: 20 })
   searchIb(
     @CurrentUser() user: any,
-    @Query('q') q: string,
+    @Query('q') q: string | undefined,
     @Query('includeInactive') includeInactive?: string,
     @Query('page') page = '1',
     @Query('limit') limit = '20',
@@ -200,7 +211,7 @@ export class IbController {
     return this.ibService.getChildren(id, +page, +limit);
   }
 
-  // ─── RESTORE — đặt SAU các route GET ────────────────────────────────────────
+  // ─── RESTORE — đặt SAU các route GET ─────────────────────────────────────────
   @Patch(':id/restore')
   @UseGuards(SubtreeGuard)
   @ApiBearerAuth('Bearer')
@@ -215,5 +226,18 @@ export class IbController {
   ) {
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
     return this.ibService.restoreIb(id, user.sub, ip);
+  }
+
+  // ─── PERFORMANCE ─────────────────────────────────────────────────────
+  @Get(':id/performance')
+  @ApiOperation({ summary: 'Hiệu suất của một IB theo tháng (bao gồm downline)' })
+  @ApiParam({ name: 'id', description: 'UUID of IB' })
+  @ApiQuery({ name: 'month', required: false, description: 'Tháng theo định dạng YYYY-MM, mặc định là tháng hiện tại', example: '2026-06' })
+  getIbPerformance(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Query('month') month?: string,
+  ) {
+    return this.ibService.getIbPerformance(user.sub, id, month);
   }
 }

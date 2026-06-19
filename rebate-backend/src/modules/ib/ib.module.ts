@@ -1,13 +1,15 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { IbService } from './ib.service';
 import { IbController } from './ib.controller';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [PrismaModule, AuditModule],
+  imports: [PrismaModule, AuditModule, forwardRef(() => NotificationModule)],
   controllers: [IbController],
   providers: [IbService],
   exports: [IbService],
 })
 export class IbModule {}
+

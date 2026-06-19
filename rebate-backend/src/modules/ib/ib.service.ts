@@ -3,6 +3,7 @@ import {
   NotFoundException,
   UnprocessableEntityException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateIbDto } from './dto/create-ib.dto';
@@ -11,12 +12,16 @@ import * as bcrypt from 'bcrypt';
 import { AssetType } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.constants';
+import { getSubtreeIds } from '../../common/utils/subtree.util';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '@prisma/client';
 
 @Injectable()
 export class IbService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async getMe(ibId: string) {
@@ -203,6 +208,15 @@ export class IbService {
       after: { email: newIb.email, name: newIb.name, level: newIb.level },
     });
 
+    // System notification: IB_JOINED — gửi cho parent
+    this.notificationService.createSystemNotification({
+      recipientId: currentUserId,
+      type: NotificationType.IB_JOINED,
+      title: 'Dai ly moi da tham gia',
+      body: `${newIb.name} (${newIb.email}) da tham gia vao nhom cua ban.`,
+      metadata: { newIbId: newIb.id },
+    });
+
     return {
       id: newIb.id,
       name: newIb.name,
@@ -294,6 +308,14 @@ export class IbService {
       after: { isActive: false },
     });
 
+    // System notification: IB_DEACTIVATED — gửi cho IB bị deactivate
+    this.notificationService.createSystemNotification({
+      recipientId: id,
+      type: NotificationType.IB_DEACTIVATED,
+      title: 'Tai khoan da bi vo hieu hoa',
+      body: 'Tai khoan cua ban da bi vo hieu hoa. Vui long lien he cap tren de biet them thong tin.',
+    });
+
     return { message: 'IB đã bị deactivate' };
   }
 
@@ -365,6 +387,14 @@ export class IbService {
       ipAddress,
     });
 
+    // System notification: IB_RESTORED — gửi cho IB được khôi phục
+    this.notificationService.createSystemNotification({
+      recipientId: ibId,
+      type: NotificationType.IB_RESTORED,
+      title: 'Tai khoan da duoc khoi phuc',
+      body: 'Tai khoan cua ban da duoc khoi phuc va co the dang nhap binh thuong.',
+    });
+
     return updated;
   }
 
@@ -373,27 +403,29 @@ export class IbService {
    */
   async searchIb(
     currentUserId: string,
-    q: string,
+    q: string | undefined,
     includeInactive: boolean,
     page: number,
     limit: number,
   ) {
-    if (!q || q.trim().length < 2) {
+    if (!q || typeof q !== 'string' || q.trim().length < 2) {
       throw new BadRequestException({
         code: 'SEARCH_QUERY_TOO_SHORT',
         message: 'Từ khóa tìm kiếm phải có ít nhất 2 ký tự',
       });
     }
 
-    const subtreeIds = await this.getSubtreeIds(currentUserId);
+    const keyword = q.trim();
+
+    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
     // Bỏ currentUser ra khỏi kết quả tìm kiếm
     const searchableIds = subtreeIds.filter((id) => id !== currentUserId);
 
     const where: any = {
       id: { in: searchableIds },
       OR: [
-        { email: { contains: q.trim(), mode: 'insensitive' } },
-        { name: { contains: q.trim(), mode: 'insensitive' } },
+        { email: { contains: keyword, mode: 'insensitive' } },
+        { name: { contains: keyword, mode: 'insensitive' } },
       ],
     };
 
@@ -422,23 +454,123 @@ export class IbService {
 
     return {
       data: items,
-      meta: { page, limit, total, query: q.trim() },
+      meta: { page, limit, total, query: keyword },
     };
   }
 
   /**
-   * CTE recursive — lấy tất cả IDs trong subtree của rootId (bao gồm rootId)
+   * GET /ib/:id/performance — hiệu suất 1 IB theo tháng
    */
-  private async getSubtreeIds(rootId: string): Promise<string[]> {
-    const result = await this.prisma.$queryRaw<{ id: string }[]>`
-      WITH RECURSIVE subtree AS (
-        SELECT id FROM ib_nodes WHERE id = ${rootId}
-        UNION ALL
-        SELECT n.id FROM ib_nodes n
-        INNER JOIN subtree s ON n."parentId" = s.id
-      )
-      SELECT id FROM subtree
-    `;
-    return result.map((r) => r.id);
+  async getIbPerformance(currentUserId: string, ibId: string, month?: string) {
+    // 1. Verify ibId trong subtree của currentUser
+    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
+    if (!subtreeIds.includes(ibId)) {
+      throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+    }
+
+    // 2. Validate và parse month format YYYY-MM
+    let periodStart: Date;
+    let periodEnd: Date;
+    let periodMonth: string;
+
+    if (month) {
+      const monthRegex = /^\d{4}-\d{2}$/;
+      if (!monthRegex.test(month)) {
+        throw new BadRequestException({
+          code: 'INVALID_MONTH_FORMAT',
+          message: 'Định dạng tháng phải là YYYY-MM (ví dụ: 2026-06)',
+        });
+      }
+      const [year, mon] = month.split('-').map(Number);
+      if (mon < 1 || mon > 12) {
+        throw new BadRequestException({
+          code: 'INVALID_MONTH_FORMAT',
+          message: 'Tháng phải nằm trong khoảng 01-12',
+        });
+      }
+      periodStart = new Date(year, mon - 1, 1);
+      periodEnd = new Date(year, mon, 0, 23, 59, 59, 999);
+      periodMonth = month;
+    } else {
+      const now = new Date();
+      periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+      periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+      periodMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    }
+
+    // 3. Lấy subtree của ibId (performance bao gồm downline)
+    const ibSubtree = await getSubtreeIds(this.prisma, ibId);
+
+    // 4. Aggregate
+    const [byAsset, overall, ibInfo] = await Promise.all([
+      this.prisma.rebateTransaction.groupBy({
+        by: ['assetType'],
+        where: { ibId: { in: ibSubtree }, tradedAt: { gte: periodStart, lte: periodEnd } },
+        _sum: { lots: true, rebateAmount: true },
+        _count: { id: true },
+      }),
+      this.prisma.rebateTransaction.aggregate({
+        where: { ibId: { in: ibSubtree }, tradedAt: { gte: periodStart, lte: periodEnd } },
+        _sum: { lots: true, rebateAmount: true },
+        _count: { id: true },
+      }),
+      this.prisma.ibNode.findUnique({
+        where: { id: ibId },
+        select: { id: true, email: true, name: true, level: true },
+      }),
+    ]);
+
+    return {
+      ib: ibInfo,
+      period: { month: periodMonth, start: periodStart, end: periodEnd },
+      overall: {
+        transactionCount: overall._count.id,
+        totalLots: Number(overall._sum.lots ?? 0),
+        totalRebateUsd: Number(overall._sum.rebateAmount ?? 0),
+      },
+      byAssetType: byAsset.map((a) => ({
+        assetType: a.assetType,
+        count: a._count.id,
+        lots: Number(a._sum.lots ?? 0),
+        rebateUsd: Number(a._sum.rebateAmount ?? 0),
+      })),
+    };
   }
+
+  /**
+   * GET /ib/leaderboard — top IB trong subtree theo lots tháng này
+   */
+  async getLeaderboard(currentUserId: string, limit = 10) {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
+    const childIds = subtreeIds.filter((id) => id !== currentUserId);
+
+    const grouped = await this.prisma.rebateTransaction.groupBy({
+      by: ['ibId'],
+      where: { ibId: { in: childIds }, tradedAt: { gte: monthStart } },
+      _sum: { lots: true, rebateAmount: true },
+      _count: { id: true },
+      orderBy: { _sum: { lots: 'desc' } },
+      take: limit,
+    });
+
+    const ibIds = grouped.map((g) => g.ibId);
+    const nodes = await this.prisma.ibNode.findMany({
+      where: { id: { in: ibIds } },
+      select: { id: true, email: true, name: true, level: true },
+    });
+    const nodeMap = Object.fromEntries(nodes.map((n) => [n.id, n]));
+
+    return grouped.map((g, idx) => ({
+      rank: idx + 1,
+      ib: nodeMap[g.ibId],
+      monthLots: Number(g._sum.lots ?? 0),
+      monthRebateUsd: Number(g._sum.rebateAmount ?? 0),
+      transactionCount: g._count.id,
+    }));
+  }
+
 }

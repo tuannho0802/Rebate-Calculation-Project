@@ -1,28 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { getSubtreeIds } from '../../common/utils/subtree.util';
 import { AssetType } from '@prisma/client';
 
 @Injectable()
 export class ReportService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async getSubtreeIds(rootId: string): Promise<string[]> {
-    const result = await this.prisma.$queryRaw<{ id: string }[]>`
-      WITH RECURSIVE subtree AS (
-        SELECT id FROM ib_nodes WHERE id = ${rootId}
-        UNION ALL
-        SELECT n.id FROM ib_nodes n
-        INNER JOIN subtree s ON n."parentId" = s.id
-      )
-      SELECT id FROM subtree;
-    `;
-    return result.map((r: any) => r.id);
-  }
-
   async getSummary(rootIbId: string, filterIbId?: string, period?: string) {
     // Determine the set of IBs to include
     const baseIbId = filterIbId || rootIbId;
-    const targetIbIds = await this.getSubtreeIds(baseIbId);
+    const targetIbIds = await getSubtreeIds(this.prisma, baseIbId);
 
     // Parse period
     let periodStr = period;
@@ -105,7 +93,7 @@ export class ReportService {
     limit = 20,
   ) {
     const baseIbId = filterIbId || rootIbId;
-    const targetIbIds = await this.getSubtreeIds(baseIbId);
+    const targetIbIds = await getSubtreeIds(this.prisma, baseIbId);
 
     const where: any = {
       ibId: { in: targetIbIds },

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { getSubtreeIds } from '../../common/utils/subtree.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QueryAuditDto } from './dto/query-audit.dto';
 
@@ -48,7 +49,7 @@ export class AuditService {
    */
   async getLogs(currentUserId: string, query: QueryAuditDto) {
     // Lấy subtree IDs của currentUser để filter logs chỉ trong phạm vi mình quản lý
-    const subtreeIds = await this.getSubtreeIds(currentUserId);
+    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
 
     const where: any = {
       actorId: { in: subtreeIds },
@@ -91,22 +92,5 @@ export class AuditService {
       data: items,
       meta: { page, limit, total },
     };
-  }
-
-  /**
-   * Helper — lấy tất cả IDs trong subtree của rootId (bao gồm rootId).
-   * Dùng CTE recursive để tránh N+1 query.
-   */
-  private async getSubtreeIds(rootId: string): Promise<string[]> {
-    const result = await this.prisma.$queryRaw<{ id: string }[]>`
-      WITH RECURSIVE subtree AS (
-        SELECT id FROM ib_nodes WHERE id = ${rootId}
-        UNION ALL
-        SELECT n.id FROM ib_nodes n
-        INNER JOIN subtree s ON n."parentId" = s.id
-      )
-      SELECT id FROM subtree
-    `;
-    return result.map((r) => r.id);
   }
 }

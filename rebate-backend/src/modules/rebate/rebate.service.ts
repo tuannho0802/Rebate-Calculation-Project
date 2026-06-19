@@ -4,6 +4,7 @@ import { UpdateRebateConfigDto } from './dto/update-config.dto';
 import { AssetType, RebateType } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.constants';
+import { getSubtreeIds } from '../../common/utils/subtree.util';
 
 export const MAX_PIPS: Record<AssetType, number> = {
   [AssetType.D_FOREX]: 12,
@@ -142,6 +143,26 @@ export class RebateService {
       after,
     });
 
+    // Ghi RebateConfigHistory cho mỗi config được cập nhật
+    for (const assetConfig of updateDto.assets) {
+      const { assetType, rebateType = 'STP_REBATE' } = assetConfig;
+      const key = `${assetType}_${rebateType}`;
+      // Tìm config ID hiện tại
+      const currentConfig = await this.prisma.rebateConfig.findUnique({
+        where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
+      });
+      if (currentConfig && (before[key] !== null)) {
+        await this.prisma.rebateConfigHistory.create({
+          data: {
+            rebateConfigId: currentConfig.id,
+            changedById: currentUserId,
+            before: before[key] as any,
+            after: after[key] as any,
+          },
+        });
+      }
+    }
+
     return this.getConfig(targetIbId);
   }
 
@@ -212,5 +233,49 @@ export class RebateService {
         distributed,
       },
     };
+  }
+
+  /**
+   * GET /rebate/config/:ibId/history — lịch sử thay đổi cấu hình rebate
+   */
+  async getConfigHistory(
+    currentUserId: string,
+    ibId: string,
+    page: number,
+    limit: number,
+  ) {
+    // Verify ibId trong subtree
+    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
+    if (!subtreeIds.includes(ibId)) {
+      throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+    }
+
+    // Lấy tất cả config IDs của IB này
+    const configs = await this.prisma.rebateConfig.findMany({
+      where: { ibId },
+      select: { id: true, assetType: true, rebateType: true },
+    });
+
+    if (configs.length === 0) {
+      throw new NotFoundException({ code: 'CONFIG_NOT_FOUND' });
+    }
+
+    const configIds = configs.map((c) => c.id);
+
+    const [items, total] = await Promise.all([
+      this.prisma.rebateConfigHistory.findMany({
+        where: { rebateConfigId: { in: configIds } },
+        include: {
+          changedBy: { select: { id: true, email: true, name: true } },
+          rebateConfig: { select: { assetType: true, rebateType: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.rebateConfigHistory.count({ where: { rebateConfigId: { in: configIds } } }),
+    ]);
+
+    return { data: items, meta: { page, limit, total } };
   }
 }

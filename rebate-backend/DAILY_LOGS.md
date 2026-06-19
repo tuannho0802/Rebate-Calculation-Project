@@ -348,4 +348,13 @@ Column names trong raw SQL đã dùng `parent_id`, `ib_id`, `asset_type`, `rebat
 - [x] Không có chức năng cũ nào bị hỏng
 - [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
 - [x] Các type vẫn khớp với 02_DATA_MODELS.md
----
+---
+
+## 2026-06-19: Sprint 2 Completed
+- Added Dashboard summary endpoint.
+- Implemented Notification system with auto-triggers for system events.
+- Added IB Performance and Leaderboard endpoints.
+- Added Rebate Config History with audit trailing.
+- Extracted \getSubtreeIds\ CTE into a shared utility function used across multiple services.
+- Ran \	est-sprint2.js\ verifying all core functionalities of Sprint 2 including regression tests for Sprint 1.
+

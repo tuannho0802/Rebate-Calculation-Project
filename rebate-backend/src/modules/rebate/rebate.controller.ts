@@ -43,6 +43,28 @@ export class RebateController {
     return this.rebateService.updateConfig(user.sub, ibId, updateDto);
   }
 
+  @Get('config/:ibId/history')
+  @ApiOperation({ summary: 'Lịch sử thay đổi cấu hình rebate của một IB' })
+  @ApiParam({ name: 'ibId', description: 'UUID của IB cần xem lịch sử' })
+  @ApiQuery({ name: 'page', required: false, type: Number, default: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, default: 20 })
+  @ApiResponse({ status: 200, description: 'Lịch sử cấu hình rebate' })
+  @ApiResponse({ status: 403, description: 'IB không thuộc subtree của bạn' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy config' })
+  async getConfigHistory(
+    @CurrentUser() user: any,
+    @Param('ibId') ibId: string,
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+  ) {
+    return this.rebateService.getConfigHistory(
+      user.sub,
+      ibId,
+      parseInt(page, 10) || 1,
+      Math.min(parseInt(limit, 10) || 20, 100),
+    );
+  }
+
   @Get('calculate')
   @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)

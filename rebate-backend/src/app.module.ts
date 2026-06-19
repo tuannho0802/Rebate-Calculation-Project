@@ -8,6 +8,8 @@ import { ReportModule } from './modules/report/report.module';
 import { DocsModule } from './modules/docs/docs.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { TransactionModule } from './modules/transaction/transaction.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { NotificationModule } from './modules/notification/notification.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -21,6 +23,8 @@ import { AppController } from './app.controller';
     DocsModule,
     AuditModule,
     TransactionModule,
+    DashboardModule,
+    NotificationModule,
   ],
   controllers: [AppController],
 })

@@ -24,6 +24,10 @@ model IbNode {
   auditLogs            AuditLog[]          @relation("AuditActor")
   refreshTokens        RefreshToken[]
 
+  receivedNotifications Notification[] @relation("NotificationRecipient")
+  sentNotifications     Notification[] @relation("NotificationSender")
+  rebateConfigChanges   RebateConfigHistory[] @relation("RebateConfigHistoryActor")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -41,6 +45,8 @@ model RebateConfig {
   markupPips     Decimal     @db.Decimal(10, 4) @default(0)
   markupPercent  Decimal     @db.Decimal(5, 2)  @default(100)  // 100% hoặc 80%
   maxPips        Decimal     @db.Decimal(10, 4) // giới hạn từ cấp trên
+
+  history  RebateConfigHistory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -128,4 +134,48 @@ enum AssetType {
   BITCOIN
   CRYPTO
   GAUCNH
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  recipientId String   // người nhận
+  recipient   IbNode   @relation("NotificationRecipient", fields: [recipientId], references: [id])
+  senderId    String?  // người gửi (null = system notification)
+  sender      IbNode?  @relation("NotificationSender", fields: [senderId], references: [id])
+  type        NotificationType
+  title       String
+  body        String
+  isRead      Boolean  @default(false)
+  readAt      DateTime?
+  metadata    Json?    // dữ liệu phụ (e.g., { transactionId, ibId })
+  createdAt   DateTime @default(now())
+
+  @@index([recipientId, isRead])
+  @@index([recipientId, createdAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  SYSTEM           // thông báo hệ thống tự động
+  IB_JOINED        // có IB mới join vào cây
+  TRANSACTION_ADDED // giao dịch mới được thêm vào
+  REBATE_UPDATED   // cấu hình rebate bị thay đổi
+  IB_DEACTIVATED   // IB bị deactivate
+  IB_RESTORED      // IB được khôi phục
+  MANUAL           // gửi thủ công từ IB cấp trên
+}
+
+model RebateConfigHistory {
+  id            String      @id @default(uuid())
+  rebateConfigId String
+  rebateConfig  RebateConfig @relation(fields: [rebateConfigId], references: [id])
+  changedById   String
+  changedBy     IbNode      @relation("RebateConfigHistoryActor", fields: [changedById], references: [id])
+  before        Json        // snapshot config trước khi đổi
+  after         Json        // snapshot config sau khi đổi
+  createdAt     DateTime    @default(now())
+
+  @@index([rebateConfigId])
+  @@index([changedById])
+  @@map("rebate_config_history")
 }
