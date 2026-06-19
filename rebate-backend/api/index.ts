@@ -65,7 +65,7 @@ async function bootstrap() {
         },
         customSiteTitle: 'IB Rebate API Docs',
         customCssUrl: '/swagger-custom.css',
-        customJs: ['/swagger-inject.js'],
+        customJs: ['/swagger-inject.js', '/swagger-custom.js'],
     });
 
     app.setGlobalPrefix('api', {
