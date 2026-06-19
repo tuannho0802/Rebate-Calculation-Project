@@ -1,4 +1,7 @@
 (function () {
+  var isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  if (!isLocal) return;
+
   function injectUI() {
     var desc = document.querySelector('.swagger-ui .info .description');
     if (!desc || desc.dataset.injected) return;
@@ -12,9 +15,10 @@
     var codeBg = isDark ? '#1e293b' : '#f1f5f9';
     var codeColor = isDark ? '#34d399' : '#0f766e';
 
-    var isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    desc.innerHTML = [
+      '<div style="font-family:Inter,system-ui,sans-serif;max-width:820px;margin-top:4px;">',
 
-    var quickStartBlock = isLocal ? [
+      // ── QUICK START ──
       '<div style="background:' + bg + ';border:1px solid ' + border + ';border-radius:10px;padding:20px 24px;margin-bottom:14px;">',
       '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">',
       '<span style="background:#00c896;color:#000;font-size:11px;font-weight:700;padding:2px 9px;border-radius:4px;letter-spacing:.05em;">QUICK START</span>',
@@ -35,11 +39,6 @@
       '</div>',
       '</div>',
       '</div>',
-    ].join('') : '';
-
-    desc.innerHTML = [
-      '<div style="font-family:Inter,system-ui,sans-serif;max-width:820px;margin-top:4px;">',
-      quickStartBlock,
 
       // ── TEST ACCOUNTS ──
       '<div style="background:' + bg + ';border:1px solid ' + border + ';border-radius:10px;padding:20px 24px;margin-bottom:14px;">',
