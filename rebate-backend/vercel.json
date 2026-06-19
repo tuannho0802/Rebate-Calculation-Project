@@ -3,15 +3,14 @@
     "builds": [
         {
             "src": "api/index.ts",
-            "use": "@vercel/node"
-        },
-        {
-            "src": "src/public/**",
-            "use": "@vercel/static"
-        },
-        {
-            "src": "public/**",
-            "use": "@vercel/static"
+            "use": "@vercel/node",
+            "config": {
+                "includeFiles": [
+                    "node_modules/swagger-ui-dist/**",
+                    "public/**",
+                    "src/public/**"
+                ]
+            }
         }
     ],
     "routes": [
@@ -28,20 +27,16 @@
             "dest": "src/public/app.js"
         },
         {
-            "src": "/swagger-custom\\.js",
-            "dest": "src/public/swagger-custom.js"
-        },
-        {
             "src": "/swagger-inject\\.js",
             "dest": "src/public/swagger-inject.js"
         },
         {
-            "src": "/swagger-custom\\.css",
-            "dest": "public/swagger-custom.css"
+            "src": "/swagger-custom\\.js",
+            "dest": "src/public/swagger-custom.js"
         },
         {
-            "src": "/favicon\\.png",
-            "dest": "src/public/favicon.png"
+            "src": "/swagger-custom\\.css",
+            "dest": "public/swagger-custom.css"
         },
         {
             "src": "/",

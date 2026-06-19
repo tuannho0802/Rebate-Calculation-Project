@@ -9,48 +9,8 @@ import express from 'express';
 
 let cachedServer: any;
 
-const swaggerHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <title>IB Rebate API Docs</title>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.29.1/swagger-ui.min.css">
-  <link rel="stylesheet" href="/swagger-custom.css">
-</head>
-<body>
-<div id="swagger-ui"></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.29.1/swagger-ui-bundle.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/swagger-ui/5.29.1/swagger-ui-standalone-preset.min.js"></script>
-<script src="/swagger-inject.js"></script>
-<script src="/swagger-custom.js"></script>
-<script>
-window.onload = function() {
-  window.ui = SwaggerUIBundle({
-    url: '/api/docs-json',
-    dom_id: '#swagger-ui',
-    deepLinking: true,
-    presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
-    plugins: [SwaggerUIBundle.plugins.DownloadUrl],
-    layout: 'StandaloneLayout',
-    persistAuthorization: true,
-    docExpansion: 'none',
-    filter: true,
-    tagsSorter: 'alpha',
-    operationsSorter: 'alpha',
-  });
-};
-</script>
-</body>
-</html>`;
-
 async function bootstrap() {
     const server = express();
-
-    server.get('/api/docs', (_req, res) => {
-        res.setHeader('Content-Type', 'text/html');
-        res.send(swaggerHtml);
-    });
 
     const app = await NestFactory.create<NestExpressApplication>(
         AppModule,
@@ -84,7 +44,7 @@ async function bootstrap() {
         .addBearerAuth(
             {
                 type: 'http', scheme: 'bearer', bearerFormat: 'JWT',
-                description: 'Paste your JWT access token here (without the "Bearer " prefix).'
+                description: 'Paste your JWT access token here (without the "Bearer " prefix).',
             },
             'Bearer',
         )
@@ -93,8 +53,19 @@ async function bootstrap() {
         .build();
 
     const document = SwaggerModule.createDocument(app, config);
+
+    // Y CHANG main.ts — để NestJS tự render HTML, không custom HTML riêng
     SwaggerModule.setup('api/docs', app, document, {
-        swaggerOptions: { persistAuthorization: true },
+        swaggerOptions: {
+            persistAuthorization: true,
+            docExpansion: 'none',
+            filter: true,
+            tagsSorter: 'alpha',
+            operationsSorter: 'alpha',
+        },
+        customSiteTitle: 'IB Rebate API Docs',
+        customCssUrl: '/swagger-custom.css',
+        customJs: ['/swagger-inject.js'],
     });
 
     app.setGlobalPrefix('api', {
