@@ -1,11 +1,19 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards, HttpStatus, HttpCode } from '@nestjs/common';
+import {
+  Controller, Get, Post, Put, Delete, Patch,
+  Body, Param, Query, UseGuards, Req,
+  HttpStatus, HttpCode,
+} from '@nestjs/common';
+import type { Request } from 'express';
 import { IbService } from './ib.service';
 import { CreateIbDto } from './dto/create-ib.dto';
 import { UpdateIbDto } from './dto/update-ib.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
+import {
+  ApiTags, ApiOperation, ApiResponse, ApiBearerAuth,
+  ApiQuery, ApiParam,
+} from '@nestjs/swagger';
 
 @ApiTags('🌳 IB Management')
 @ApiBearerAuth('Bearer')
@@ -80,6 +88,29 @@ export class IbController {
     return this.ibService.getTree(user.sub, depth);
   }
 
+  // ─── SEARCH — phải đặt TRƯỚC GET :id ────────────────────────────────────────
+  @Get('search')
+  @ApiOperation({ summary: 'Tìm kiếm IB theo email hoặc tên trong subtree của mình' })
+  @ApiQuery({ name: 'q', required: true, description: 'Từ khóa tìm kiếm (ít nhất 2 ký tự)' })
+  @ApiQuery({ name: 'includeInactive', required: false, type: Boolean, default: false, description: 'Bao gồm IB đã bị deactivate' })
+  @ApiQuery({ name: 'page', required: false, type: Number, default: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, default: 20 })
+  searchIb(
+    @CurrentUser() user: any,
+    @Query('q') q: string,
+    @Query('includeInactive') includeInactive?: string,
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+  ) {
+    return this.ibService.searchIb(
+      user.sub,
+      q,
+      includeInactive === 'true',
+      parseInt(page, 10) || 1,
+      Math.min(parseInt(limit, 10) || 20, 100),
+    );
+  }
+
   @ApiOperation({
     summary: 'Xem chi tiết một IB theo ID',
     description:
@@ -87,34 +118,8 @@ export class IbController {
       '**Lưu ý:** Chỉ cho phép xem các IB thuộc subtree của bạn (kiểm tra bằng SubtreeGuard).',
   })
   @ApiParam({ name: 'id', description: 'UUID của IB cần xem', example: 'clxyz123' })
-  @ApiResponse({
-    status: 200,
-    description: 'Lấy thông tin IB thành công',
-    schema: {
-      example: {
-        success: true,
-        data: {
-          id: 'uuid',
-          email: 'string',
-          name: 'string',
-          level: 3,
-          isActive: true,
-          parentId: 'uuid',
-          rebateConfig: {
-            ibId: 'uuid',
-            assets: [{ assetType: 'FOREX', rebatePips: 2.0, markupPips: 8.0, markupPercent: 100.0, maxPips: 12.0 }],
-            updatedAt: '2024-01-01T00:00:00Z'
-          },
-          createdAt: '2024-01-01T00:00:00Z'
-        }
-      }
-    }
-  })
-  @ApiResponse({
-    status: 403,
-    description: 'Bị từ chối — IB không thuộc subtree của bạn',
-    schema: { example: { success: false, error: { code: 'IB_NOT_IN_SUBTREE', message: 'Bạn không có quyền xem thông tin IB này' } } }
-  })
+  @ApiResponse({ status: 200, description: 'Lấy thông tin IB thành công' })
+  @ApiResponse({ status: 403, description: 'Bị từ chối — IB không thuộc subtree của bạn' })
   @ApiResponse({ status: 404, description: 'Không tìm thấy IB với ID đã cung cấp' })
   @Get(':id')
   @ApiBearerAuth('Bearer')
@@ -127,31 +132,10 @@ export class IbController {
     summary: 'Tạo Sub-IB trực tiếp bên dưới bạn',
     description:
       'Tạo một IB con trực thuộc người dùng hiện tại.\n\n' +
-      '**Payload mẫu:**\n' +
-      '```json\n' +
-      '{\n' +
-      '  "email": "new-ib@example.com",\n' +
-      '  "password": "Test@1234",\n' +
-      '  "name": "Nguyen Van A"\n' +
-      '}\n' +
-      '```\n\n' +
-      '*Lưu ý: Sub-IB sẽ được gán level = level của bạn + 1 và parentId = ID của bạn tự động.*',
+      '*Sub-IB sẽ được gán level = level của bạn + 1 và parentId = ID của bạn tự động.*',
   })
-  @ApiResponse({
-    status: 201,
-    description: 'Tạo Sub-IB thành công',
-    schema: {
-      example: {
-        success: true,
-        data: { id: 'uuid', email: 'new-ib@example.com', name: 'Nguyen Van A', level: 2, parentId: 'uuid' }
-      }
-    }
-  })
-  @ApiResponse({
-    status: 422,
-    description: 'Email đã tồn tại hoặc dữ liệu không hợp lệ',
-    schema: { example: { success: false, error: { code: 'IB_EMAIL_TAKEN', message: 'Email này đã được sử dụng' } } }
-  })
+  @ApiResponse({ status: 201, description: 'Tạo Sub-IB thành công' })
+  @ApiResponse({ status: 422, description: 'Email đã tồn tại hoặc dữ liệu không hợp lệ' })
   @Post()
   @HttpCode(HttpStatus.CREATED)
   async create(
@@ -166,24 +150,19 @@ export class IbController {
   @UseGuards(SubtreeGuard)
   @ApiOperation({
     summary: 'Cập nhật thông tin Sub-IB',
-    description:
-      'Cập nhật `name` hoặc `email` của một IB trong subtree của bạn.\n\n' +
-      '**Payload mẫu:**\n' +
-      '```json\n' +
-      '{\n' +
-      '  "name": "Tên mới",\n' +
-      '  "email": "email-moi@example.com"\n' +
-      '}\n' +
-      '```\n\n' +
-      '*Tất cả trường đều không bắt buộc — chỉ gửi trường cần thay đổi.*',
+    description: 'Cập nhật `name` hoặc `email` của một IB trong subtree của bạn.',
   })
   @ApiParam({ name: 'id', description: 'UUID của IB cần cập nhật', example: 'uuid-here' })
   @ApiResponse({ status: 200, description: 'Cập nhật thành công' })
   @ApiResponse({ status: 403, description: 'Bị từ chối — IB không thuộc subtree của bạn' })
   @ApiResponse({ status: 404, description: 'Không tìm thấy IB' })
   @ApiResponse({ status: 422, description: 'Email đã tồn tại hoặc dữ liệu không hợp lệ' })
-  updateIb(@Param('id') id: string, @Body() dto: UpdateIbDto) {
-    return this.ibService.updateIb(id, dto);
+  updateIb(
+    @Param('id') id: string,
+    @Body() dto: UpdateIbDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.ibService.updateIb(id, dto, user.sub);
   }
 
   @Delete(':id')
@@ -191,9 +170,7 @@ export class IbController {
   @UseGuards(SubtreeGuard)
   @ApiOperation({
     summary: 'Vô hiệu hóa Sub-IB (soft delete)',
-    description:
-      'Đánh dấu IB là không hoạt động (`isActive = false`). **Không xóa khỏi database.**\n\n' +
-      'IB bị vô hiệu hóa sẽ không thể đăng nhập nhưng dữ liệu lịch sử vẫn được giữ nguyên.',
+    description: 'Đánh dấu IB là không hoạt động (`isActive = false`). **Không xóa khỏi database.**',
   })
   @ApiParam({ name: 'id', description: 'UUID của IB cần vô hiệu hóa', example: 'uuid-here' })
   @ApiResponse({ status: 200, description: 'Vô hiệu hóa thành công' })
@@ -208,21 +185,35 @@ export class IbController {
   @UseGuards(SubtreeGuard)
   @ApiOperation({
     summary: 'Danh sách Sub-IB trực tiếp của một IB (có phân trang)',
-    description:
-      'Trả về danh sách các IB con trực tiếp của IB được chỉ định, hỗ trợ phân trang.\n\n' +
-      'Ví dụ: `GET /api/ib/{id}/children?page=1&limit=10`',
+    description: 'Trả về danh sách các IB con trực tiếp của IB được chỉ định, hỗ trợ phân trang.',
   })
   @ApiParam({ name: 'id', description: 'UUID của IB cha cần xem danh sách con', example: 'uuid-here' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Trang hiện tại (mặc định: 1)', example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Số bản ghi mỗi trang (mặc định: 20)', example: 20 })
   @ApiResponse({ status: 200, description: 'Danh sách trả về thành công' })
   @ApiResponse({ status: 403, description: 'Bị từ chối — IB không thuộc subtree của bạn' })
-  @ApiResponse({ status: 404, description: 'Không tìm thấy IB' })
   getChildren(
     @Param('id') id: string,
     @Query('page') page = 1,
     @Query('limit') limit = 20,
   ) {
     return this.ibService.getChildren(id, +page, +limit);
+  }
+
+  // ─── RESTORE — đặt SAU các route GET ────────────────────────────────────────
+  @Patch(':id/restore')
+  @UseGuards(SubtreeGuard)
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Khôi phục IB đã bị vô hiệu hóa' })
+  @ApiParam({ name: 'id', description: 'UUID của IB cần khôi phục' })
+  @ApiResponse({ status: 200, description: 'Khôi phục thành công' })
+  @ApiResponse({ status: 422, description: 'IB đang active, không cần khôi phục' })
+  restoreIb(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+    @Req() req: Request,
+  ) {
+    const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
+    return this.ibService.restoreIb(id, user.sub, ip);
   }
 }

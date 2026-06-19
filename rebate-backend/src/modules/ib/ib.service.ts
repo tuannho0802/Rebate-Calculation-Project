@@ -1,13 +1,23 @@
-import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateIbDto } from './dto/create-ib.dto';
 import { UpdateIbDto } from './dto/update-ib.dto';
 import * as bcrypt from 'bcrypt';
 import { AssetType } from '@prisma/client';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS } from '../audit/audit.constants';
 
 @Injectable()
 export class IbService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async getMe(ibId: string) {
     const user = await this.prisma.ibNode.findUnique({
@@ -185,6 +195,14 @@ export class IbService {
       return ib;
     });
 
+    await this.auditService.log({
+      actorId: currentUserId,
+      action: AUDIT_ACTIONS.IB_CREATE,
+      targetType: 'IB',
+      targetId: newIb.id,
+      after: { email: newIb.email, name: newIb.name, level: newIb.level },
+    });
+
     return {
       id: newIb.id,
       name: newIb.name,
@@ -194,10 +212,16 @@ export class IbService {
     };
   }
 
-  async updateIb(id: string, dto: UpdateIbDto) {
+  async updateIb(id: string, dto: UpdateIbDto, currentUserId?: string) {
+    // Lấy before để audit
+    const existing = await this.prisma.ibNode.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException({ code: 'IB_NOT_FOUND', message: 'Không tìm thấy IB' });
+    }
+
     if (dto.email) {
-      const existing = await this.prisma.ibNode.findUnique({ where: { email: dto.email } });
-      if (existing && existing.id !== id) {
+      const emailTaken = await this.prisma.ibNode.findUnique({ where: { email: dto.email } });
+      if (emailTaken && emailTaken.id !== id) {
         throw new UnprocessableEntityException({
           code: 'IB_EMAIL_TAKEN',
           message: 'Email này đã được sử dụng',
@@ -205,10 +229,25 @@ export class IbService {
       }
     }
 
+    const before = { name: existing.name, email: existing.email };
+
     const updated = await this.prisma.ibNode.update({
       where: { id },
       data: dto,
     });
+
+    const after = { name: updated.name, email: updated.email };
+
+    if (currentUserId) {
+      await this.auditService.log({
+        actorId: currentUserId,
+        action: AUDIT_ACTIONS.IB_UPDATE,
+        targetType: 'IB',
+        targetId: id,
+        before,
+        after,
+      });
+    }
 
     return {
       id: updated.id,
@@ -247,6 +286,14 @@ export class IbService {
       data: { isActive: false },
     });
 
+    await this.auditService.log({
+      actorId: currentUserId,
+      action: AUDIT_ACTIONS.IB_DEACTIVATE,
+      targetType: 'IB',
+      targetId: id,
+      after: { isActive: false },
+    });
+
     return { message: 'IB đã bị deactivate' };
   }
 
@@ -279,5 +326,119 @@ export class IbService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  /**
+   * PATCH /ib/:id/restore — khôi phục IB đã bị vô hiệu hóa
+   */
+  async restoreIb(ibId: string, currentUserId: string, ipAddress?: string) {
+    const ib = await this.prisma.ibNode.findUnique({ where: { id: ibId } });
+
+    if (!ib) throw new NotFoundException({ code: 'IB_NOT_FOUND' });
+
+    if (ib.isActive) {
+      throw new UnprocessableEntityException({
+        code: 'IB_ALREADY_ACTIVE',
+        message: 'Tài khoản này đang hoạt động, không cần khôi phục',
+      });
+    }
+
+    const updated = await this.prisma.ibNode.update({
+      where: { id: ibId },
+      data: { isActive: true },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        level: true,
+        isActive: true,
+        parentId: true,
+      },
+    });
+
+    await this.auditService.log({
+      actorId: currentUserId,
+      action: AUDIT_ACTIONS.IB_RESTORE,
+      targetType: 'IB',
+      targetId: ibId,
+      after: { isActive: true },
+      ipAddress,
+    });
+
+    return updated;
+  }
+
+  /**
+   * GET /ib/search — tìm IB theo email hoặc tên trong subtree của mình
+   */
+  async searchIb(
+    currentUserId: string,
+    q: string,
+    includeInactive: boolean,
+    page: number,
+    limit: number,
+  ) {
+    if (!q || q.trim().length < 2) {
+      throw new BadRequestException({
+        code: 'SEARCH_QUERY_TOO_SHORT',
+        message: 'Từ khóa tìm kiếm phải có ít nhất 2 ký tự',
+      });
+    }
+
+    const subtreeIds = await this.getSubtreeIds(currentUserId);
+    // Bỏ currentUser ra khỏi kết quả tìm kiếm
+    const searchableIds = subtreeIds.filter((id) => id !== currentUserId);
+
+    const where: any = {
+      id: { in: searchableIds },
+      OR: [
+        { email: { contains: q.trim(), mode: 'insensitive' } },
+        { name: { contains: q.trim(), mode: 'insensitive' } },
+      ],
+    };
+
+    if (!includeInactive) {
+      where.isActive = true;
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.ibNode.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          level: true,
+          isActive: true,
+          parentId: true,
+          createdAt: true,
+        },
+        skip: (page - 1) * limit,
+        take: limit,
+        orderBy: { level: 'asc' },
+      }),
+      this.prisma.ibNode.count({ where }),
+    ]);
+
+    return {
+      data: items,
+      meta: { page, limit, total, query: q.trim() },
+    };
+  }
+
+  /**
+   * CTE recursive — lấy tất cả IDs trong subtree của rootId (bao gồm rootId)
+   */
+  private async getSubtreeIds(rootId: string): Promise<string[]> {
+    const result = await this.prisma.$queryRaw<{ id: string }[]>`
+      WITH RECURSIVE subtree AS (
+        SELECT id FROM ib_nodes WHERE id = ${rootId}
+        UNION ALL
+        SELECT n.id FROM ib_nodes n
+        INNER JOIN subtree s ON n."parentId" = s.id
+      )
+      SELECT id FROM subtree
+    `;
+    return result.map((r) => r.id);
   }
 }

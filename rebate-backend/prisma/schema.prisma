@@ -18,9 +18,11 @@ model IbNode {
   parent    IbNode?  @relation("IbTree", fields: [parentId], references: [id])
   children  IbNode[] @relation("IbTree")
 
-  rebateConfig    RebateConfig[]
-  transactions    RebateTransaction[]
-  refreshTokens   RefreshToken[]
+  rebateConfig         RebateConfig[]
+  transactions         RebateTransaction[] @relation("TransactionOwner")
+  createdTransactions  RebateTransaction[] @relation("TransactionCreator")
+  auditLogs            AuditLog[]          @relation("AuditActor")
+  refreshTokens        RefreshToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -56,20 +58,44 @@ enum RebateType {
 }
 
 model RebateTransaction {
-  id           String    @id @default(uuid())
+  id           String     @id @default(uuid())
   ibId         String
-  ib           IbNode    @relation(fields: [ibId], references: [id])
+  ib           IbNode     @relation("TransactionOwner", fields: [ibId], references: [id])
   assetType    AssetType
-  lots         Decimal   @db.Decimal(10, 4)
-  rebateAmount Decimal   @db.Decimal(10, 4)
-  currency     String    @default("USD")
+  rebateType   RebateType @default(STP_REBATE)
+  lots         Decimal    @db.Decimal(10, 4)
+  rebateAmount Decimal    @db.Decimal(10, 4)
+  currency     String     @default("USD")
   tradedAt     DateTime
+  note         String?
+  createdById  String
+  createdBy    IbNode     @relation("TransactionCreator", fields: [createdById], references: [id])
 
   createdAt DateTime @default(now())
 
   @@index([ibId, tradedAt])
   @@index([assetType, tradedAt])
+  @@index([createdById])
   @@map("rebate_transactions")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorId     String
+  actor       IbNode   @relation("AuditActor", fields: [actorId], references: [id])
+  action      String   // 'IB_CREATE', 'IB_UPDATE', 'TRANSACTION_CREATE', v.v.
+  targetType  String   // 'IB', 'REBATE_CONFIG', 'TRANSACTION'
+  targetId    String
+  before      Json?
+  after       Json?
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  @@index([actorId])
+  @@index([targetId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
 }
 
 model RefreshToken {

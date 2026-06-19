@@ -2,6 +2,8 @@ import { Injectable, NotFoundException, UnprocessableEntityException, ForbiddenE
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateRebateConfigDto } from './dto/update-config.dto';
 import { AssetType, RebateType } from '@prisma/client';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS } from '../audit/audit.constants';
 
 export const MAX_PIPS: Record<AssetType, number> = {
   [AssetType.D_FOREX]: 12,
@@ -26,7 +28,10 @@ export const MAX_PIPS: Record<AssetType, number> = {
 
 @Injectable()
 export class RebateService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) {}
 
   async getConfig(ibId: string) {
     const configs = await this.prisma.rebateConfig.findMany({
@@ -56,6 +61,11 @@ export class RebateService {
         message: 'Bạn không có quyền thực hiện thao tác này',
       });
     }
+
+    // Lấy before snapshot trước khi update
+    const existingConfigs = await this.prisma.rebateConfig.findMany({
+      where: { ibId: targetIbId },
+    });
 
     await this.prisma.$transaction(async (tx: any) => {
       for (const assetConfig of updateDto.assets) {
@@ -107,12 +117,37 @@ export class RebateService {
       }
     });
 
+    // Ghi audit log sau khi toàn bộ transaction hoàn thành
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+
+    for (const assetConfig of updateDto.assets) {
+      const { assetType, rebateType = 'STP_REBATE', rebatePips, markupPips } = assetConfig;
+      const key = `${assetType}_${rebateType}`;
+      const prev = existingConfigs.find(
+        (c: any) => c.assetType === assetType && c.rebateType === rebateType,
+      );
+      before[key] = prev
+        ? { rebatePips: Number(prev.rebatePips), markupPips: Number(prev.markupPips) }
+        : null;
+      after[key] = { rebatePips, markupPips };
+    }
+
+    await this.auditService.log({
+      actorId: currentUserId,
+      action: AUDIT_ACTIONS.REBATE_CONFIG_UPDATE,
+      targetType: 'REBATE_CONFIG',
+      targetId: targetIbId,
+      before,
+      after,
+    });
+
     return this.getConfig(targetIbId);
   }
 
   async calculateCascadeDistribution(
-    ibId: string, 
-    assetType: AssetType, 
+    ibId: string,
+    assetType: AssetType,
     lots: number,
     rebateType: RebateType = RebateType.STP_REBATE
   ) {

@@ -5,6 +5,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import * as bcrypt from 'bcrypt';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS } from '../audit/audit.constants';
 
 @Injectable()
 export class AuthService {
@@ -12,6 +14,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly auditService: AuditService,
   ) {}
 
   async login(loginDto: LoginDto) {
@@ -172,6 +175,14 @@ export class AuthService {
       await tx.refreshToken.deleteMany({
         where: { ibId },
       });
+    });
+
+    // Ghi audit log — KHÔNG ghi before/after cho password (security)
+    await this.auditService.log({
+      actorId: ibId,
+      action: AUDIT_ACTIONS.PASSWORD_CHANGE,
+      targetType: 'IB',
+      targetId: ibId,
     });
 
     return { message: 'Đổi mật khẩu thành công. Vui lòng đăng nhập lại.' };

@@ -157,29 +157,25 @@ async function main() {
 
   const transactions = [
     // Current Month Transactions
-    { ibId: lv3A.id, assetType: AssetType.FOREX, lots: 10, rebateAmount: 60.0, tradedAt: currentMonthDate },
-    { ibId: lv3B.id, assetType: AssetType.GOLD, lots: 5, rebateAmount: 40.0, tradedAt: currentMonthDate },
-    { ibId: lv2B.id, assetType: AssetType.FOREX, lots: 20, rebateAmount: 40.0, tradedAt: currentMonthDate },
-    { ibId: lv1A.id, assetType: AssetType.GOLD, lots: 12.5, rebateAmount: 50.0, tradedAt: currentMonthDate },
+    { ibId: lv3A.id, assetType: AssetType.FOREX, lots: 10, rebateAmount: 60.0, tradedAt: currentMonthDate, createdById: mib.id },
+    { ibId: lv3B.id, assetType: AssetType.GOLD, lots: 5, rebateAmount: 40.0, tradedAt: currentMonthDate, createdById: mib.id },
+    { ibId: lv2B.id, assetType: AssetType.FOREX, lots: 20, rebateAmount: 40.0, tradedAt: currentMonthDate, createdById: mib.id },
+    { ibId: lv1A.id, assetType: AssetType.GOLD, lots: 12.5, rebateAmount: 50.0, tradedAt: currentMonthDate, createdById: mib.id },
 
     // Last Month Transactions
-    { ibId: lv3A.id, assetType: AssetType.GOLD, lots: 8, rebateAmount: 64.0, tradedAt: lastMonthDate },
-    { ibId: lv3B.id, assetType: AssetType.FOREX, lots: 15, rebateAmount: 90.0, tradedAt: lastMonthDate },
-    { ibId: lv2A.id, assetType: AssetType.FOREX, lots: 25, rebateAmount: 50.0, tradedAt: lastMonthDate },
-    { ibId: lv2C.id, assetType: AssetType.GOLD, lots: 6, rebateAmount: 24.0, tradedAt: lastMonthDate },
+    { ibId: lv3A.id, assetType: AssetType.GOLD, lots: 8, rebateAmount: 64.0, tradedAt: lastMonthDate, createdById: mib.id },
+    { ibId: lv3B.id, assetType: AssetType.FOREX, lots: 15, rebateAmount: 90.0, tradedAt: lastMonthDate, createdById: mib.id },
+    { ibId: lv2A.id, assetType: AssetType.FOREX, lots: 25, rebateAmount: 50.0, tradedAt: lastMonthDate, createdById: mib.id },
+    { ibId: lv2C.id, assetType: AssetType.GOLD, lots: 6, rebateAmount: 24.0, tradedAt: lastMonthDate, createdById: mib.id },
 
     // 2 Months Ago Transactions
-    { ibId: lv3B.id, assetType: AssetType.FOREX, lots: 12, rebateAmount: 72.0, tradedAt: twoMonthsAgoDate },
-    { ibId: lv3A.id, assetType: AssetType.GOLD, lots: 10, rebateAmount: 80.0, tradedAt: twoMonthsAgoDate },
-    { ibId: lv2A.id, assetType: AssetType.GOLD, lots: 15, rebateAmount: 60.0, tradedAt: twoMonthsAgoDate },
-    { ibId: lv1B.id, assetType: AssetType.FOREX, lots: 30, rebateAmount: 60.0, tradedAt: twoMonthsAgoDate },
+    { ibId: lv3B.id, assetType: AssetType.FOREX, lots: 12, rebateAmount: 72.0, tradedAt: twoMonthsAgoDate, createdById: mib.id },
+    { ibId: lv3A.id, assetType: AssetType.GOLD, lots: 10, rebateAmount: 80.0, tradedAt: twoMonthsAgoDate, createdById: mib.id },
+    { ibId: lv2A.id, assetType: AssetType.GOLD, lots: 15, rebateAmount: 60.0, tradedAt: twoMonthsAgoDate, createdById: mib.id },
+    { ibId: lv1B.id, assetType: AssetType.FOREX, lots: 30, rebateAmount: 60.0, tradedAt: twoMonthsAgoDate, createdById: mib.id },
   ];
 
-  for (const tx of transactions) {
-    await prisma.rebateTransaction.create({
-      data: tx,
-    });
-  }
+  await prisma.rebateTransaction.createMany({ data: transactions });
 
   console.log('Seeding complete!');
 }
