@@ -13,7 +13,7 @@ import { CreateBatchTransactionDto } from './dto/create-batch-transaction.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
-@ApiTags('Transactions')
+@ApiTags('💸 Transactions')
 @Controller('transactions')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('Bearer')

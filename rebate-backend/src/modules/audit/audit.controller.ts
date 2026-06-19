@@ -5,7 +5,7 @@ import { QueryAuditDto } from './dto/query-audit.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
-@ApiTags('Audit')
+@ApiTags('📋 Audit')
 @Controller('audit')
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}

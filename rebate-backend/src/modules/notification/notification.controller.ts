@@ -11,7 +11,7 @@ import { QueryNotificationDto } from './dto/query-notification.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
-@ApiTags('Notifications')
+@ApiTags('🔔 Notifications')
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('Bearer')
