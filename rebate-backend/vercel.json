@@ -1,46 +1,15 @@
 {
-    "version": 2,
-    "builds": [
-        {
-            "src": "api/index.ts",
-            "use": "@vercel/node",
-            "config": {
-                "includeFiles": [
-                    "node_modules/swagger-ui-dist/**",
-                    "public/**",
-                    "src/public/**"
-                ]
-            }
-        }
-    ],
-    "routes": [
-        {
-            "src": "/api/(.*)",
-            "dest": "api/index.ts"
-        },
-        {
-            "src": "/styles\\.css",
-            "dest": "src/public/styles.css"
-        },
-        {
-            "src": "/app\\.js",
-            "dest": "src/public/app.js"
-        },
-        {
-            "src": "/swagger-inject\\.js",
-            "dest": "src/public/swagger-inject.js"
-        },
-        {
-            "src": "/swagger-custom\\.js",
-            "dest": "src/public/swagger-custom.js"
-        },
-        {
-            "src": "/swagger-custom\\.css",
-            "dest": "public/swagger-custom.css"
-        },
-        {
-            "src": "/",
-            "dest": "src/public/index.html"
-        }
-    ]
+  "version": 2,
+  "builds": [
+    {
+      "src": "api/index.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["node_modules/swagger-ui-dist/**"]
+      }
+    }
+  ],
+  "routes": [
+    { "src": "/api/(.*)", "dest": "api/index.ts" }
+  ]
 }
