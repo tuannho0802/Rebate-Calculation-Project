@@ -168,27 +168,34 @@ async function run() {
 
   // ── NOTIFICATIONS: Đánh dấu đã đọc ───────────────
   console.log('\n▶ NOTIFICATIONS: Đánh dấu đã đọc');
-  const mibNotifs = await request('GET', '/notifications', null, mibToken);
-  if (mibNotifs.body.data?.length > 0) {
-    const mibNotifId = mibNotifs.body.data[0].id;
-    const markRead = await request('PATCH', `/notifications/${mibNotifId}/read`, null, mibToken);
+  
+  // Lv1 nhận notification từ MIB ở trên → dùng lv1Token để mark-read
+  const lv1NotifsForRead = await request('GET', '/notifications', null, lv1Token);
+  if (lv1NotifsForRead.body.data?.length > 0) {
+    const notifId = lv1NotifsForRead.body.data[0].id;
+  
+    const markRead = await request('PATCH', `/notifications/${notifId}/read`, null, lv1Token);
     assert(markRead.status === 200, 'PATCH /notifications/:id/read → 200');
     assert(markRead.body.data?.isRead === true, 'isRead = true sau mark read');
     assert(markRead.body.data?.readAt !== null, 'readAt được set');
-
-    // Idempotent — gọi lại cũng không lỗi
-    const markReadAgain = await request('PATCH', `/notifications/${mibNotifId}/read`, null, mibToken);
+  
+    // Idempotent
+    const markReadAgain = await request('PATCH', `/notifications/${notifId}/read`, null, lv1Token);
     assert(markReadAgain.status === 200, 'PATCH mark-read idempotent → 200');
+  
+    // Người khác không được mark-read notification của người khác
+    const markReadByMIB = await request('PATCH', `/notifications/${notifId}/read`, null, mibToken);
+    assert(markReadByMIB.status === 403, 'MIB không được mark-read notification của Lv1 → 403');
   } else {
-    console.log('  ⚠ SKIP: MIB không có notification để test mark-read');
+    console.log('  ⚠ SKIP: Lv1 không có notification để test mark-read');
   }
-
-  const markAllRead = await request('PATCH', '/notifications/read-all', null, mibToken);
+  
+  // Mark all read
+  const markAllRead = await request('PATCH', '/notifications/read-all', null, lv1Token);
   assert(markAllRead.status === 200, 'PATCH /notifications/read-all → 200');
   assert(typeof markAllRead.body.data?.updated === 'number', 'Response có updated count');
-
-  // Verify tất cả đã đọc
-  const afterMarkAll = await request('GET', '/notifications', null, mibToken);
+  
+  const afterMarkAll = await request('GET', '/notifications', null, lv1Token);
   assert(afterMarkAll.body.meta?.unreadCount === 0, 'unreadCount = 0 sau read-all');
 
   // ── NOTIFICATIONS: Xóa thông báo ─────────────────
@@ -216,14 +223,17 @@ async function run() {
     const firstAsset = lv2Config.body.data.assets[0];
     const oldPips = firstAsset.rebatePips ?? 0;
 
+    const oldPercent = firstAsset.markupPercent ?? 100;
+    const newPercent = oldPercent === 100 ? 90 : 100;
+
     // Update để tạo history entry
     await request('PUT', `/rebate/config/${lv2Id}`, {
       assets: [{
         assetType: firstAsset.assetType,
         rebateType: firstAsset.rebateType || 'STP_REBATE',
-        rebatePips: oldPips + 1,
+        rebatePips: oldPips,
         markupPips: 0,
-        markupPercent: 100
+        markupPercent: newPercent
       }],
     }, mibToken);
 
@@ -234,23 +244,29 @@ async function run() {
         rebateType: firstAsset.rebateType || 'STP_REBATE',
         rebatePips: oldPips,
         markupPips: 0,
-        markupPercent: 100
+        markupPercent: oldPercent
       }],
     }, mibToken);
 
     const history = await request('GET', `/rebate/config/${lv2Id}/history`, null, mibToken);
     assert(history.status === 200, 'GET /rebate/config/:ibId/history → 200');
     assert(Array.isArray(history.body.data), 'Response có data array');
-    if (history.body.meta?.total < 1) {
-      console.log('DEBUG history:', JSON.stringify(history.body, null, 2));
-    }
-    assert(history.body.meta?.total >= 1, `Có history entries (có ${history.body.meta?.total})`);
+    assert(history.body.meta?.total >= 1, `Có ít nhất 1 history entry (có ${history.body.meta?.total})`);
 
     if (history.body.data.length > 0) {
-      assert(history.body.data[0].before !== undefined, 'History entry có before');
-      assert(history.body.data[0].after !== undefined, 'History entry có after');
-      assert(history.body.data[0].changedBy !== undefined, 'History entry có changedBy');
-      assert(!history.body.data[0].changedBy?.password, 'changedBy không lộ password');
+      const entry = history.body.data[0];
+      assert(entry.before !== undefined, 'History entry có before');
+      assert(entry.after !== undefined, 'History entry có after');
+      assert(entry.changedBy !== undefined, 'History entry có changedBy');
+      assert(!entry.changedBy?.password, 'changedBy không lộ password');
+    
+      // Verify before ≠ after — nếu giống nhau là backend bug
+      const beforeJson = JSON.stringify(entry.before);
+      const afterJson = JSON.stringify(entry.after);
+      assert(
+        beforeJson !== afterJson,
+        `before khác after (before=${beforeJson} | after=${afterJson})`
+      );
     }
 
     // Pagination
@@ -333,7 +349,7 @@ async function run() {
     tradedAt: new Date().toISOString(),
   }, lv1Token);
   // 201 hoặc error do encoding — cả hai đều chấp nhận (môi trường local)
-  assert([201, 400, 422, 500].includes(txCreate.status), `POST /transactions vẫn hoạt động → ${txCreate.status}`);
+  assert(txCreate.status === 201, 'POST /transactions regression → 201');
 
   // ── SUMMARY ───────────────────────────────────────
   console.log('\n========================================');

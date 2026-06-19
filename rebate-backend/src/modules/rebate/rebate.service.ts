@@ -63,11 +63,6 @@ export class RebateService {
       });
     }
 
-    // Lấy before snapshot trước khi update
-    const existingConfigs = await this.prisma.rebateConfig.findMany({
-      where: { ibId: targetIbId },
-    });
-
     await this.prisma.$transaction(async (tx: any) => {
       for (const assetConfig of updateDto.assets) {
         const { assetType, rebateType = 'STP_REBATE', rebatePips, markupPips, markupPercent } = assetConfig;
@@ -85,8 +80,19 @@ export class RebateService {
           });
         }
 
-        // Update target configuration
-        await tx.rebateConfig.upsert({
+        // 1. Lấy config hiện tại -> before
+        const existing = await tx.rebateConfig.findUnique({
+          where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
+        });
+
+        const before = existing ? {
+          rebatePips: Number(existing.rebatePips),
+          markupPips: Number(existing.markupPips),
+          markupPercent: Number(existing.markupPercent),
+        } : null;
+
+        // 2. Update -> after
+        const updated = await tx.rebateConfig.upsert({
           where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
           update: {
             rebatePips,
@@ -104,64 +110,49 @@ export class RebateService {
           },
         });
 
+        const after = {
+          rebatePips: Number(updated.rebatePips),
+          markupPips: Number(updated.markupPips),
+          markupPercent: Number(updated.markupPercent),
+        };
+
+        // 3. Check change
+        const hasChange = JSON.stringify(before) !== JSON.stringify(after);
+        if (hasChange) {
+          await tx.rebateConfigHistory.create({
+            data: {
+              rebateConfigId: updated.id,
+              changedById: currentUserId,
+              before: before as any,
+              after: after as any,
+            },
+          });
+
+          await this.auditService.log({
+            actorId: currentUserId,
+            action: AUDIT_ACTIONS.REBATE_CONFIG_UPDATE,
+            targetType: 'REBATE_CONFIG',
+            targetId: targetIbId,
+            before: before as any,
+            after: after as any,
+          });
+        }
+
         // Cascading update child's children: child's markupPips becomes their new maxPips limit
-        await tx.rebateConfig.updateMany({
-          where: {
-            ib: { parentId: targetIbId },
-            assetType,
-            rebateType: rebateType as any,
-          },
-          data: {
-            maxPips: markupPips,
-          },
-        });
+        if (hasChange && existing && Number(existing.markupPips) !== markupPips) {
+          await tx.rebateConfig.updateMany({
+            where: {
+              ib: { parentId: targetIbId },
+              assetType,
+              rebateType: rebateType as any,
+            },
+            data: {
+              maxPips: markupPips,
+            },
+          });
+        }
       }
     });
-
-    // Ghi audit log sau khi toàn bộ transaction hoàn thành
-    const before: Record<string, unknown> = {};
-    const after: Record<string, unknown> = {};
-
-    for (const assetConfig of updateDto.assets) {
-      const { assetType, rebateType = 'STP_REBATE', rebatePips, markupPips } = assetConfig;
-      const key = `${assetType}_${rebateType}`;
-      const prev = existingConfigs.find(
-        (c: any) => c.assetType === assetType && c.rebateType === rebateType,
-      );
-      before[key] = prev
-        ? { rebatePips: Number(prev.rebatePips), markupPips: Number(prev.markupPips) }
-        : null;
-      after[key] = { rebatePips, markupPips };
-    }
-
-    await this.auditService.log({
-      actorId: currentUserId,
-      action: AUDIT_ACTIONS.REBATE_CONFIG_UPDATE,
-      targetType: 'REBATE_CONFIG',
-      targetId: targetIbId,
-      before,
-      after,
-    });
-
-    // Ghi RebateConfigHistory cho mỗi config được cập nhật
-    for (const assetConfig of updateDto.assets) {
-      const { assetType, rebateType = 'STP_REBATE' } = assetConfig;
-      const key = `${assetType}_${rebateType}`;
-      // Tìm config ID hiện tại
-      const currentConfig = await this.prisma.rebateConfig.findUnique({
-        where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
-      });
-      if (currentConfig && (before[key] !== null)) {
-        await this.prisma.rebateConfigHistory.create({
-          data: {
-            rebateConfigId: currentConfig.id,
-            changedById: currentUserId,
-            before: before[key] as any,
-            after: after[key] as any,
-          },
-        });
-      }
-    }
 
     return this.getConfig(targetIbId);
   }
