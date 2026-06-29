@@ -7,3 +7,5 @@ migrations/
 prisma/generated/
 
 Sample Image
+
+scratch/export-test-output
