@@ -374,3 +374,11 @@ Column names trong raw SQL đã dùng `parent_id`, `ib_id`, `asset_type`, `rebat
 - C2: Added `rebateType` filter to `GET /report/transactions`.
 - C3: Added 6-month `chartData` to `GET /dashboard/summary` for frontend rendering.
 - Passed all 42 tests in `test-sprint3.js` including Sprint 1 & 2 regressions.
+
+## [2026-06-29] - Sprint 4 Completed: Wallet & Payout System
+- DB Schema: Added `Wallet` and `Payout` models with `PayoutStatus`.
+- Wallet Module: Integrated automatic wallet crediting into `TransactionService`.
+- Payout Module: Implemented payout request, approval, and rejection flows with Lv0 and Subtree guards.
+- Audit & Notifications: Added `PAYOUT_REQUESTED`, `PAYOUT_APPROVED`, `PAYOUT_REJECTED` audit logs and corresponding system notifications.
+- Seed Data: Automated calculation of legacy balances and wallet generation for existing IB nodes.
+- Testing: Created `test-sprint4.js` to cover full payout flows, regressions, and balance calculations. All tests pass successfully.
