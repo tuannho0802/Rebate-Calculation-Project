@@ -358,3 +358,11 @@ Column names trong raw SQL đã dùng `parent_id`, `ib_id`, `asset_type`, `rebat
 - Extracted \getSubtreeIds\ CTE into a shared utility function used across multiple services.
 - Ran \	est-sprint2.js\ verifying all core functionalities of Sprint 2 including regression tests for Sprint 1.
 
+
+## 2026-06-29: Fix Rebate Allocation Flow
+- Fixed budget calculation in \updateConfig\ to properly consider total parent budget (\ebatePips + markupPips\) and refund previously allocated pips.
+- Implemented decrementing of parent's \ebatePips\ and \markupPips\ budgets when assigning to children.
+- Added validation to ensure parent budgets don't go negative.
+- Set child's \maxPips\ to the total budget received (\ebatePips + markupPips\) rather than just \markupPips\.
+- Added cascading updates to propagate \maxPips\ limit correctly to descendants when a child's total budget changes.
+- Recorded RebateConfigHistory and AuditLog for changes made to the parent's configuration.
