@@ -1,25 +1,24 @@
+import { ApiResponse, AuthTokens, ChangePasswordDto } from '@/types';
 import { apiClient } from './client';
-import type { AuthTokens } from '@/types';
 
 export const authApi = {
-  login: async (email: string, password: string): Promise<AuthTokens> => {
-    const { data } = await apiClient.post('/auth/login', { email, password });
-    return data.data;
+  login: async (email: string, password: string): Promise<ApiResponse<AuthTokens>> => {
+    const response = await apiClient.post<ApiResponse<AuthTokens>>('/auth/login', { email, password });
+    return response.data;
   },
 
-  refresh: async (refreshToken: string) => {
-    const { data } = await apiClient.post('/auth/refresh', { refreshToken });
-    return data.data;
+  refresh: async (refreshToken: string): Promise<ApiResponse<{ accessToken: string; refreshToken: string }>> => {
+    const response = await apiClient.post<ApiResponse<{ accessToken: string; refreshToken: string }>>('/auth/refresh', { refreshToken });
+    return response.data;
   },
 
-  logout: async () => {
-    try {
-      await apiClient.post('/auth/logout');
-    } finally {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('ib_access_token');
-        localStorage.removeItem('ib_refresh_token');
-      }
-    }
+  logout: async (): Promise<ApiResponse<null>> => {
+    const response = await apiClient.post<ApiResponse<null>>('/auth/logout');
+    return response.data;
+  },
+
+  changePassword: async (dto: ChangePasswordDto): Promise<ApiResponse<null>> => {
+    const response = await apiClient.post<ApiResponse<null>>('/auth/change-password', dto);
+    return response.data;
   },
 };

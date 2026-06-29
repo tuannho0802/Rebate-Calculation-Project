@@ -1,0 +1,102 @@
+{
+  "Layout": {
+    "authenticating": "Authenticating system...",
+    "overview": "Overview",
+    "ibNetwork": "IB Network",
+    "report": "Report",
+    "config": "Config",
+    "account": "Account",
+    "statusActive": "Status: Active",
+    "logout": "Logout",
+    "dashboard": "Dashboard"
+  },
+  "Login": {
+    "title": "IB Management System",
+    "emailLabel": "Email",
+    "emailPlaceholder": "Enter your email",
+    "passwordLabel": "Password",
+    "passwordPlaceholder": "Enter your password",
+    "loginBtn": "Login to System",
+    "loggingIn": "Processing..."
+  },
+  "Error": {
+    "AUTH_INVALID_CREDENTIALS": "Invalid email or password",
+    "AUTH_TOKEN_INVALID": "Invalid login session",
+    "AUTH_REFRESH_EXPIRED": "Session expired, please login again",
+    "AUTH_FORBIDDEN": "You do not have permission to perform this action",
+    "IB_NOT_FOUND": "IB not found",
+    "IB_EMAIL_TAKEN": "Email is already taken",
+    "IB_NOT_IN_SUBTREE": "You do not have permission to view this IB",
+    "IB_MAX_LEVEL_REACHED": "Cannot create more sublevels",
+    "REBATE_EXCEEDS_MAX": "Total rebate exceeds allowed limit",
+    "REBATE_CONFIG_NOT_FOUND": "Rebate configuration not found",
+    "REBATE_ASSET_INVALID": "Invalid asset type",
+    "VALIDATION_ERROR": "Invalid data, please check again",
+    "INTERNAL_ERROR": "An error occurred, please try again",
+    "DATABASE_ERROR": "An error occurred, please try again",
+    "DEFAULT": "An error occurred"
+  },
+  "Tree": {
+    "title": "IB Network",
+    "loading": "Loading tree structure...",
+    "error": "Error loading IB tree data"
+  },
+  "Rebate": {
+    "title": "Rebate Configuration",
+    "save": "Save changes",
+    "saving": "Saving...",
+    "validationError": "Total Rebate and Markup must not exceed maximum"
+  },
+  "Report": {
+    "title": "Summary Report",
+    "history": "Transaction History"
+  },
+  "DashboardPage": {
+    "welcome": "Welcome",
+    "description": "Information on management and distribution of your Introducer Broker rebate.",
+    "level": "Level",
+    "directDownlines": "Direct downlines",
+    "parentId": "Parent ID",
+    "joinedDate": "Joined date",
+    "currentConfig": "Current Rebate Configuration",
+    "assetType": "Asset Type",
+    "rebatePips": "Rebate Pips (Retained)",
+    "markupPips": "Markup Pips (Transferred)",
+    "maxPips": "Max Pips",
+    "noConfig": "No Rebate configuration activated yet.",
+    "calculatorTitle": "Rebate Calculator",
+    "calcAssetLabel": "Asset Type",
+    "calcLotsLabel": "Trading lots",
+    "calculating": "Calculating...",
+    "calculateBtn": "Calculate Rebate",
+    "selfRebate": "Your Rebate (Self):",
+    "totalDistributed": "Total Distributed Rebate:",
+    "downlineDetails": "Downline details"
+  },
+  "Account": {
+    "title": "Account Management",
+    "description": "Update security information and view personal performance statistics.",
+    "tabPassword": "Change Password",
+    "tabStats": "Project Statistics",
+    "formTitle": "Change Password",
+    "oldPasswordReq": "Please enter current password",
+    "newPasswordReq": "New password must be at least 6 characters",
+    "confirmPasswordReq": "Please confirm new password",
+    "passwordMismatch": "Passwords do not match",
+    "successMsg": "Password changed successfully!",
+    "oldPasswordLabel": "Current Password",
+    "newPasswordLabel": "New Password",
+    "confirmPasswordLabel": "Confirm New Password",
+    "processing": "Processing...",
+    "updateBtn": "Update Password",
+    "statsError": "Could not load statistics data",
+    "month": "Month",
+    "totalVolume": "Total Volume (Lots)",
+    "totalTransactions": "Total Transactions",
+    "detailsByAsset": "Details by Asset Type",
+    "tableAsset": "Asset Type",
+    "tableVolume": "Volume (Lots)",
+    "tableTransactions": "Transactions",
+    "noData": "No trading data available for this month"
+  }
+}
