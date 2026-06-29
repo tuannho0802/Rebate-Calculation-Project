@@ -1,0 +1,102 @@
+{
+  "Layout": {
+    "authenticating": "Đang xác thực hệ thống...",
+    "overview": "Tổng quan",
+    "ibNetwork": "Mạng lưới IB",
+    "report": "Báo cáo",
+    "config": "Cấu hình",
+    "account": "Tài khoản",
+    "statusActive": "Trạng thái: Đang hoạt động",
+    "logout": "Đăng xuất",
+    "dashboard": "Dashboard"
+  },
+  "Login": {
+    "title": "Hệ thống quản lý IB",
+    "emailLabel": "Email",
+    "emailPlaceholder": "Nhập email của bạn",
+    "passwordLabel": "Mật khẩu",
+    "passwordPlaceholder": "Nhập mật khẩu",
+    "loginBtn": "Đăng nhập hệ thống",
+    "loggingIn": "Đang xử lý..."
+  },
+  "Error": {
+    "AUTH_INVALID_CREDENTIALS": "Email hoặc mật khẩu không đúng",
+    "AUTH_TOKEN_INVALID": "Phiên đăng nhập không hợp lệ",
+    "AUTH_REFRESH_EXPIRED": "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại",
+    "AUTH_FORBIDDEN": "Bạn không có quyền thực hiện thao tác này",
+    "IB_NOT_FOUND": "Không tìm thấy IB",
+    "IB_EMAIL_TAKEN": "Email này đã được sử dụng",
+    "IB_NOT_IN_SUBTREE": "Bạn không có quyền xem thông tin IB này",
+    "IB_MAX_LEVEL_REACHED": "Không thể tạo thêm cấp dưới",
+    "REBATE_EXCEEDS_MAX": "Tổng rebate vượt quá giới hạn cho phép",
+    "REBATE_CONFIG_NOT_FOUND": "Chưa có cấu hình rebate",
+    "REBATE_ASSET_INVALID": "Loại tài sản không hợp lệ",
+    "VALIDATION_ERROR": "Dữ liệu không hợp lệ, vui lòng kiểm tra lại",
+    "INTERNAL_ERROR": "Đã có lỗi xảy ra, vui lòng thử lại",
+    "DATABASE_ERROR": "Đã có lỗi xảy ra, vui lòng thử lại",
+    "DEFAULT": "Đã có lỗi xảy ra"
+  },
+  "Tree": {
+    "title": "Mạng lưới IB",
+    "loading": "Đang tải cấu trúc cây...",
+    "error": "Lỗi khi tải dữ liệu cây IB"
+  },
+  "Rebate": {
+    "title": "Cấu hình Hoa hồng",
+    "save": "Lưu thay đổi",
+    "saving": "Đang lưu...",
+    "validationError": "Tổng Rebate và Markup không được vượt quá tối đa"
+  },
+  "Report": {
+    "title": "Báo cáo tổng hợp",
+    "history": "Lịch sử giao dịch"
+  },
+  "DashboardPage": {
+    "welcome": "Xin chào",
+    "description": "Thông tin quản lý và phân phối hoa hồng Introducer Broker của bạn.",
+    "level": "Cấp bậc",
+    "directDownlines": "Số cấp dưới trực tiếp",
+    "parentId": "Parent ID",
+    "joinedDate": "Ngày tham gia",
+    "currentConfig": "Cấu hình Rebate hiện tại",
+    "assetType": "Asset Type",
+    "rebatePips": "Rebate Pips (Giữ lại)",
+    "markupPips": "Markup Pips (Chuyển tiếp)",
+    "maxPips": "Max Pips",
+    "noConfig": "Chưa có cấu hình Rebate nào được kích hoạt.",
+    "calculatorTitle": "Trình tính hoa hồng",
+    "calcAssetLabel": "Loại tài sản",
+    "calcLotsLabel": "Số lót giao dịch",
+    "calculating": "Đang tính...",
+    "calculateBtn": "Tính hoa hồng",
+    "selfRebate": "Rebate của bạn (Self):",
+    "totalDistributed": "Tổng Rebate phân phối:",
+    "downlineDetails": "Chi tiết cấp dưới"
+  },
+  "Account": {
+    "title": "Quản lý tài khoản",
+    "description": "Cập nhật thông tin bảo mật và xem thống kê hiệu suất cá nhân.",
+    "tabPassword": "Đổi mật khẩu",
+    "tabStats": "Thống kê dự án",
+    "formTitle": "Đổi mật khẩu",
+    "oldPasswordReq": "Vui lòng nhập mật khẩu cũ",
+    "newPasswordReq": "Mật khẩu mới phải có ít nhất 6 ký tự",
+    "confirmPasswordReq": "Vui lòng xác nhận mật khẩu mới",
+    "passwordMismatch": "Mật khẩu xác nhận không khớp",
+    "successMsg": "Đổi mật khẩu thành công!",
+    "oldPasswordLabel": "Mật khẩu hiện tại",
+    "newPasswordLabel": "Mật khẩu mới",
+    "confirmPasswordLabel": "Xác nhận mật khẩu mới",
+    "processing": "Đang xử lý...",
+    "updateBtn": "Cập nhật mật khẩu",
+    "statsError": "Không thể tải dữ liệu thống kê",
+    "month": "Tháng",
+    "totalVolume": "Tổng Khối Lượng (Lots)",
+    "totalTransactions": "Tổng Số Lần Giao Dịch",
+    "detailsByAsset": "Chi tiết theo loại tài sản",
+    "tableAsset": "Tài sản (Asset Type)",
+    "tableVolume": "Khối lượng (Lots)",
+    "tableTransactions": "Số lần giao dịch",
+    "noData": "Chưa có dữ liệu giao dịch trong tháng này"
+  }
+}

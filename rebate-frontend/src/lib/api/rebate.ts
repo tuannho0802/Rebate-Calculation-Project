@@ -1,21 +1,21 @@
+import { ApiResponse, RebateConfig, RebateCalculation, AssetType } from '@/types';
 import { apiClient } from './client';
-import type { RebateConfig, RebateCalculation, AssetType } from '@/types';
 
 export const rebateApi = {
-  getConfig: async (ibId: string): Promise<RebateConfig> => {
-    const { data } = await apiClient.get(`/rebate/config/${ibId}`);
-    return data.data;
+  getConfig: async (ibId: string): Promise<ApiResponse<RebateConfig>> => {
+    const response = await apiClient.get<ApiResponse<RebateConfig>>(`/rebate/config/${ibId}`);
+    return response.data;
   },
 
-  updateConfig: async (ibId: string, assets: any[]): Promise<RebateConfig> => {
-    const { data } = await apiClient.put(`/rebate/config/${ibId}`, { assets });
-    return data.data;
+  updateConfig: async (ibId: string, assets: any): Promise<ApiResponse<RebateConfig>> => {
+    const response = await apiClient.put<ApiResponse<RebateConfig>>(`/rebate/config/${ibId}`, { assets });
+    return response.data;
   },
 
-  calculate: async (ibId: string, assetType: AssetType, lots: number): Promise<RebateCalculation> => {
-    const { data } = await apiClient.get(`/rebate/calculate`, {
-      params: { ibId, assetType, lots },
+  calculate: async (ibId: string, assetType: AssetType, lots: number, period?: string): Promise<ApiResponse<RebateCalculation>> => {
+    const response = await apiClient.get<ApiResponse<RebateCalculation>>('/rebate/calculate', {
+      params: { ibId, assetType, lots, period }
     });
-    return data.data;
-  },
+    return response.data;
+  }
 };

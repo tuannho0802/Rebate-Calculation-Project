@@ -1,26 +1,28 @@
-// Enums
+// ─── Enums ───────────────────────────────────────────────────────
+
 export enum AssetType {
-  D_FOREX        = 'D_FOREX',
-  FOREX          = 'FOREX',
-  GOLD           = 'GOLD',
-  SILVER_5000    = 'SILVER_5000',
-  SILVER_1000    = 'SILVER_1000',
-  OIL            = 'OIL',
-  NATURE_GAS     = 'NATURE_GAS',
-  COMMODITIES    = 'COMMODITIES',
-  HKG50          = 'HKG50',
-  A50            = 'A50',
-  JPN225         = 'JPN225',
-  US_INDEX       = 'US_INDEX',
-  SHARES         = 'SHARES',
-  ETHEREUM       = 'ETHEREUM',
-  PRECIOUS_METAL = 'PRECIOUS_METAL',
-  BITCOIN        = 'BITCOIN',
-  CRYPTO         = 'CRYPTO',
-  GAUCNH         = 'GAUCNH',
+  D_FOREX        = "D_FOREX",
+  FOREX          = "FOREX",
+  GOLD           = "GOLD",
+  SILVER_5000    = "SILVER_5000",
+  SILVER_1000    = "SILVER_1000",
+  OIL            = "OIL",
+  NATURE_GAS     = "NATURE_GAS",
+  COMMODITIES    = "COMMODITIES",
+  HKG50          = "HKG50",
+  A50            = "A50",
+  JPN225         = "JPN225",
+  US_INDEX       = "US_INDEX",
+  SHARES         = "SHARES",
+  ETHEREUM       = "ETHEREUM",
+  PRECIOUS_METAL = "PRECIOUS_METAL",
+  BITCOIN        = "BITCOIN",
+  CRYPTO         = "CRYPTO",
+  GAUCNH         = "GAUCNH",
 }
 
-// API Response Envelope
+// ─── API Response Envelope ────────────────────────────────────────
+
 export interface ApiResponse<T> {
   success: boolean;
   data: T;
@@ -42,12 +44,13 @@ export interface PaginationMeta {
   total: number;
 }
 
-// User / Auth
+// ─── User / Auth ──────────────────────────────────────────────────
+
 export interface AuthUser {
   id: string;
   email: string;
   level: number;
-  role: 'IB' | 'MIB' | 'ADMIN';
+  role: "IB" | "MIB" | "ADMIN";
 }
 
 export interface AuthTokens {
@@ -56,7 +59,8 @@ export interface AuthTokens {
   user: AuthUser;
 }
 
-// IB Node
+// ─── IB Node ─────────────────────────────────────────────────────
+
 export interface IbNode {
   id: string;
   email: string;
@@ -70,12 +74,13 @@ export interface IbTreeNode extends IbNode {
   children: IbTreeNode[];
 }
 
-// Rebate Config
+// ─── Rebate Config ────────────────────────────────────────────────
+
 export interface RebateAssetConfig {
   assetType: AssetType;
   rebatePips: number;
   markupPips: number;
-  markupPercent: number; // 80 hoặc 100
+  markupPercent: number;  // 80 hoặc 100
   maxPips: number;
 }
 
@@ -85,7 +90,8 @@ export interface RebateConfig {
   updatedAt: string;
 }
 
-// Rebate Calculation
+// ─── Rebate Calculation ───────────────────────────────────────────
+
 export interface RebateCalculation {
   ibId: string;
   assetType: AssetType;
@@ -103,9 +109,10 @@ export interface RebateCalculation {
   };
 }
 
-// Report
+// ─── Report ───────────────────────────────────────────────────────
+
 export interface ReportSummary {
-  period: string; // "YYYY-MM"
+  period: string;             // "YYYY-MM"
   totalRebate: number;
   currency: string;
   byAsset: Array<{
@@ -131,7 +138,8 @@ export interface RebateTransaction {
   tradedAt: string;
 }
 
-// Max Pips Reference
+// ─── Constants ────────────────────────────────────────────────────
+
 export const MAX_PIPS: Record<AssetType, number> = {
   [AssetType.D_FOREX]:        12,
   [AssetType.FOREX]:          12,
@@ -152,3 +160,33 @@ export const MAX_PIPS: Record<AssetType, number> = {
   [AssetType.CRYPTO]:        1.5,
   [AssetType.GAUCNH]:          7,
 };
+
+// ─── Ib Performance ───────────────────────────────────────────────
+
+export interface IbPerformanceResponse {
+  ib: {
+    id: string;
+    email: string;
+    level: number;
+  };
+  period: {
+    month: string;
+  };
+  overall: {
+    totalLots: number;
+    transactionCount: number;
+  };
+  byAssetType: Array<{
+    assetType: AssetType;
+    lots: number;
+    count: number;
+    rebateUsd: number;
+  }>;
+}
+
+// ─── Change Password ───────────────────────────────────────────────
+
+export interface ChangePasswordDto {
+  oldPassword: string;
+  newPassword: string;
+}
