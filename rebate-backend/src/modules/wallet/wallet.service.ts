@@ -2,10 +2,15 @@ import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getSubtreeIds } from '../../common/utils/subtree.util';
 import { Decimal } from '@prisma/client/runtime/library';
+import { NotificationService } from '../notification/notification.service';
+import { NotificationType } from '@prisma/client';
 
 @Injectable()
 export class WalletService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   async getOrCreate(ibId: string, tx: any = this.prisma) {
     let wallet = await tx.wallet.findUnique({
@@ -30,6 +35,15 @@ export class WalletService {
         balance: { increment: amount },
         totalEarned: { increment: amount },
       },
+    });
+
+    // Fire REBATE_CREDITED notification (non-blocking)
+    this.notificationService.createSystemNotification({
+      recipientId: ibId,
+      type: NotificationType.TRANSACTION_ADDED,
+      title: 'Rebate duoc ghi co',
+      body: `${amount.toString()} USD da duoc ghi co vao vi cua ban.`,
+      metadata: { amount: amount.toString() },
     });
   }
 
