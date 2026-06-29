@@ -71,15 +71,6 @@ export class RebateService {
           where: { ibId_assetType_rebateType: { ibId: currentUserId, assetType, rebateType: rebateType as any } },
         });
 
-        const limit = parentConfig ? Number(parentConfig.markupPips) : (MAX_PIPS[assetType] || 0);
-
-        if (rebatePips + markupPips > limit) {
-          throw new UnprocessableEntityException({
-            code: 'REBATE_EXCEEDS_MAX',
-            message: `Tổng rebate vượt quá giới hạn cho phép (${limit} pips)`,
-          });
-        }
-
         // 1. Lấy config hiện tại -> before
         const existing = await tx.rebateConfig.findUnique({
           where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
@@ -91,13 +82,92 @@ export class RebateService {
           markupPercent: Number(existing.markupPercent),
         } : null;
 
+        const totalRequested = rebatePips + markupPips;
+        const totalExisting = before ? (before.rebatePips + before.markupPips) : 0;
+        
+        let budget = MAX_PIPS[assetType] || 0;
+        if (parentConfig) {
+          const parentTotal = Number(parentConfig.rebatePips) + Number(parentConfig.markupPips);
+          budget = parentTotal + totalExisting;
+        }
+
+        if (totalRequested > budget) {
+          throw new UnprocessableEntityException({
+            code: 'REBATE_EXCEEDS_MAX',
+            message: `Tổng ngân sách phân bổ vượt quá giới hạn cho phép (${budget} pips)`,
+          });
+        }
+
+        // Cập nhật parentConfig
+        if (parentConfig) {
+          const deltaRebate = rebatePips - (before ? before.rebatePips : 0);
+          const deltaMarkup = markupPips - (before ? before.markupPips : 0);
+
+          if (deltaRebate > Number(parentConfig.rebatePips)) {
+            throw new UnprocessableEntityException({
+              code: 'REBATE_EXCEEDS_MAX',
+              message: `Số rebatePips phân bổ vượt quá ngân sách rebate hiện tại của bạn (${parentConfig.rebatePips} pips)`,
+            });
+          }
+
+          if (deltaMarkup > Number(parentConfig.markupPips)) {
+            throw new UnprocessableEntityException({
+              code: 'REBATE_EXCEEDS_MAX',
+              message: `Số markupPips phân bổ vượt quá ngân sách markup hiện tại của bạn (${parentConfig.markupPips} pips)`,
+            });
+          }
+
+          const hasParentChange = deltaRebate !== 0 || deltaMarkup !== 0;
+          if (hasParentChange) {
+            const parentBefore = {
+              rebatePips: Number(parentConfig.rebatePips),
+              markupPips: Number(parentConfig.markupPips),
+              markupPercent: Number(parentConfig.markupPercent),
+            };
+
+            const updatedParent = await tx.rebateConfig.update({
+              where: { id: parentConfig.id },
+              data: {
+                rebatePips: { decrement: deltaRebate },
+                markupPips: { decrement: deltaMarkup },
+              },
+            });
+
+            const parentAfter = {
+              rebatePips: Number(updatedParent.rebatePips),
+              markupPips: Number(updatedParent.markupPips),
+              markupPercent: Number(updatedParent.markupPercent),
+            };
+
+            await tx.rebateConfigHistory.create({
+              data: {
+                rebateConfigId: updatedParent.id,
+                changedById: currentUserId,
+                before: parentBefore as any,
+                after: parentAfter as any,
+              },
+            });
+
+            await this.auditService.log({
+              actorId: currentUserId,
+              action: AUDIT_ACTIONS.REBATE_CONFIG_UPDATE,
+              targetType: 'REBATE_CONFIG',
+              targetId: currentUserId,
+              before: parentBefore as any,
+              after: parentAfter as any,
+            });
+          }
+        }
+
         // 2. Update -> after
+        const targetMaxPips = rebatePips + markupPips;
         const updated = await tx.rebateConfig.upsert({
           where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
           update: {
             rebatePips,
             markupPips,
             markupPercent,
+            maxPips: targetMaxPips,
           },
           create: {
             ibId: targetIbId,
@@ -106,7 +176,7 @@ export class RebateService {
             rebatePips,
             markupPips,
             markupPercent,
-            maxPips: limit,
+            maxPips: targetMaxPips,
           },
         });
 
@@ -138,8 +208,8 @@ export class RebateService {
           });
         }
 
-        // Cascading update child's children: child's markupPips becomes their new maxPips limit
-        if (hasChange && existing && Number(existing.markupPips) !== markupPips) {
+        // 4. Cascading update child's children
+        if (hasChange && existing && totalRequested !== totalExisting) {
           await tx.rebateConfig.updateMany({
             where: {
               ib: { parentId: targetIbId },
@@ -147,7 +217,7 @@ export class RebateService {
               rebateType: rebateType as any,
             },
             data: {
-              maxPips: markupPips,
+              maxPips: targetMaxPips,
             },
           });
         }
