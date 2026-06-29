@@ -1,15 +1,42 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateIbDto {
-  @IsOptional()
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   @ApiPropertyOptional({ example: 'Nguyen Van B', description: 'Tên mới của IB (không bắt buộc)' })
   name?: string;
 
+  @IsEmail()
   @IsOptional()
-  @IsEmail({}, { message: 'Email không đúng định dạng' })
-  @ApiPropertyOptional({ example: 'newemail@example.com', description: 'Email mới (không bắt buộc, phải là duy nhất)' })
+  @ApiPropertyOptional({ example: 'new-email@test.com', description: 'Email mới (không bắt buộc)' })
   email?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(20)
+  @ApiPropertyOptional({ description: 'Số điện thoại' })
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  @ApiPropertyOptional({ description: 'Quốc gia' })
+  country?: string;
+
+  @IsString()
+  @IsOptional()
+  @ApiPropertyOptional({ description: 'Thông tin tài khoản ngân hàng (JSON)' })
+  bankAccount?: string;
+
+  @IsString()
+  @IsOptional()
+  @ApiPropertyOptional({ description: 'Thông tin thanh toán (JSON)' })
+  paymentInfo?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(500)
+  @ApiPropertyOptional({ description: 'Ghi chú nội bộ' })
+  notes?: string;
 }

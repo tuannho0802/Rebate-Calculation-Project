@@ -1,20 +1,48 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateIbDto {
-  @ApiProperty({ example: 'new-sub-ib@test.com', description: 'Địa chỉ email của Sub-IB mới (phải là duy nhất trong hệ thống)' })
-  @IsEmail({}, { message: 'Email không đúng định dạng' })
-  @IsNotEmpty({ message: 'Email không được để trống' })
-  email!: string;
+  @ApiProperty({ description: 'Email của sub-IB' })
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
 
-  @ApiProperty({ example: 'Test@1234', description: 'Mật khẩu ban đầu cho Sub-IB (tối thiểu 6 ký tự)' })
+  @ApiProperty({ description: 'Tên hiển thị của IB', default: '' })
   @IsString()
-  @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
-  @MinLength(6, { message: 'Mật khẩu phải có ít nhất 6 ký tự' })
-  password!: string;
+  @IsOptional()
+  name?: string;
 
-  @ApiProperty({ example: 'Nguyen Van A', description: 'Tên hiển thị của Sub-IB' })
+  @ApiProperty({ description: 'Mật khẩu của sub-IB', minLength: 6 })
   @IsString()
-  @IsNotEmpty({ message: 'Tên không được để trống' })
-  name!: string;
+  @IsNotEmpty()
+  @MinLength(6)
+  password: string;
+
+  @ApiPropertyOptional({ description: 'Số điện thoại' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(20)
+  phone?: string;
+
+  @ApiPropertyOptional({ description: 'Quốc gia' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  country?: string;
+
+  @ApiPropertyOptional({ description: 'Thông tin tài khoản ngân hàng (JSON)' })
+  @IsString()
+  @IsOptional()
+  bankAccount?: string;
+
+  @ApiPropertyOptional({ description: 'Thông tin thanh toán (JSON)' })
+  @IsString()
+  @IsOptional()
+  paymentInfo?: string;
+
+  @ApiPropertyOptional({ description: 'Ghi chú nội bộ' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(500)
+  notes?: string;
 }
