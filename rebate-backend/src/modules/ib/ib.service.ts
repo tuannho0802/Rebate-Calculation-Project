@@ -573,4 +573,39 @@ export class IbService {
     }));
   }
 
+  /**
+   * PATCH /ib/:id/reset-password — Lv0 only.
+   * Reset mật khẩu của một sub-IB bất kỳ trong subtree.
+   * SubtreeGuard đảm bảo target nằm trong subtree (bảo vệ cross-tree với hệ thống nhiều MIB).
+   */
+  async resetPassword(currentUserId: string, targetIbId: string, newPassword: string) {
+    const target = await this.prisma.ibNode.findUnique({
+      where: { id: targetIbId },
+    });
+
+    if (!target) {
+      throw new NotFoundException({
+        code: 'IB_NOT_FOUND',
+        message: 'Không tìm thấy IB',
+      });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 10);
+
+    await this.prisma.ibNode.update({
+      where: { id: targetIbId },
+      data: { password: hashed },
+    });
+
+    await this.auditService.log({
+      actorId: currentUserId,
+      action: AUDIT_ACTIONS.IB_PASSWORD_RESET,
+      targetType: 'IB',
+      targetId: targetIbId,
+      after: { passwordChanged: true },
+    });
+
+    return { message: 'Da dat lai mat khau thanh cong' };
+  }
+
 }
