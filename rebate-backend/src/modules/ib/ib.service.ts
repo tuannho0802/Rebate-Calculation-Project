@@ -160,6 +160,7 @@ export class IbService {
     const newLevel = currentUserLevel + 1;
 
     const newIb = await this.prisma.$transaction(async (tx: any) => {
+      const referralCode = `IB-${Date.now().toString(36).toUpperCase()}`;
       const ib = await tx.ibNode.create({
         data: {
           email: createIbDto.email,
@@ -167,6 +168,12 @@ export class IbService {
           password: hashedPassword,
           level: newLevel,
           parentId: currentUserId,
+          phone: createIbDto.phone,
+          country: createIbDto.country,
+          bankAccount: createIbDto.bankAccount,
+          paymentInfo: createIbDto.paymentInfo,
+          notes: createIbDto.notes,
+          referralCode,
         },
       });
 
@@ -223,6 +230,7 @@ export class IbService {
       email: newIb.email,
       level: newIb.level,
       parentId: newIb.parentId,
+      referralCode: newIb.referralCode,
     };
   }
 
@@ -396,6 +404,83 @@ export class IbService {
     });
 
     return updated;
+  }
+
+  async updateProfile(callerId: string, callerLevel: number, targetIbId: string, dto: UpdateIbDto) {
+    // callerLevel > 0 && callerId !== targetIbId → chỉ được sửa trong subtree
+    if (callerLevel > 0 && callerId !== targetIbId) {
+      const subtreeIds = await getSubtreeIds(this.prisma, callerId);
+      if (!subtreeIds.includes(targetIbId)) {
+        throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn' });
+      }
+    }
+
+    const ib = await this.prisma.ibNode.findUnique({ where: { id: targetIbId } });
+    if (!ib) throw new NotFoundException({ code: 'IB_NOT_FOUND' });
+
+    // Validate JSON strings
+    if (dto.bankAccount) {
+      try { JSON.parse(dto.bankAccount); } catch { throw new ForbiddenException({ code: 'INVALID_JSON', message: 'bankAccount phải là JSON hợp lệ' }); }
+    }
+    if (dto.paymentInfo) {
+      try { JSON.parse(dto.paymentInfo); } catch { throw new ForbiddenException({ code: 'INVALID_JSON', message: 'paymentInfo phải là JSON hợp lệ' }); }
+    }
+
+    const updated = await this.prisma.ibNode.update({
+      where: { id: targetIbId },
+      data: {
+        phone: dto.phone,
+        country: dto.country,
+        bankAccount: dto.bankAccount,
+        paymentInfo: dto.paymentInfo,
+        notes: dto.notes,
+        profileUpdatedAt: new Date(),
+      },
+      select: {
+        id: true, email: true, name: true, level: true, phone: true, country: true, bankAccount: true, paymentInfo: true, notes: true, referralCode: true, profileUpdatedAt: true, wallet: { select: { balance: true, totalEarned: true } }
+      }
+    });
+
+    await this.auditService.log({
+      actorId: callerId,
+      action: AUDIT_ACTIONS.IB_PROFILE_UPDATE,
+      targetType: 'IB',
+      targetId: targetIbId,
+      before: { phone: ib.phone, country: ib.country },
+      after: { phone: dto.phone, country: dto.country },
+    });
+
+    // Parse JSON
+    return {
+      ...updated,
+      bankAccount: updated.bankAccount ? JSON.parse(updated.bankAccount) : null,
+      paymentInfo: updated.paymentInfo ? JSON.parse(updated.paymentInfo) : null,
+    };
+  }
+
+  async getProfile(callerId: string, callerLevel: number, targetIbId: string) {
+    if (callerLevel > 0 && callerId !== targetIbId) {
+      const subtreeIds = await getSubtreeIds(this.prisma, callerId);
+      if (!subtreeIds.includes(targetIbId)) {
+        throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn' });
+      }
+    }
+
+    const ib = await this.prisma.ibNode.findUnique({
+      where: { id: targetIbId },
+      select: {
+        id: true, email: true, name: true, level: true, phone: true, country: true, bankAccount: true, paymentInfo: true, notes: true, referralCode: true, profileUpdatedAt: true, wallet: { select: { balance: true, totalEarned: true } }
+      }
+    });
+
+    if (!ib) throw new NotFoundException({ code: 'IB_NOT_FOUND' });
+
+    return {
+      ...ib,
+      bankAccount: ib.bankAccount ? JSON.parse(ib.bankAccount) : null,
+      paymentInfo: ib.paymentInfo ? JSON.parse(ib.paymentInfo) : null,
+      wallet: ib.wallet || { balance: 0, totalEarned: 0 },
+    };
   }
 
   /**

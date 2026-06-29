@@ -159,6 +159,24 @@ export class IbController {
   }
 
   @Put(':id')
+  @ApiOperation({ summary: 'Cập nhật thông tin cơ bản IB' })
+  update(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateIbDto) {
+    return this.ibService.updateIb(id, dto, user.sub);
+  }
+
+  @Get(':id/profile')
+  @ApiOperation({ summary: 'Xem profile đầy đủ của IB' })
+  getProfile(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.ibService.getProfile(user.sub, user.level, id);
+  }
+
+  @Patch(':id/profile')
+  @ApiOperation({ summary: 'Cập nhật profile IB' })
+  updateProfile(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateIbDto) {
+    return this.ibService.updateProfile(user.sub, user.level, id, dto);
+  }
+
+  @Patch(':id/reset-password')
   @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({
