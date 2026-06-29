@@ -9,6 +9,8 @@ import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { CreateBatchTransactionDto } from './dto/create-batch-transaction.dto';
 import { NotificationService } from '../notification/notification.service';
 import { NotificationType } from '@prisma/client';
+import { WalletService } from '../wallet/wallet.service';
+import { Decimal } from '@prisma/client/runtime/library';
 
 @Injectable()
 export class TransactionService {
@@ -16,6 +18,7 @@ export class TransactionService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly notificationService: NotificationService,
+    private readonly walletService: WalletService,
   ) {}
 
   /**
@@ -26,17 +29,28 @@ export class TransactionService {
     // Kiểm tra ibId phải là subtree của currentUser
     await this.assertInSubtree(currentUserId, dto.ibId);
 
-    const tx = await this.prisma.rebateTransaction.create({
-      data: {
-        ibId: dto.ibId,
-        assetType: dto.assetType,
-        rebateType: dto.rebateType ?? 'STP_REBATE',
-        lots: dto.lots,
-        rebateAmount: dto.rebateAmount,
-        tradedAt: new Date(dto.tradedAt),
-        note: dto.note,
-        createdById: currentUserId,
-      },
+    // Wrap in transaction to atomic credit wallet
+    const tx = await this.prisma.$transaction(async (prismaTx) => {
+      const createdTx = await prismaTx.rebateTransaction.create({
+        data: {
+          ibId: dto.ibId,
+          assetType: dto.assetType,
+          rebateType: dto.rebateType ?? 'STP_REBATE',
+          lots: dto.lots,
+          rebateAmount: dto.rebateAmount,
+          tradedAt: new Date(dto.tradedAt),
+          note: dto.note,
+          createdById: currentUserId,
+        },
+      });
+
+      await this.walletService.credit(
+        createdTx.ibId,
+        new Decimal(createdTx.rebateAmount),
+        prismaTx
+      );
+
+      return createdTx;
     });
 
     await this.auditService.log({
@@ -78,17 +92,33 @@ export class TransactionService {
       });
     }
 
-    const result = await this.prisma.rebateTransaction.createMany({
-      data: dto.transactions.map((t) => ({
-        ibId: t.ibId,
-        assetType: t.assetType,
-        rebateType: t.rebateType ?? 'STP_REBATE',
-        lots: t.lots,
-        rebateAmount: t.rebateAmount,
-        tradedAt: new Date(t.tradedAt),
-        note: t.note,
-        createdById: currentUserId,
-      })),
+    const result = await this.prisma.$transaction(async (prismaTx) => {
+      const created = await prismaTx.rebateTransaction.createMany({
+        data: dto.transactions.map((t) => ({
+          ibId: t.ibId,
+          assetType: t.assetType,
+          rebateType: t.rebateType ?? 'STP_REBATE',
+          lots: t.lots,
+          rebateAmount: t.rebateAmount,
+          tradedAt: new Date(t.tradedAt),
+          note: t.note,
+          createdById: currentUserId,
+        })),
+      });
+
+      // Credit wallet cho từng IB trong batch
+      // Group by ibId để update ít query hơn
+      const walletCredits = new Map<string, Decimal>();
+      for (const t of dto.transactions) {
+        const current = walletCredits.get(t.ibId) || new Decimal(0);
+        walletCredits.set(t.ibId, current.plus(new Decimal(t.rebateAmount)));
+      }
+
+      for (const [ibId, amount] of walletCredits.entries()) {
+        await this.walletService.credit(ibId, amount, prismaTx);
+      }
+
+      return created;
     });
 
     await this.auditService.log({
@@ -153,7 +183,15 @@ export class TransactionService {
       });
     }
 
-    await this.prisma.rebateTransaction.delete({ where: { id } });
+    await this.prisma.$transaction(async (prismaTx) => {
+      await prismaTx.rebateTransaction.delete({ where: { id } });
+      // Deduct from wallet
+      await this.walletService.credit(
+        tx.ibId,
+        new Decimal(tx.rebateAmount).negated(),
+        prismaTx
+      );
+    });
 
     await this.auditService.log({
       actorId: currentUserId,

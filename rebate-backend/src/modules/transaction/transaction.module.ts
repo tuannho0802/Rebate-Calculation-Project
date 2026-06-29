@@ -4,11 +4,11 @@ import { TransactionController } from './transaction.controller';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AuditModule } from '../audit/audit.module';
 import { NotificationModule } from '../notification/notification.module';
+import { WalletModule } from '../wallet/wallet.module';
 
 @Module({
-  imports: [PrismaModule, AuditModule, NotificationModule],
+  imports: [PrismaModule, AuditModule, NotificationModule, WalletModule],
   controllers: [TransactionController],
   providers: [TransactionService],
 })
 export class TransactionModule {}
-

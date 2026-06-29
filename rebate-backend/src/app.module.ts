@@ -10,6 +10,8 @@ import { AuditModule } from './modules/audit/audit.module';
 import { TransactionModule } from './modules/transaction/transaction.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { WalletModule } from './modules/wallet/wallet.module';
+import { PayoutModule } from './modules/payout/payout.module';
 import { AppController } from './app.controller';
 
 @Module({
@@ -25,6 +27,8 @@ import { AppController } from './app.controller';
     TransactionModule,
     DashboardModule,
     NotificationModule,
+    WalletModule,
+    PayoutModule,
   ],
   controllers: [AppController],
 })
