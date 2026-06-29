@@ -41,6 +41,12 @@ export class NotificationController {
     return this.notificationService.markAllAsRead(user.sub);
   }
 
+  @Get('count')
+  @ApiOperation({ summary: 'Lấy số lượng thông báo chưa đọc (dùng cho badge)' })
+  getUnreadCount(@CurrentUser() user: any) {
+    return this.notificationService.getUnreadCount(user.sub);
+  }
+
   @Patch(':id/read')
   @ApiOperation({ summary: 'Đánh dấu 1 thông báo đã đọc' })
   @ApiParam({ name: 'id', description: 'UUID của thông báo' })
