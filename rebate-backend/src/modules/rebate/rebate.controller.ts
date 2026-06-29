@@ -40,7 +40,7 @@ export class RebateController {
     @Param('ibId') ibId: string,
     @Body() updateDto: UpdateRebateConfigDto,
   ) {
-    return this.rebateService.updateConfig(user.sub, ibId, updateDto);
+    return this.rebateService.updateConfig(user.sub, user.level, ibId, updateDto);
   }
 
   @Get('config/:ibId/history')
