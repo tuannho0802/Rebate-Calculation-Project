@@ -63,6 +63,31 @@ export class DashboardService {
       monthRebateUsd: Number(t._sum.rebateAmount ?? 0),
     }));
 
+    // 6. C3: chartData — 6 tháng gần nhất { month, totalRebate, totalLots }
+    const now = new Date();
+    const chartData: { month: string; totalRebate: number; totalLots: number }[] = [];
+
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const start = new Date(d.getFullYear(), d.getMonth(), 1);
+      const end = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+      const monthLabel = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+      const agg = await this.prisma.rebateTransaction.aggregate({
+        where: {
+          ibId: { in: subtreeIds },
+          tradedAt: { gte: start, lt: end },
+        },
+        _sum: { rebateAmount: true, lots: true },
+      });
+
+      chartData.push({
+        month: monthLabel,
+        totalRebate: Number((agg._sum.rebateAmount ?? 0).toFixed(4)),
+        totalLots: Number((agg._sum.lots ?? 0).toFixed(4)),
+      });
+    }
+
     return {
       ibStats: {
         totalActive: activeCount,
@@ -78,6 +103,7 @@ export class DashboardService {
         monthRebateUsd: Number(monthAgg._sum.rebateAmount ?? 0),
       },
       topIbsThisMonth: topIbsResult,
+      chartData,
       generatedAt: new Date().toISOString(),
     };
   }
