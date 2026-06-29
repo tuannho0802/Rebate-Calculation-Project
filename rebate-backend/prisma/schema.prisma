@@ -24,6 +24,14 @@ model IbNode {
   auditLogs            AuditLog[]          @relation("AuditActor")
   refreshTokens        RefreshToken[]
 
+  phone                String?
+  country              String?
+  bankAccount          String?
+  paymentInfo          String?
+  referralCode         String?             @unique
+  notes                String?
+  profileUpdatedAt     DateTime?
+
   wallet               Wallet?
   payouts              Payout[]
   processedPayouts     Payout[]            @relation("PayoutProcessor")
