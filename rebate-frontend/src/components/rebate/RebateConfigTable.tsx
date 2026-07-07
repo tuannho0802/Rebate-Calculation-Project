@@ -60,7 +60,9 @@ export function RebateConfigTable() {
   };
 
   const validateRow = (row: RebateAssetConfig) => {
-    const limit = MAX_PIPS[row.assetType] || row.maxPips || 100;
+    const limit = user?.level === 0
+      ? MAX_PIPS[row.assetType] ?? row.maxPips ?? 100
+      : row.maxPips ?? 100;
     return (row.rebatePips + row.markupPips) <= limit;
   };
 
@@ -161,7 +163,9 @@ export function RebateConfigTable() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {formData.map((row, idx) => {
-                  const limit = MAX_PIPS[row.assetType] || row.maxPips || 100;
+                  const limit = user?.level === 0
+                    ? MAX_PIPS[row.assetType] ?? row.maxPips ?? 100
+                    : row.maxPips ?? 100;
                   const isRowInvalid = !validateRow(row);
                   const total = row.rebatePips + row.markupPips;
 

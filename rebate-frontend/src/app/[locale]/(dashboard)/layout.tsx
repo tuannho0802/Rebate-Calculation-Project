@@ -8,6 +8,8 @@ import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api/auth';
 import { Loader2, LogOut, LayoutDashboard, Users, Settings, BarChart3, Menu, X, UserCog } from 'lucide-react';
 
+import { useQueryClient } from '@tanstack/react-query';
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -15,6 +17,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const t = useTranslations('Layout');
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const token = localStorage.getItem('ib_access_token');
@@ -30,6 +33,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     try {
       await authApi.logout();
     } finally {
+      queryClient.clear();
       logout();
       router.push('/login');
     }

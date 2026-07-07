@@ -17,8 +17,8 @@ export const ibApi = {
     return response.data;
   },
 
-  create: async (email: string, password?: string): Promise<ApiResponse<IbNode>> => {
-    const response = await apiClient.post<ApiResponse<IbNode>>('/ib', { email, password });
+  create: async (email: string, password?: string, name?: string): Promise<ApiResponse<IbNode>> => {
+    const response = await apiClient.post<ApiResponse<IbNode>>('/ib', { email, password, name });
     return response.data;
   },
 

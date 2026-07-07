@@ -1,5 +1,4 @@
-import { RebateConfigTable } from '@/components/rebate/RebateConfigTable';
-import { RebateCalculateWidget } from '@/components/rebate/RebateCalculateWidget';
+import { AccountTypeBuilder } from '@/components/rebate/AccountTypeBuilder';
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -16,11 +15,7 @@ export default function RebatePage() {
         </p>
       </div>
       
-      <RebateConfigTable />
-
-      <div className="pt-4 border-t border-gray-100">
-        <RebateCalculateWidget />
-      </div>
+      <AccountTypeBuilder />
     </div>
   );
 }

@@ -64,6 +64,7 @@ export interface AuthTokens {
 export interface IbNode {
   id: string;
   email: string;
+  name?: string;
   level: number;
   parentId: string | null;
   totalChildren?: number;

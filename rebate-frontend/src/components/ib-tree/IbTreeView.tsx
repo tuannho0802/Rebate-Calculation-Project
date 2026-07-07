@@ -7,14 +7,16 @@ import { TreeNode } from './TreeNode';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { IbDetailsDrawer } from './IbDetailsDrawer';
 import { CreateIbModal } from './CreateIbModal';
+import { useAuthStore } from '@/store/auth.store';
 
 export function IbTreeView() {
   const [selectedIbId, setSelectedIbId] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
+  const { user } = useAuthStore();
   const { data: response, isLoading, isError } = useQuery({
-    queryKey: ['ibTree', 'all'],
+    queryKey: ['ibTree', 'all', user?.id],
     queryFn: () => ibApi.getTree('all'),
   });
 

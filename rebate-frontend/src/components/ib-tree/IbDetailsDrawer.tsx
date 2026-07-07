@@ -2,7 +2,8 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
-import { Loader2, X, User, Calendar, Shield, Users, Plus } from 'lucide-react';
+import { Loader2, X, User, Calendar, Shield, Users, Plus, Edit } from 'lucide-react';
+import { useRouter } from '@/i18n/routing';
 
 interface IbDetailsDrawerProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ interface IbDetailsDrawerProps {
 }
 
 export function IbDetailsDrawer({ isOpen, onClose, ibId, onOpenCreate }: IbDetailsDrawerProps) {
+  const router = useRouter();
   const { data: response, isLoading, isError } = useQuery({
     queryKey: ['ibDetails', ibId],
     queryFn: () => ibApi.getById(ibId!),
@@ -100,7 +102,14 @@ export function IbDetailsDrawer({ isOpen, onClose, ibId, onOpenCreate }: IbDetai
           )}
         </div>
 
-        <div className="p-6 border-t border-gray-100 bg-gray-50">
+        <div className="p-6 border-t border-gray-100 bg-gray-50 space-y-3">
+          <button
+            onClick={() => router.push(`/dashboard/tree/edit/${ibId}`)}
+            className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 py-3 rounded-xl font-bold transition-all shadow-sm"
+          >
+            <Edit className="h-5 w-5" />
+            Cài đặt Hoa Hồng
+          </button>
           <button
             onClick={onOpenCreate}
             className="w-full flex items-center justify-center gap-2 bg-[#0066ff] hover:bg-[#0052cc] text-white py-3 rounded-xl font-bold transition-all shadow-md shadow-blue-500/20"
