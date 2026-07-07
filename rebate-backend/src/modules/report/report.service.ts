@@ -1,13 +1,32 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getSubtreeIds } from '../../common/utils/subtree.util';
-import { AssetType } from '@prisma/client';
+import { AssetType, RebateType } from '@prisma/client';
 
 @Injectable()
 export class ReportService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getSummary(rootIbId: string, filterIbId?: string, period?: string) {
+  /**
+   * A4: Validate filterIbId nằm trong subtree của caller.
+   * Lv0 (level = 0) bỏ qua check — được xem bất kỳ IB nào trong cây.
+   */
+  private async validateFilterIbId(rootIbId: string, callerLevel: number, filterIbId?: string) {
+    if (!filterIbId || filterIbId === rootIbId) return;
+    if (callerLevel === 0) return; // Lv0 bypass
+
+    const subtree = await getSubtreeIds(this.prisma, rootIbId);
+    if (!subtree.includes(filterIbId)) {
+      throw new ForbiddenException({ 
+        code: 'IB_NOT_IN_SUBTREE',
+        message: 'IB này không thuộc subtree của bạn'
+      });
+    }
+  }
+
+  async getSummary(rootIbId: string, callerLevel: number, filterIbId?: string, period?: string) {
+    await this.validateFilterIbId(rootIbId, callerLevel, filterIbId);
+
     // Determine the set of IBs to include
     const baseIbId = filterIbId || rootIbId;
     const targetIbIds = await getSubtreeIds(this.prisma, baseIbId);
@@ -86,12 +105,16 @@ export class ReportService {
 
   async getTransactions(
     rootIbId: string,
+    callerLevel: number,
     filterIbId?: string,
     period?: string,
     assetType?: AssetType,
+    rebateType?: RebateType,   // C2: new filter
     page = 1,
     limit = 20,
   ) {
+    await this.validateFilterIbId(rootIbId, callerLevel, filterIbId);
+
     const baseIbId = filterIbId || rootIbId;
     const targetIbIds = await getSubtreeIds(this.prisma, baseIbId);
 
@@ -101,6 +124,11 @@ export class ReportService {
 
     if (assetType) {
       where.assetType = assetType;
+    }
+
+    // C2: filter by rebateType
+    if (rebateType) {
+      where.rebateType = rebateType;
     }
 
     if (period) {
@@ -127,6 +155,7 @@ export class ReportService {
       id: tx.id,
       ibId: tx.ibId,
       assetType: tx.assetType,
+      rebateType: tx.rebateType,
       lots: Number(tx.lots),
       rebateAmount: Number(tx.rebateAmount),
       currency: tx.currency,

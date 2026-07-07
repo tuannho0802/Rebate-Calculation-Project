@@ -40,7 +40,7 @@ export class NotificationService {
       }),
     ]);
 
-    return { data: items, meta: { page, limit, total, unreadCount } };
+    return { items, meta: { page, limit, total, unreadCount } };
   }
 
   /**
@@ -87,6 +87,16 @@ export class NotificationService {
       where: { id: notificationId },
       data: { isRead: true, readAt: new Date() },
     });
+  }
+
+  /**
+   * GET /notifications/count — trả về số unread (dùng cho badge)
+   */
+  async getUnreadCount(ibId: string) {
+    const count = await this.prisma.notification.count({
+      where: { recipientId: ibId, isRead: false },
+    });
+    return { unreadCount: count };
   }
 
   /**

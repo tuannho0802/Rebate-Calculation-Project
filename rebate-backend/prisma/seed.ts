@@ -6,8 +6,13 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Clearing database...');
   await prisma.refreshToken.deleteMany({});
+  await prisma.payout.deleteMany({});
+  await prisma.wallet.deleteMany({});
   await prisma.rebateTransaction.deleteMany({});
+  await prisma.rebateConfigHistory.deleteMany({});
   await prisma.rebateConfig.deleteMany({});
+  await prisma.auditLog.deleteMany({});
+  await prisma.notification.deleteMany({});
   await prisma.ibNode.deleteMany({});
 
   console.log('Seeding test accounts...');
@@ -177,7 +182,22 @@ async function main() {
 
   await prisma.rebateTransaction.createMany({ data: transactions });
 
-  console.log('Seeding complete!');
+  // Tạo wallet cho tất cả IB nodes với balance = tổng rebateAmount của họ
+  const ibNodes = await prisma.ibNode.findMany();
+  for (const ib of ibNodes) {
+    const totalEarned = await prisma.rebateTransaction.aggregate({
+      where: { ibId: ib.id },
+      _sum: { rebateAmount: true },
+    });
+    const earned = totalEarned._sum.rebateAmount ?? 0;
+    await prisma.wallet.upsert({
+      where: { ibId: ib.id },
+      create: { ibId: ib.id, balance: earned, totalEarned: earned, totalPaid: 0 },
+      update: { balance: earned, totalEarned: earned },
+    });
+  }
+
+  console.log('✅ Seed dữ liệu thành công!');
 }
 
 main()

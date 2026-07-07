@@ -7,8 +7,10 @@ import type { Request } from 'express';
 import { IbService } from './ib.service';
 import { CreateIbDto } from './dto/create-ib.dto';
 import { UpdateIbDto } from './dto/update-ib.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
+import { Lv0Guard } from '../../common/guards/lv0.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import {
   ApiTags, ApiOperation, ApiResponse, ApiBearerAuth,
@@ -157,6 +159,24 @@ export class IbController {
   }
 
   @Put(':id')
+  @ApiOperation({ summary: 'Cập nhật thông tin cơ bản IB' })
+  update(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateIbDto) {
+    return this.ibService.updateIb(id, dto, user.sub);
+  }
+
+  @Get(':id/profile')
+  @ApiOperation({ summary: 'Xem profile đầy đủ của IB' })
+  getProfile(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.ibService.getProfile(user.sub, user.level, id);
+  }
+
+  @Patch(':id/profile')
+  @ApiOperation({ summary: 'Cập nhật profile IB' })
+  updateProfile(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateIbDto) {
+    return this.ibService.updateProfile(user.sub, user.level, id, dto);
+  }
+
+  @Patch(':id/reset-password')
   @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({
@@ -239,5 +259,27 @@ export class IbController {
     @Query('month') month?: string,
   ) {
     return this.ibService.getIbPerformance(user.sub, id, month);
+  }
+
+  // ─── RESET PASSWORD (Lv0 only) ──────────────────────────────────
+  @Patch(':id/reset-password')
+  @UseGuards(Lv0Guard, SubtreeGuard)
+  @ApiOperation({
+    summary: 'Reset mật khẩu cho Sub-IB (chỉ Lv0)',
+    description:
+      'Cho phép MIB (Lv0) reset mật khẩu của bất kỳ IB nào trong cây.\n\n' +
+      '**SubtreeGuard** vẫn được áp dụng — bảo vệ cross-tree (hệ thống nhiều MIB độc lập).\n' +
+      '**Lv0Guard** chặn Lv1+ trước khi đến SubtreeGuard.',
+  })
+  @ApiParam({ name: 'id', description: 'UUID của IB cần reset mật khẩu' })
+  @ApiResponse({ status: 200, description: 'Reset mật khẩu thành công' })
+  @ApiResponse({ status: 403, description: 'Chỉ Lv0 mới được thực hiện' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy IB' })
+  resetPassword(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: ResetPasswordDto,
+  ) {
+    return this.ibService.resetPassword(user.sub, id, dto.newPassword);
   }
 }

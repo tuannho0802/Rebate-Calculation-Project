@@ -55,12 +55,27 @@ export class RebateService {
     };
   }
 
-  async updateConfig(currentUserId: string, targetIbId: string, updateDto: UpdateRebateConfigDto) {
+  async updateConfig(currentUserId: string, currentUserLevel: number, targetIbId: string, updateDto: UpdateRebateConfigDto) {
     if (currentUserId === targetIbId) {
       throw new ForbiddenException({
         code: 'AUTH_FORBIDDEN',
-        message: 'Bạn không có quyền thực hiện thao tác này',
+        message: 'Ban khong co quyen thuc hien thao tac nay',
       });
+    }
+
+    // A3: Lv1+ chi duoc set config cho con truc tiep (parentId = currentUserId).
+    // Lv0 co the set cho bat ky IB nao trong subtree (SubtreeGuard van chay tren controller).
+    if (currentUserLevel > 0) {
+      const targetIb = await this.prisma.ibNode.findUnique({
+        where: { id: targetIbId },
+        select: { parentId: true },
+      });
+      if (!targetIb || targetIb.parentId !== currentUserId) {
+        throw new ForbiddenException({
+          code: 'REBATE_TARGET_NOT_DIRECT_CHILD',
+          message: 'Ban chi co the set rebate config cho IB truc tiep duoi ban',
+        });
+      }
     }
 
     await this.prisma.$transaction(async (tx: any) => {

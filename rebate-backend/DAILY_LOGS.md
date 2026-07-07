@@ -360,9 +360,25 @@ Column names trong raw SQL đã dùng `parent_id`, `ib_id`, `asset_type`, `rebat
 
 
 ## 2026-06-29: Fix Rebate Allocation Flow
-- Fixed budget calculation in \updateConfig\ to properly consider total parent budget (\ebatePips + markupPips\) and refund previously allocated pips.
-- Implemented decrementing of parent's \ebatePips\ and \markupPips\ budgets when assigning to children.
+- Fixed budget calculation in \updateConfig\ to properly consider total parent budget (\ebatePips + markupPips\) and refund previously allocated pips.
+- Implemented decrementing of parent's \ebatePips\ and \markupPips\ budgets when assigning to children.
 - Added validation to ensure parent budgets don't go negative.
-- Set child's \maxPips\ to the total budget received (\ebatePips + markupPips\) rather than just \markupPips\.
+- Set child's \maxPips\ to the total budget received (\ebatePips + markupPips\) rather than just \markupPips\.
 - Added cascading updates to propagate \maxPips\ limit correctly to descendants when a child's total budget changes.
 - Recorded RebateConfigHistory and AuditLog for changes made to the parent's configuration.
+
+## [2026-06-29] - Sprint 3 Completed: Security & Feature Gaps
+- A3: Added direct-child check for `PUT /rebate/config/:ibId` (`currentUserLevel > 0` must be parent), while Lv0 can set for anyone in the subtree.
+- A4: Fixed `ReportService` to validate `filterIbId` is within the caller's subtree (Lv0 bypasses).
+- B1: Implemented `PATCH /ib/:id/reset-password` endpoint protected by `Lv0Guard` and `SubtreeGuard`.
+- C2: Added `rebateType` filter to `GET /report/transactions`.
+- C3: Added 6-month `chartData` to `GET /dashboard/summary` for frontend rendering.
+- Passed all 42 tests in `test-sprint3.js` including Sprint 1 & 2 regressions.
+
+## [2026-06-29] - Sprint 4 Completed: Wallet & Payout System
+- DB Schema: Added `Wallet` and `Payout` models with `PayoutStatus`.
+- Wallet Module: Integrated automatic wallet crediting into `TransactionService`.
+- Payout Module: Implemented payout request, approval, and rejection flows with Lv0 and Subtree guards.
+- Audit & Notifications: Added `PAYOUT_REQUESTED`, `PAYOUT_APPROVED`, `PAYOUT_REJECTED` audit logs and corresponding system notifications.
+- Seed Data: Automated calculation of legacy balances and wallet generation for existing IB nodes.
+- Testing: Created `test-sprint4.js` to cover full payout flows, regressions, and balance calculations. All tests pass successfully.

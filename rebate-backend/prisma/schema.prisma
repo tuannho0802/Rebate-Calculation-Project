@@ -24,6 +24,18 @@ model IbNode {
   auditLogs            AuditLog[]          @relation("AuditActor")
   refreshTokens        RefreshToken[]
 
+  phone                String?
+  country              String?
+  bankAccount          String?
+  paymentInfo          String?
+  referralCode         String?             @unique
+  notes                String?
+  profileUpdatedAt     DateTime?
+
+  wallet               Wallet?
+  payouts              Payout[]
+  processedPayouts     Payout[]            @relation("PayoutProcessor")
+
   receivedNotifications Notification[] @relation("NotificationRecipient")
   sentNotifications     Notification[] @relation("NotificationSender")
   rebateConfigChanges   RebateConfigHistory[] @relation("RebateConfigHistoryActor")
@@ -178,4 +190,48 @@ model RebateConfigHistory {
   @@index([rebateConfigId])
   @@index([changedById])
   @@map("rebate_config_history")
+}
+
+enum PayoutStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  PAID
+}
+
+model Wallet {
+  id          String   @id @default(uuid())
+  ibId        String   @unique
+  balance     Decimal  @default(0) @db.Decimal(18, 8)
+  totalEarned Decimal  @default(0) @db.Decimal(18, 8)
+  totalPaid   Decimal  @default(0) @db.Decimal(18, 8)
+  currency    String   @default("USD")
+  updatedAt   DateTime @updatedAt
+
+  ib          IbNode   @relation(fields: [ibId], references: [id])
+  payouts     Payout[]
+
+  @@map("wallets")
+}
+
+model Payout {
+  id            String       @id @default(uuid())
+  ibId          String
+  walletId      String
+  amount        Decimal      @db.Decimal(18, 8)
+  status        PayoutStatus @default(PENDING)
+  paymentMethod String?
+  note          String?
+  rejectedReason String?
+  requestedAt   DateTime     @default(now())
+  processedAt   DateTime?
+  processedBy   String?
+
+  ib            IbNode   @relation(fields: [ibId], references: [id])
+  wallet        Wallet   @relation(fields: [walletId], references: [id])
+  processor     IbNode?  @relation("PayoutProcessor", fields: [processedBy], references: [id])
+
+  @@index([ibId])
+  @@index([walletId])
+  @@map("payouts")
 }
