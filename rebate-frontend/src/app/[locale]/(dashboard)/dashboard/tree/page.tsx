@@ -1,4 +1,4 @@
-import { IbTreeView } from '@/components/ib-tree/IbTreeView';
+import { NetworkIbTable } from '@/components/ib-tree/NetworkIbTable';
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -15,7 +15,7 @@ export default function TreePage() {
         </p>
       </div>
       
-      <IbTreeView />
+      <NetworkIbTable />
     </div>
   );
 }

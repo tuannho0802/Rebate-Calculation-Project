@@ -45,7 +45,16 @@
     "title": "Rebate Configuration",
     "save": "Save changes",
     "saving": "Saving...",
-    "validationError": "Total Rebate and Markup must not exceed maximum"
+    "validationError": "Total Rebate and Markup must not exceed maximum",
+    "createAccountTypeBtn": "Create Account Type & Markup Scheme",
+    "createAccountTypeModalTitle": "Create new table",
+    "tableNameLabel": "Table name:",
+    "tableNamePlaceholder": "Enter table name...",
+    "cancelBtn": "Cancel",
+    "createBtn": "Create",
+    "colAssetType": "Asset Type / Symbol",
+    "colMaxCeiling": "Max Ceiling (Pips/USD)",
+    "colCalcUnit": "Calculation Unit"
   },
   "Report": {
     "title": "Summary Report",

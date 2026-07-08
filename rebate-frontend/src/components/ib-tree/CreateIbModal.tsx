@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { getErrorMessage } from '@/lib/error-messages';
-import { Loader2, X, Mail, Lock } from 'lucide-react';
+import { Loader2, X, Mail, Lock, User, Briefcase } from 'lucide-react';
 
 interface CreateIbModalProps {
   isOpen: boolean;
@@ -14,18 +14,27 @@ interface CreateIbModalProps {
 
 export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps) {
   const queryClient = useQueryClient();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState('123456');
+  const [accountType, setAccountType] = useState('SEA STD');
   const [errorMsg, setErrorMsg] = useState('');
 
   const createMutation = useMutation({
-    mutationFn: () => ibApi.create(email, password),
+    mutationFn: () => ibApi.create(email, password, name),
     onSuccess: (res) => {
       if (res.success) {
+        // Mock account type storage
+        const storedTypes = JSON.parse(localStorage.getItem('ibAccountTypes') || '{}');
+        storedTypes[res.data.id] = accountType;
+        localStorage.setItem('ibAccountTypes', JSON.stringify(storedTypes));
+
         queryClient.invalidateQueries({ queryKey: ['ibTree'] });
         onClose();
+        setName('');
         setEmail('');
-        setPassword('');
+        setPassword('123456');
+        setAccountType('SEA STD');
         setErrorMsg('');
       } else {
         setErrorMsg(getErrorMessage((res as any).error?.code));
@@ -40,8 +49,8 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      setErrorMsg('Vui lòng nhập đầy đủ email và mật khẩu');
+    if (!name || !email || !password || !accountType) {
+      setErrorMsg('Vui lòng nhập đầy đủ thông tin');
       return;
     }
     createMutation.mutate();
@@ -73,6 +82,23 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
             )}
 
             <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Tên IB</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <User className="h-5 w-5 text-gray-400" />
+                </div>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#0066ff]/50 focus:border-[#0066ff] transition-all"
+                  placeholder="Nhập tên IB"
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">Email IB</label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -100,9 +126,28 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#0066ff]/50 focus:border-[#0066ff] transition-all"
-                  placeholder="Nhập mật khẩu"
+                  placeholder="Nhập mật khẩu (mặc định 123456)"
                   required
                 />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Loại tài khoản</label>
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Briefcase className="h-5 w-5 text-gray-400" />
+                </div>
+                <select
+                  value={accountType}
+                  onChange={(e) => setAccountType(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#0066ff]/50 focus:border-[#0066ff] transition-all appearance-none"
+                  required
+                >
+                  <option value="SEA STD">SEA STD</option>
+                  <option value="ALPHA">ALPHA</option>
+                  <option value="PRO">PRO</option>
+                </select>
               </div>
             </div>
 

@@ -45,7 +45,16 @@
     "title": "Cấu hình Hoa hồng",
     "save": "Lưu thay đổi",
     "saving": "Đang lưu...",
-    "validationError": "Tổng Rebate và Markup không được vượt quá tối đa"
+    "validationError": "Tổng Rebate và Markup không được vượt quá tối đa",
+    "createAccountTypeBtn": "Tạo Loại tài khoản & Gói phí",
+    "createAccountTypeModalTitle": "Tạo bảng mới",
+    "tableNameLabel": "Tên bảng:",
+    "tableNamePlaceholder": "Nhập tên bảng...",
+    "cancelBtn": "Hủy",
+    "createBtn": "Tạo",
+    "colAssetType": "Sản Phẩm (Asset Type / Symbol)",
+    "colMaxCeiling": "Hạn Mức Trần Sàn (Max Ceiling (Pips/USD))",
+    "colCalcUnit": "Đơn Vị Tính (Calculation Unit)"
   },
   "Report": {
     "title": "Báo cáo tổng hợp",
