@@ -347,3 +347,33 @@
 - [x] Không có chức năng cũ nào bị hỏng
 - [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
 - [x] Các type vẫn khớp với 02_DATA_MODELS.md
+---
+
+## [2026-07-09] — Phần: FRONTEND
+
+### Phiên Làm Việc
+- Agent: GitHub Copilot
+- Yêu cầu từ: Sửa logic trang edit Sub-IB, lấy đúng Markup Max từ cấu hình Link Markup và sửa lỗi runtime `use(params)`.
+
+### Đã Triển Khai
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx: sửa `const { id } = use(params)` thành `const { id } = params`.
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx: chuyển `Rebate Max` về lấy trực tiếp `row.maxCeiling` từ bảng sản phẩm.
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx: sửa `getMarkupMax()` để đọc giá trị `share` từ `localStorage` trong `markupLinkTemplates` theo account type đã chọn, khớp tên link không phân biệt hoa thường và dùng fallback nếu cần.
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx: dọn biến không dùng và loại bỏ logic fetch cấu hình rebate không cần thiết.
+
+### Đã Sửa Lỗi
+- Sửa lỗi runtime ReferenceError `use is not defined` trên trang edit Sub-IB.
+- Sửa lỗi Markup Max hiển thị 0 do không lấy đúng giá trị hoa hồng từ cấu hình Link Markup.
+
+### Đã Cập Nhật
+- Cập nhật logic hiển thị và validation `Rebate Max` / `Markup Max` trong trang edit để tách biệt rõ hai nguồn dữ liệu.
+
+### Ghi Chú
+- Dữ liệu account type của Sub-IB được đọc từ `localStorage.ibAccountTypes` nếu `subIbAccountType` chưa được tải đúng.
+- Nếu không tìm thấy link Markup chính xác, hệ thống fallback sang link đầu tiên để tránh hiển thị 0.
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi
+- [x] Không có chức năng cũ nào bị hỏng
+- [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [x] Các type vẫn khớp với 02_DATA_MODELS.md

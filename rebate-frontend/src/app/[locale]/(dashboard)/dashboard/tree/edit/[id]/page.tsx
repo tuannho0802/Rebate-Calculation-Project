@@ -1,34 +1,33 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from '@/i18n/routing';
 import { useMutation } from '@tanstack/react-query';
 import { rebateApi } from '@/lib/api/rebate';
 import { ibApi } from '@/lib/api/ib';
 import { useAuthStore } from '@/store/auth.store';
 import { Loader2, Save, ArrowLeft } from 'lucide-react';
-import { AssetType, RebateAssetConfig, RebateConfig } from '@/types';
-import { AccountTypeTable } from '@/components/rebate/AccountTypeBuilder';
+import { AssetType, IbNode, RebateAssetConfig } from '@/types';
+import { AccountTypeTable, MarkupLinkRow } from '@/components/rebate/AccountTypeBuilder';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
 
-export default function EditIbRebatePage({ params }: { params: Promise<{ id: string }> }) {
+export default function EditIbRebatePage({ params }: { params: { id: string } }) {
   const router = useRouter();
-  const { id } = use(params);
+  const { id } = params;
   const { user } = useAuthStore();
   
-  const [mounted, setMounted] = useState(false);
   const [tables, setTables] = useState<AccountTypeTable[]>([]);
   // We'll store separate Rebate and Markup values for each table row.
   // Keys are `${tableId}_${assetType}_rebate` and `${tableId}_${assetType}_markup`.
   const [rebateValues, setRebateValues] = useState<Record<string, string>>({});
   const [markupValues, setMarkupValues] = useState<Record<string, string>>({});
 
-  const [profile, setProfile] = useState<any>(null);
-  const [currentUserConfig, setCurrentUserConfig] = useState<RebateConfig | null>(null);
+  const [mounted, setMounted] = useState(false);
+  const [subIbAccountType, setSubIbAccountType] = useState('SEA STD');
+  const [markupLinks, setMarkupLinks] = useState<MarkupLinkRow[]>([]);
 
   useEffect(() => {
-    setMounted(true);
     const saved = localStorage.getItem('accountTypeTemplates');
     if (saved) {
       try {
@@ -37,19 +36,23 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
         console.error('Failed to parse templates', e);
       }
     }
-  }, []);
+
+    const storedTypes = JSON.parse(localStorage.getItem('ibAccountTypes') || '{}');
+    setSubIbAccountType(storedTypes[id] || 'SEA STD');
+
+    const savedMarkupLinks = localStorage.getItem('markupLinkTemplates');
+    if (savedMarkupLinks) {
+      try {
+        setMarkupLinks(JSON.parse(savedMarkupLinks));
+      } catch (e) {
+        console.error('Failed to parse markupLinkTemplates', e);
+      }
+    }
+  }, [id]);
 
   useEffect(() => {
-    if (user?.id) {
-      Promise.all([
-        ibApi.getMe().catch(() => null),
-        rebateApi.getConfig(user.id).catch(() => null)
-      ]).then(([profileRes, configRes]) => {
-        if (profileRes?.data) setProfile(profileRes.data);
-        if (configRes?.data) setCurrentUserConfig(configRes.data);
-      });
-    }
-  }, [user?.id]);
+    setMounted(true);
+  }, []);
 
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -90,18 +93,38 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
     setMarkupValues(prev => ({ ...prev, [`${tableId}_${assetType}_markup`]: value }));
   };
 
-  const getMaxCeiling = (assetType: string, originalMax: string) => {
-    if (!profile) return originalMax; // Fallback while loading
-    if (profile.parentId === null) {
-      return originalMax; // MIB uses absolute max from config
-    } else {
-      // Sub-IB uses the pips they received from their parent
-      if (!currentUserConfig?.assets) return '0';
-      const assetConfig = currentUserConfig.assets.find((a: any) => a.assetType === assetType);
-      if (!assetConfig) return '0';
-      const total = Number(assetConfig.rebatePips || 0) + Number(assetConfig.markupPips || 0);
-      return total.toString();
+  const getRebateMax = (_assetType: string, originalMax: string) => {
+    return originalMax;
+  };
+
+  const normalizeKey = (value: string | undefined) => {
+    return String(value ?? '').trim().toLowerCase();
+  };
+
+  const readStoredAccountType = (ibId: string) => {
+    if (typeof window === 'undefined') return 'SEA STD';
+    const storedTypes = JSON.parse(localStorage.getItem('ibAccountTypes') || '{}');
+    return storedTypes[ibId] || 'SEA STD';
+  };
+
+  const readSavedMarkupLinks = () => {
+    if (typeof window === 'undefined') return [] as MarkupLinkRow[];
+    try {
+      return JSON.parse(localStorage.getItem('markupLinkTemplates') || '[]') as MarkupLinkRow[];
+    } catch {
+      return [];
     }
+  };
+
+  const getMarkupMax = (assetType: string) => {
+    const accountType = normalizeKey(subIbAccountType || readStoredAccountType(id));
+    const links = markupLinks.length > 0 ? markupLinks : readSavedMarkupLinks();
+    const link = links.find((linkItem) => normalizeKey(linkItem.name) === accountType);
+    if (link) {
+      return String(link.share ?? '0');
+    }
+
+    return links.length > 0 ? String(links[0].share ?? '0') : '0';
   };
 
   const getRowError = (tableId: string, row: AccountTypeTable['rows'][number]) => {
@@ -109,15 +132,14 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
     const markupVal = markupValues[`${tableId}_${row.assetType}_markup`] || '0';
     const parsedRebate = parsePipsValue(rebateVal);
     const parsedMarkup = parsePipsValue(markupVal);
-    const parsedMax = parsePipsValue(getMaxCeiling(row.assetType, row.maxCeiling));
+    const rebateMax = parsePipsValue(getRebateMax(row.assetType, row.maxCeiling));
+    const markupMax = parsePipsValue(getMarkupMax(row.assetType));
 
-    if (parsedMax === 0) {
-      return 'Không xác định được tổng Max.';
+    if (parsedRebate > rebateMax) {
+      return `Rebate không được vượt quá ${rebateMax}.`;
     }
-
-    const total = parsedRebate + parsedMarkup;
-    if (total > parsedMax) {
-      return `Tổng Pips phải nhỏ hơn hoặc bằng ${parsedMax}.`;
+    if (parsedMarkup > markupMax) {
+      return `Markup không được vượt quá ${markupMax}.`;
     }
 
     return '';
@@ -135,17 +157,16 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
       const markupVal = markupValues[`${tableId}_${row.assetType}_markup`] || '0';
       const parsedRebate = parsePipsValue(rebateVal);
       const parsedMarkup = parsePipsValue(markupVal);
-      const parsedMax = parsePipsValue(getMaxCeiling(row.assetType, row.maxCeiling));
-      const total = parsedRebate + parsedMarkup;
+      const rebateMax = parsePipsValue(getRebateMax(row.assetType, row.maxCeiling));
+      const markupMax = parsePipsValue(getMarkupMax(row.assetType));
 
-      if (total > parsedMax) {
-        toast.error(`Chia sẻ cho ${row.assetType} không được vượt quá Tổng (${parsedMax})`);
+      if (parsedRebate > rebateMax) {
+        toast.error(`Rebate ${row.assetType} không được vượt quá ${rebateMax}.`);
         hasError = true;
         break;
       }
-
-      if (parsedMax === 0) {
-        toast.error(`Không xác định được tổng Max cho ${row.assetType}`);
+      if (parsedMarkup > markupMax) {
+        toast.error(`Markup ${row.assetType} không được vượt quá ${markupMax}.`);
         hasError = true;
         break;
       }
@@ -154,7 +175,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
         assetType: row.assetType as AssetType,
         rebatePips: parsedRebate,
         markupPips: parsedMarkup,
-        maxPips: parsedMax,
+        maxPips: rebateMax + markupMax,
         markupPercent: 100,
       });
     }
@@ -224,6 +245,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
                       <th className="px-6 py-4">Tổng (Total)</th>
                       <th className="px-6 py-4 w-48">Chia sẻ (Share)</th>
                       <th className="px-6 py-4">Đơn Vị Tính (Calculation Unit)</th>
+                      <th className="px-6 py-4 text-right">Còn lại</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -233,7 +255,10 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
                           {row.assetType}
                         </td>
                         <td className="px-6 py-4 text-gray-500 font-medium">
-                          {getMaxCeiling(row.assetType, row.maxCeiling)}
+                          <div className="space-y-1">
+                            <div className="text-sm text-gray-700">Rebate Max: {getRebateMax(row.assetType, row.maxCeiling)}</div>
+                            <div className="text-sm text-gray-700">Markup Max: {getMarkupMax(row.assetType)}</div>
+                          </div>
                         </td>
                         <td className="px-6 py-4">
                           <div className="grid gap-2">
@@ -258,6 +283,18 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
                         </td>
                         <td className="px-6 py-4 text-gray-500">
                           {row.calcUnit}
+                        </td>
+                        <td className="px-6 py-4 text-right text-gray-700 font-semibold">
+                          {(() => {
+                            const rebateVal = rebateValues[`${table.id}_${row.assetType}_rebate`] || '0';
+                            const markupVal = markupValues[`${table.id}_${row.assetType}_markup`] || '0';
+                            const parsedRebate = parsePipsValue(rebateVal);
+                            const parsedMarkup = parsePipsValue(markupVal);
+                            const rebateMax = parsePipsValue(getRebateMax(row.assetType, row.maxCeiling));
+                            const markupMax = parsePipsValue(getMarkupMax(row.assetType));
+                            const remaining = rebateMax + markupMax - (parsedRebate + parsedMarkup);
+                            return remaining >= 0 ? remaining.toFixed(1) : '0.0';
+                          })()}
                         </td>
                       </tr>
                     ))}
