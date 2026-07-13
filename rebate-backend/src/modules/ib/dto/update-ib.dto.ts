@@ -24,6 +24,12 @@ export class UpdateIbDto {
   @ApiPropertyOptional({ description: 'Quốc gia' })
   country?: string;
 
+  @ApiPropertyOptional({ description: 'Loại tài khoản IB', default: 'SEA STD' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  accountType?: string;
+
   @IsString()
   @IsOptional()
   @ApiPropertyOptional({ description: 'Thông tin tài khoản ngân hàng (JSON)' })

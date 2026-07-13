@@ -40,6 +40,12 @@ export class CreateIbDto {
   @IsOptional()
   paymentInfo?: string;
 
+  @ApiPropertyOptional({ description: 'Loại tài khoản IB', default: 'SEA STD' })
+  @IsString()
+  @IsOptional()
+  @MaxLength(100)
+  accountType?: string;
+
   @ApiPropertyOptional({ description: 'Ghi chú nội bộ' })
   @IsString()
   @IsOptional()

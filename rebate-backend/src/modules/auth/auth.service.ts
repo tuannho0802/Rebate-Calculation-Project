@@ -85,7 +85,14 @@ export class AuthService {
       payload = this.jwtService.verify(refreshToken, {
         secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
       });
-    } catch (err) {
+    } catch (err: unknown) {
+      try {
+        // eslint-disable-next-line no-console
+        const errMsg = err instanceof Error ? err.message : (typeof err === 'object' ? JSON.stringify(err) : String(err));
+        console.warn('AuthService.refresh: jwt verify failed', errMsg);
+      } catch (logErr) {
+        // ignore logging errors
+      }
       throw new UnauthorizedException({
         code: 'AUTH_TOKEN_INVALID',
         message: 'Phiên đăng nhập không hợp lệ',

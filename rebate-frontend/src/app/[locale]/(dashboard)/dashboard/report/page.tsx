@@ -16,13 +16,13 @@ export default function ReportPage() {
   // Query Tổng quan (Summary)
   const { data: summaryRes, isLoading: isLoadingSummary } = useQuery({
     queryKey: ['reportSummary', period],
-    queryFn: () => reportApi.getSummary(period),
+    queryFn: () => reportApi.getSummary(period || undefined),
   });
 
   // Query Danh sách giao dịch phân trang
   const { data: txRes, isLoading: isLoadingTx } = useQuery({
     queryKey: ['reportTransactions', period, page, limit],
-    queryFn: () => reportApi.getTransactions({ period, page, limit }),
+    queryFn: () => reportApi.getTransactions({ period: period || undefined, page, limit }),
   });
 
   const summary = summaryRes?.data;
@@ -136,7 +136,7 @@ export default function ReportPage() {
               <tr className="bg-gray-50/80 border-b border-gray-100 text-xs font-bold text-gray-600 uppercase tracking-wider">
                 <th className="p-4 pl-6">Mã Giao Dịch</th>
                 <th className="p-4">Thời Gian</th>
-                <th className="p-4">Mã IB</th>
+                <th className="p-4">IB (Tên/ID)</th>
                 <th className="p-4">Tài Sản</th>
                 <th className="p-4 text-right">Khối Lượng (Lots)</th>
                 <th className="p-4 pr-6 text-right">Hoa Hồng</th>
@@ -152,9 +152,9 @@ export default function ReportPage() {
               ) : transactions.length > 0 ? (
                 transactions.map((tx) => (
                   <tr key={tx.id} className="hover:bg-blue-50/40 transition-colors">
-                    <td className="p-4 pl-6 font-mono text-xs text-gray-500">{tx.id}</td>
+                    <td className="p-4 pl-6 font-mono text-xs text-gray-500">#{tx.id.slice(-8)}</td>
                     <td className="p-4 text-sm font-medium text-gray-700">{new Date(tx.tradedAt).toLocaleString('vi-VN')}</td>
-                    <td className="p-4 text-sm font-bold text-[#0052cc]">{tx.ibId}</td>
+                    <td className="p-4 text-sm font-bold text-[#0052cc]">{tx.ibName || `#${tx.ibId.slice(-8)}`}</td>
                     <td className="p-4">
                       <span className="inline-flex items-center px-2 py-1 rounded bg-gray-100 text-gray-700 text-xs font-bold border border-gray-200">
                         {tx.assetType}

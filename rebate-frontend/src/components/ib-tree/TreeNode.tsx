@@ -54,8 +54,8 @@ export function TreeNode({ node, isLast = true, onNodeClick }: TreeNodeProps) {
       {/* Children Hierarchy with precise Tailwind CSS tree lines */}
       {isExpanded && hasChildren && (
         <div className="relative ml-3 border-l-2 border-gray-200/80 pl-6 pb-2 mt-[-4px]">
-          {node.children!.map((child, index) => {
-            const isChildLast = index === node.children!.length - 1;
+          {node.children!.filter(c => c.isActive !== false).map((child, index, filteredChildren) => {
+            const isChildLast = index === filteredChildren.length - 1;
             return (
               <div key={child.id} className="relative">
                 {/* Horizontal branch line pointing to child */}

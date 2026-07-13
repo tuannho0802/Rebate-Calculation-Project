@@ -29,10 +29,25 @@ async function bootstrap() {
       whitelist: true,
       transform: true,
       exceptionFactory: (errors) => {
-        const fields = errors.map((err) => ({
-          field: err.property,
-          message: Object.values(err.constraints || {}).join(', '),
-        }));
+        const flattenErrors = (errs: any[], parentProperty: string = ''): any[] => {
+          let flatErrs: any[] = [];
+          errs.forEach((err) => {
+            const propertyPath = parentProperty ? `${parentProperty}.${err.property}` : err.property;
+            if (err.constraints) {
+              flatErrs.push({
+                field: propertyPath,
+                message: Object.values(err.constraints).join(', '),
+              });
+            }
+            if (err.children && err.children.length > 0) {
+              flatErrs.push(...flattenErrors(err.children, propertyPath));
+            }
+          });
+          return flatErrs;
+        };
+
+        const fields = flattenErrors(errors);
+
         return new HttpException(
           {
             code: 'VALIDATION_ERROR',

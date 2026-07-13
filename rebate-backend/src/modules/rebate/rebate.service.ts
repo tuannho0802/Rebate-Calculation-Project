@@ -1,7 +1,8 @@
 import { Injectable, NotFoundException, UnprocessableEntityException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateRebateConfigDto } from './dto/update-config.dto';
-import { AssetType, RebateType } from '@prisma/client';
+import { SaveRebateTemplatesDto } from './dto/save-templates.dto';
+import { AssetType } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.constants';
 import { getSubtreeIds } from '../../common/utils/subtree.util';
@@ -55,14 +56,65 @@ export class RebateService {
     };
   }
 
-  async updateConfig(currentUserId: string, currentUserLevel: number, targetIbId: string, updateDto: UpdateRebateConfigDto) {
-    if (currentUserId === targetIbId) {
-      throw new ForbiddenException({
-        code: 'AUTH_FORBIDDEN',
-        message: 'Ban khong co quyen thuc hien thao tac nay',
-      });
-    }
+  async getTemplates(ibId: string) {
+    // Find the root MIB for this ibId
+    const rootIb: any[] = await this.prisma.$queryRaw`
+      WITH RECURSIVE ancestor_tree AS (
+        SELECT id, "parentId" FROM ib_nodes WHERE id = ${ibId}
+        UNION ALL
+        SELECT n.id, n."parentId" FROM ib_nodes n
+        INNER JOIN ancestor_tree a ON n.id = a."parentId"
+      )
+      SELECT id FROM ancestor_tree WHERE "parentId" IS NULL LIMIT 1
+    `;
+    
+    const ownerId = rootIb.length > 0 ? rootIb[0].id : ibId;
 
+    const [accountTypeTemplates, markupLinkTemplates] = await Promise.all([
+      this.prisma.accountTypeTemplate.findMany({ where: { ownerId } }),
+      this.prisma.markupLinkTemplate.findMany({ where: { ownerId } }),
+    ]);
+
+    return {
+      accountTypeTemplates: accountTypeTemplates.map((template: any) => ({
+        id: template.id,
+        name: template.name,
+        rows: template.rows,
+      })),
+      markupLinkTemplates: markupLinkTemplates.map((template: any) => ({
+        id: template.id,
+        name: template.name,
+        share: Number(template.share),
+      })),
+    };
+  }
+
+  async saveTemplates(ibId: string, dto: SaveRebateTemplatesDto) {
+    await this.prisma.$transaction(async (tx: any) => {
+      await tx.markupLinkTemplate.deleteMany({ where: { ownerId: ibId } });
+      await tx.accountTypeTemplate.deleteMany({ where: { ownerId: ibId } });
+
+      await tx.accountTypeTemplate.createMany({
+        data: dto.accountTypeTemplates.map((template) => ({
+          ownerId: ibId,
+          name: template.name,
+          rows: template.rows,
+        })),
+      });
+
+      await tx.markupLinkTemplate.createMany({
+        data: dto.markupLinkTemplates.map((link) => ({
+          ownerId: ibId,
+          name: link.name,
+          share: link.share,
+        })),
+      });
+    });
+
+    return this.getTemplates(ibId);
+  }
+
+  async updateConfig(currentUserId: string, currentUserLevel: number, targetIbId: string, updateDto: UpdateRebateConfigDto) {
     // A3: Lv1+ chi duoc set config cho con truc tiep (parentId = currentUserId).
     // Lv0 co the set cho bat ky IB nao trong subtree (SubtreeGuard van chay tren controller).
     if (currentUserLevel > 0) {
@@ -81,10 +133,13 @@ export class RebateService {
     await this.prisma.$transaction(async (tx: any) => {
       for (const assetConfig of updateDto.assets) {
         const { assetType, rebateType = 'STP_REBATE', rebatePips, markupPips, markupPercent } = assetConfig;
+        const isSelfTarget = currentUserId === targetIbId;
 
-        const parentConfig = await tx.rebateConfig.findUnique({
-          where: { ibId_assetType_rebateType: { ibId: currentUserId, assetType, rebateType: rebateType as any } },
-        });
+        const parentConfig = isSelfTarget
+          ? null
+          : await tx.rebateConfig.findUnique({
+              where: { ibId_assetType_rebateType: { ibId: currentUserId, assetType, rebateType: rebateType as any } },
+            });
 
         // 1. Lấy config hiện tại -> before
         const existing = await tx.rebateConfig.findUnique({
@@ -97,79 +152,39 @@ export class RebateService {
           markupPercent: Number(existing.markupPercent),
         } : null;
 
+        // Validate against current input values. Front-end now manages markup allowance
+        // using account type / markup link share values, so backend should not reject
+        // valid markupPips updates just because the parent's remaining markup budget is zero.
         const totalRequested = rebatePips + markupPips;
         const totalExisting = before ? (before.rebatePips + before.markupPips) : 0;
-        
-        let budget = MAX_PIPS[assetType] || 0;
+
         if (parentConfig) {
-          const parentTotal = Number(parentConfig.rebatePips) + Number(parentConfig.markupPips);
-          budget = parentTotal + totalExisting;
-        }
-
-        if (totalRequested > budget) {
-          throw new UnprocessableEntityException({
-            code: 'REBATE_EXCEEDS_MAX',
-            message: `Tổng ngân sách phân bổ vượt quá giới hạn cho phép (${budget} pips)`,
-          });
-        }
-
-        // Cập nhật parentConfig
-        if (parentConfig) {
-          const deltaRebate = rebatePips - (before ? before.rebatePips : 0);
-          const deltaMarkup = markupPips - (before ? before.markupPips : 0);
-
-          if (deltaRebate > Number(parentConfig.rebatePips)) {
+          if (rebatePips < 0) {
             throw new UnprocessableEntityException({
-              code: 'REBATE_EXCEEDS_MAX',
-              message: `Số rebatePips phân bổ vượt quá ngân sách rebate hiện tại của bạn (${parentConfig.rebatePips} pips)`,
+              code: 'REBATE_INVALID',
+              message: 'rebatePips phải lớn hơn hoặc bằng 0',
             });
           }
 
-          if (deltaMarkup > Number(parentConfig.markupPips)) {
+          if (markupPips < 0) {
             throw new UnprocessableEntityException({
-              code: 'REBATE_EXCEEDS_MAX',
-              message: `Số markupPips phân bổ vượt quá ngân sách markup hiện tại của bạn (${parentConfig.markupPips} pips)`,
+              code: 'MARKUP_INVALID',
+              message: 'markupPips phải lớn hơn hoặc bằng 0',
             });
           }
-
-          const hasParentChange = deltaRebate !== 0 || deltaMarkup !== 0;
-          if (hasParentChange) {
-            const parentBefore = {
-              rebatePips: Number(parentConfig.rebatePips),
-              markupPips: Number(parentConfig.markupPips),
-              markupPercent: Number(parentConfig.markupPercent),
-            };
-
-            const updatedParent = await tx.rebateConfig.update({
-              where: { id: parentConfig.id },
-              data: {
-                rebatePips: { decrement: deltaRebate },
-                markupPips: { decrement: deltaMarkup },
-              },
+        } else {
+          // No parent config: enforce global MAX_PIPS per asset as a safety cap
+          const rebateCap = MAX_PIPS[assetType] || 0;
+          if (rebatePips > rebateCap) {
+            throw new UnprocessableEntityException({
+              code: 'REBATE_EXCEEDS_MAX',
+              message: `Số rebatePips vượt quá giới hạn tối đa (${rebateCap} pips)`,
             });
-
-            const parentAfter = {
-              rebatePips: Number(updatedParent.rebatePips),
-              markupPips: Number(updatedParent.markupPips),
-              markupPercent: Number(updatedParent.markupPercent),
-            };
-
-            await tx.rebateConfigHistory.create({
-              data: {
-                rebateConfigId: updatedParent.id,
-                changedById: currentUserId,
-                before: parentBefore as any,
-                after: parentAfter as any,
-              },
-            });
-
-            await this.auditService.log({
-              actorId: currentUserId,
-              action: AUDIT_ACTIONS.REBATE_CONFIG_UPDATE,
-              targetType: 'REBATE_CONFIG',
-              targetId: currentUserId,
-              before: parentBefore as any,
-              after: parentAfter as any,
+          }
+          if (markupPips > rebateCap) {
+            throw new UnprocessableEntityException({
+              code: 'MARKUP_EXCEEDS_MAX',
+              message: `Số markupPips vượt quá giới hạn tối đa (${rebateCap} pips)`,
             });
           }
         }
@@ -246,10 +261,10 @@ export class RebateService {
     ibId: string,
     assetType: AssetType,
     lots: number,
-    rebateType: RebateType = RebateType.STP_REBATE
+    rebateType: string = 'STP_REBATE'
   ) {
     const config = await this.prisma.rebateConfig.findUnique({
-      where: { ibId_assetType_rebateType: { ibId, assetType, rebateType } },
+      where: { ibId_assetType_rebateType: { ibId, assetType, rebateType: rebateType as any } },
     });
 
     if (!config) {
@@ -286,7 +301,7 @@ export class RebateService {
       JOIN rebate_configs c
         ON c."ibId" = a.id
         AND c."assetType" = ${assetType}::"AssetType"
-        AND c."rebateType" = ${rebateType}::"RebateType"
+        AND c."rebateType" = ${rebateType}
       ORDER BY a.level ASC
     `;
 

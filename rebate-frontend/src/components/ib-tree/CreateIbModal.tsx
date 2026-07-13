@@ -1,10 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
+import { rebateTemplateApi, RebateTemplatesResponse } from '@/lib/api/rebateTemplates';
+import { ApiResponse } from '@/types';
 import { getErrorMessage } from '@/lib/error-messages';
 import { Loader2, X, Mail, Lock, User, Briefcase } from 'lucide-react';
+import { useAuthStore } from '@/store/auth.store';
 
 interface CreateIbModalProps {
   isOpen: boolean;
@@ -13,28 +16,25 @@ interface CreateIbModalProps {
 }
 
 export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps) {
+  const { user } = useAuthStore();
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('123456');
-  const [accountType, setAccountType] = useState('SEA STD');
+  const [accountType, setAccountType] = useState('Markup 0%');
+  const [accountTypeOptions, setAccountTypeOptions] = useState<string[]>(['Markup 0%']);
   const [errorMsg, setErrorMsg] = useState('');
 
   const createMutation = useMutation({
-    mutationFn: () => ibApi.create(email, password, name),
+    mutationFn: () => ibApi.create(email, password, name, accountType),
     onSuccess: (res) => {
       if (res.success) {
-        // Mock account type storage
-        const storedTypes = JSON.parse(localStorage.getItem('ibAccountTypes') || '{}');
-        storedTypes[res.data.id] = accountType;
-        localStorage.setItem('ibAccountTypes', JSON.stringify(storedTypes));
-
         queryClient.invalidateQueries({ queryKey: ['ibTree'] });
         onClose();
         setName('');
         setEmail('');
         setPassword('123456');
-        setAccountType('SEA STD');
+        setAccountType(accountTypeOptions[0] || 'Markup 0%');
         setErrorMsg('');
       } else {
         setErrorMsg(getErrorMessage((res as any).error?.code));
@@ -44,6 +44,55 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
       setErrorMsg(getErrorMessage(err.response?.data?.error?.code || 'INTERNAL_ERROR'));
     }
   });
+
+  const { data: templateData, isError: isTemplateError } = useQuery({
+    queryKey: ['rebateTemplates', user?.id],
+    queryFn: async (): Promise<ApiResponse<RebateTemplatesResponse>> => {
+      if (!user?.id) {
+        throw new Error('Missing user ID');
+      }
+      return rebateTemplateApi.getTemplates(user.id);
+    },
+    enabled: !!user?.id && isOpen,
+    staleTime: 0,
+  });
+
+  const { data: parentIbData } = useQuery({
+    queryKey: ['ibNode', parentId],
+    queryFn: () => ibApi.getById(parentId!),
+    enabled: !!parentId && isOpen,
+  });
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const isParentSubIb = parentIbData?.success && parentIbData.data.level > 0;
+
+    if (isParentSubIb) {
+      const pAccountType = parentIbData.data.accountType || 'Markup 0%';
+      setAccountTypeOptions([pAccountType]);
+      setAccountType(pAccountType);
+    } else {
+      if (templateData?.success) {
+        const options = Array.from(new Set(templateData.data.markupLinkTemplates.map((item) => item.name))).filter(Boolean);
+        const normalizedOptions = options.length > 0 ? options : ['Markup 0%'];
+        setAccountTypeOptions(normalizedOptions);
+        setAccountType((prev) => normalizedOptions.includes(prev) ? prev : normalizedOptions[0]);
+      } else if (isTemplateError || templateData?.success === false) {
+        setAccountTypeOptions(['Markup 0%']);
+        setAccountType('Markup 0%');
+      }
+    }
+  }, [isOpen, templateData, isTemplateError, parentId, parentIbData]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const isParentSubIb = parentIbData?.success && parentIbData.data.level > 0;
+    if (!isParentSubIb && accountTypeOptions.length === 0) {
+      setAccountTypeOptions(['Markup 0%']);
+      setAccountType('Markup 0%');
+    }
+  }, [isOpen, accountTypeOptions.length, parentIbData]);
 
   if (!isOpen) return null;
 
@@ -144,9 +193,9 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#0066ff]/50 focus:border-[#0066ff] transition-all appearance-none"
                   required
                 >
-                  <option value="SEA STD">SEA STD</option>
-                  <option value="ALPHA">ALPHA</option>
-                  <option value="PRO">PRO</option>
+                  {accountTypeOptions.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
                 </select>
               </div>
             </div>

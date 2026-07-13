@@ -27,6 +27,23 @@ export class IbService {
   async getMe(ibId: string) {
     const user = await this.prisma.ibNode.findUnique({
       where: { id: ibId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        level: true,
+        parentId: true,
+        accountType: true,
+        accountTypeTemplates: true,
+        markupLinkTemplates: true,
+        createdAt: true,
+        parent: {
+          select: {
+            email: true,
+            name: true,
+          }
+        }
+      },
     });
 
     if (!user) {
@@ -41,13 +58,8 @@ export class IbService {
     });
 
     return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      level: user.level,
-      parentId: user.parentId,
+      ...user,
       totalChildren,
-      createdAt: user.createdAt,
     };
   }
 
@@ -72,6 +84,8 @@ export class IbService {
         name: node.name,
         email: node.email,
         level: node.level,
+        accountType: node.accountType,
+        isActive: node.isActive,
         children: [],
       });
     });
@@ -92,6 +106,8 @@ export class IbService {
         name: child.name,
         email: child.email,
         level: child.level,
+        accountType: child.accountType,
+        isActive: child.isActive,
         children: [],
       }));
     }
@@ -132,6 +148,7 @@ export class IbService {
       email: user.email,
       level: user.level,
       parentId: user.parentId,
+      accountType: user.accountType,
       rebateConfig: formattedConfig,
       createdAt: user.createdAt,
     };
@@ -159,6 +176,14 @@ export class IbService {
     const hashedPassword = await bcrypt.hash(createIbDto.password, 10);
     const newLevel = currentUserLevel + 1;
 
+    let parentAccountType = createIbDto.accountType || 'SEA STD';
+    if (currentUserLevel > 0) {
+      const parentNode = await this.prisma.ibNode.findUnique({ where: { id: currentUserId }});
+      if (parentNode?.accountType) {
+        parentAccountType = parentNode.accountType;
+      }
+    }
+
     const newIb = await this.prisma.$transaction(async (tx: any) => {
       const referralCode = `IB-${Date.now().toString(36).toUpperCase()}`;
       const ib = await tx.ibNode.create({
@@ -170,6 +195,7 @@ export class IbService {
           parentId: currentUserId,
           phone: createIbDto.phone,
           country: createIbDto.country,
+          accountType: parentAccountType,
           bankAccount: createIbDto.bankAccount,
           paymentInfo: createIbDto.paymentInfo,
           notes: createIbDto.notes,
@@ -277,6 +303,7 @@ export class IbService {
       email: updated.email,
       level: updated.level,
       parentId: updated.parentId,
+      accountType: updated.accountType,
     };
   }
 
@@ -493,26 +520,26 @@ export class IbService {
     page: number,
     limit: number,
   ) {
-    if (!q || typeof q !== 'string' || q.trim().length < 2) {
-      throw new BadRequestException({
-        code: 'SEARCH_QUERY_TOO_SHORT',
-        message: 'Từ khóa tìm kiếm phải có ít nhất 2 ký tự',
-      });
-    }
-
-    const keyword = q.trim();
-
     const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
     // Bỏ currentUser ra khỏi kết quả tìm kiếm
     const searchableIds = subtreeIds.filter((id) => id !== currentUserId);
 
     const where: any = {
       id: { in: searchableIds },
-      OR: [
+    };
+
+    if (q && typeof q === 'string' && q.trim().length >= 2) {
+      const keyword = q.trim();
+      where.OR = [
         { email: { contains: keyword, mode: 'insensitive' } },
         { name: { contains: keyword, mode: 'insensitive' } },
-      ],
-    };
+      ];
+    } else if (q && typeof q === 'string' && q.trim().length > 0) {
+      throw new BadRequestException({
+        code: 'SEARCH_QUERY_TOO_SHORT',
+        message: 'Từ khóa tìm kiếm phải có ít nhất 2 ký tự',
+      });
+    }
 
     if (!includeInactive) {
       where.isActive = true;

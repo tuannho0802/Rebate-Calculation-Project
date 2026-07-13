@@ -8,36 +8,39 @@ datasource db {
 }
 
 model IbNode {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String   @default("")
-  password  String   // bcrypt hash
-  isActive  Boolean  @default(true)
-  level     Int      // 0=MIB, 1, 2, 3, 4, 5
-  parentId  String?
-  parent    IbNode?  @relation("IbTree", fields: [parentId], references: [id])
-  children  IbNode[] @relation("IbTree")
+  id          String   @id @default(uuid())
+  email       String   @unique
+  name        String   @default("")
+  password    String // bcrypt hash
+  isActive    Boolean  @default(true)
+  level       Int // 0=MIB, 1, 2, 3, 4, 5
+  parentId    String?
+  parent      IbNode?  @relation("IbTree", fields: [parentId], references: [id])
+  children    IbNode[] @relation("IbTree")
+  accountType String   @default("Markup 0%")
 
   rebateConfig         RebateConfig[]
-  transactions         RebateTransaction[] @relation("TransactionOwner")
-  createdTransactions  RebateTransaction[] @relation("TransactionCreator")
-  auditLogs            AuditLog[]          @relation("AuditActor")
+  transactions         RebateTransaction[]   @relation("TransactionOwner")
+  createdTransactions  RebateTransaction[]   @relation("TransactionCreator")
+  auditLogs            AuditLog[]            @relation("AuditActor")
   refreshTokens        RefreshToken[]
+  accountTypeTemplates AccountTypeTemplate[]
+  markupLinkTemplates  MarkupLinkTemplate[]
 
-  phone                String?
-  country              String?
-  bankAccount          String?
-  paymentInfo          String?
-  referralCode         String?             @unique
-  notes                String?
-  profileUpdatedAt     DateTime?
+  phone            String?
+  country          String?
+  bankAccount      String?
+  paymentInfo      String?
+  referralCode     String?   @unique
+  notes            String?
+  profileUpdatedAt DateTime?
 
-  wallet               Wallet?
-  payouts              Payout[]
-  processedPayouts     Payout[]            @relation("PayoutProcessor")
+  wallet           Wallet?
+  payouts          Payout[]
+  processedPayouts Payout[] @relation("PayoutProcessor")
 
-  receivedNotifications Notification[] @relation("NotificationRecipient")
-  sentNotifications     Notification[] @relation("NotificationSender")
+  receivedNotifications Notification[]        @relation("NotificationRecipient")
+  sentNotifications     Notification[]        @relation("NotificationSender")
   rebateConfigChanges   RebateConfigHistory[] @relation("RebateConfigHistoryActor")
 
   createdAt DateTime @default(now())
@@ -48,17 +51,17 @@ model IbNode {
 }
 
 model RebateConfig {
-  id             String      @id @default(uuid())
-  ibId           String
-  ib             IbNode      @relation(fields: [ibId], references: [id])
-  assetType      AssetType
-  rebateType     RebateType  @default(STP_REBATE)
-  rebatePips     Decimal     @db.Decimal(10, 4)
-  markupPips     Decimal     @db.Decimal(10, 4) @default(0)
-  markupPercent  Decimal     @db.Decimal(5, 2)  @default(100)  // 100% hoặc 80%
-  maxPips        Decimal     @db.Decimal(10, 4) // giới hạn từ cấp trên
+  id            String     @id @default(uuid())
+  ibId          String
+  ib            IbNode     @relation(fields: [ibId], references: [id])
+  assetType     AssetType
+  rebateType    RebateType @default(STP_REBATE)
+  rebatePips    Decimal    @db.Decimal(10, 4)
+  markupPips    Decimal    @default(0) @db.Decimal(10, 4)
+  markupPercent Decimal    @default(100) @db.Decimal(5, 2) // 100% hoặc 80%
+  maxPips       Decimal    @db.Decimal(10, 4) // giới hạn từ cấp trên
 
-  history  RebateConfigHistory[]
+  history RebateConfigHistory[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -98,16 +101,16 @@ model RebateTransaction {
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  actorId     String
-  actor       IbNode   @relation("AuditActor", fields: [actorId], references: [id])
-  action      String   // 'IB_CREATE', 'IB_UPDATE', 'TRANSACTION_CREATE', v.v.
-  targetType  String   // 'IB', 'REBATE_CONFIG', 'TRANSACTION'
-  targetId    String
-  before      Json?
-  after       Json?
-  ipAddress   String?
-  createdAt   DateTime @default(now())
+  id         String   @id @default(uuid())
+  actorId    String
+  actor      IbNode   @relation("AuditActor", fields: [actorId], references: [id])
+  action     String // 'IB_CREATE', 'IB_UPDATE', 'TRANSACTION_CREATE', v.v.
+  targetType String // 'IB', 'REBATE_CONFIG', 'TRANSACTION'
+  targetId   String
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
 
   @@index([actorId])
   @@index([targetId])
@@ -149,18 +152,18 @@ enum AssetType {
 }
 
 model Notification {
-  id          String   @id @default(uuid())
-  recipientId String   // người nhận
-  recipient   IbNode   @relation("NotificationRecipient", fields: [recipientId], references: [id])
-  senderId    String?  // người gửi (null = system notification)
-  sender      IbNode?  @relation("NotificationSender", fields: [senderId], references: [id])
+  id          String           @id @default(uuid())
+  recipientId String // người nhận
+  recipient   IbNode           @relation("NotificationRecipient", fields: [recipientId], references: [id])
+  senderId    String? // người gửi (null = system notification)
+  sender      IbNode?          @relation("NotificationSender", fields: [senderId], references: [id])
   type        NotificationType
   title       String
   body        String
-  isRead      Boolean  @default(false)
+  isRead      Boolean          @default(false)
   readAt      DateTime?
-  metadata    Json?    // dữ liệu phụ (e.g., { transactionId, ibId })
-  createdAt   DateTime @default(now())
+  metadata    Json? // dữ liệu phụ (e.g., { transactionId, ibId })
+  createdAt   DateTime         @default(now())
 
   @@index([recipientId, isRead])
   @@index([recipientId, createdAt])
@@ -168,28 +171,54 @@ model Notification {
 }
 
 enum NotificationType {
-  SYSTEM           // thông báo hệ thống tự động
-  IB_JOINED        // có IB mới join vào cây
+  SYSTEM // thông báo hệ thống tự động
+  IB_JOINED // có IB mới join vào cây
   TRANSACTION_ADDED // giao dịch mới được thêm vào
-  REBATE_UPDATED   // cấu hình rebate bị thay đổi
-  IB_DEACTIVATED   // IB bị deactivate
-  IB_RESTORED      // IB được khôi phục
-  MANUAL           // gửi thủ công từ IB cấp trên
+  REBATE_UPDATED // cấu hình rebate bị thay đổi
+  IB_DEACTIVATED // IB bị deactivate
+  IB_RESTORED // IB được khôi phục
+  MANUAL // gửi thủ công từ IB cấp trên
 }
 
 model RebateConfigHistory {
-  id            String      @id @default(uuid())
+  id             String       @id @default(uuid())
   rebateConfigId String
-  rebateConfig  RebateConfig @relation(fields: [rebateConfigId], references: [id])
-  changedById   String
-  changedBy     IbNode      @relation("RebateConfigHistoryActor", fields: [changedById], references: [id])
-  before        Json        // snapshot config trước khi đổi
-  after         Json        // snapshot config sau khi đổi
-  createdAt     DateTime    @default(now())
+  rebateConfig   RebateConfig @relation(fields: [rebateConfigId], references: [id])
+  changedById    String
+  changedBy      IbNode       @relation("RebateConfigHistoryActor", fields: [changedById], references: [id])
+  before         Json // snapshot config trước khi đổi
+  after          Json // snapshot config sau khi đổi
+  createdAt      DateTime     @default(now())
 
   @@index([rebateConfigId])
   @@index([changedById])
   @@map("rebate_config_history")
+}
+
+model AccountTypeTemplate {
+  id        String   @id @default(uuid())
+  ownerId   String
+  owner     IbNode   @relation(fields: [ownerId], references: [id])
+  name      String
+  rows      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+  @@map("account_type_templates")
+}
+
+model MarkupLinkTemplate {
+  id        String   @id @default(uuid())
+  ownerId   String
+  owner     IbNode   @relation(fields: [ownerId], references: [id])
+  name      String
+  share     Decimal  @db.Decimal(10, 4)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+  @@map("markup_link_templates")
 }
 
 enum PayoutStatus {
@@ -208,28 +237,28 @@ model Wallet {
   currency    String   @default("USD")
   updatedAt   DateTime @updatedAt
 
-  ib          IbNode   @relation(fields: [ibId], references: [id])
-  payouts     Payout[]
+  ib      IbNode   @relation(fields: [ibId], references: [id])
+  payouts Payout[]
 
   @@map("wallets")
 }
 
 model Payout {
-  id            String       @id @default(uuid())
-  ibId          String
-  walletId      String
-  amount        Decimal      @db.Decimal(18, 8)
-  status        PayoutStatus @default(PENDING)
-  paymentMethod String?
-  note          String?
+  id             String       @id @default(uuid())
+  ibId           String
+  walletId       String
+  amount         Decimal      @db.Decimal(18, 8)
+  status         PayoutStatus @default(PENDING)
+  paymentMethod  String?
+  note           String?
   rejectedReason String?
-  requestedAt   DateTime     @default(now())
-  processedAt   DateTime?
-  processedBy   String?
+  requestedAt    DateTime     @default(now())
+  processedAt    DateTime?
+  processedBy    String?
 
-  ib            IbNode   @relation(fields: [ibId], references: [id])
-  wallet        Wallet   @relation(fields: [walletId], references: [id])
-  processor     IbNode?  @relation("PayoutProcessor", fields: [processedBy], references: [id])
+  ib        IbNode  @relation(fields: [ibId], references: [id])
+  wallet    Wallet  @relation(fields: [walletId], references: [id])
+  processor IbNode? @relation("PayoutProcessor", fields: [processedBy], references: [id])
 
   @@index([ibId])
   @@index([walletId])

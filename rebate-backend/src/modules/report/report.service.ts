@@ -149,11 +149,20 @@ export class ReportService {
       skip,
       take: limit,
       orderBy: { tradedAt: 'desc' },
+      include: {
+        ib: {
+          select: {
+            name: true,
+            email: true,
+          },
+        },
+      },
     });
 
     const data = txs.map((tx: any) => ({
       id: tx.id,
       ibId: tx.ibId,
+      ibName: tx.ib?.name || tx.ib?.email || tx.ibId,
       assetType: tx.assetType,
       rebateType: tx.rebateType,
       lots: Number(tx.lots),
