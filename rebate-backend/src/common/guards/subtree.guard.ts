@@ -14,12 +14,41 @@ export class SubtreeGuard implements CanActivate {
 
     const targetIbId = request.params.id || request.params.ibId || request.query.ibId;
     if (!targetIbId) {
+      try {
+        // eslint-disable-next-line no-console
+        console.debug('SubtreeGuard: no targetIbId found, allowing access by default', {
+          url: request.originalUrl ?? request.url,
+          method: request.method,
+          params: request.params,
+          query: request.query,
+          userSub: user.sub,
+          userId: user.id,
+        });
+      } catch (e) {
+        // ignore logging errors
+      }
       return true;
     }
 
     // A user can always access their own data
     if (user.sub === targetIbId) {
       return true;
+    }
+
+    // Log requester and target for debugging subtree authorization issues
+    try {
+      // eslint-disable-next-line no-console
+      console.debug('SubtreeGuard: checking access', {
+        requester: user.sub,
+        userId: user.id,
+        target: targetIbId,
+        url: request.originalUrl ?? request.url,
+        method: request.method,
+        params: request.params,
+        query: request.query,
+      });
+    } catch (e) {
+      // ignore logging errors
     }
 
     // Check if targetIbId exists in the user's subtree recursively
@@ -34,7 +63,37 @@ export class SubtreeGuard implements CanActivate {
     `;
 
     const isAuthorized = result?.[0]?.found ?? false;
+    try {
+      // eslint-disable-next-line no-console
+      console.debug('SubtreeGuard: subtree authorization result', {
+        requester: user.sub,
+        userLevel: user.level,
+        target: targetIbId,
+        isAuthorized,
+        foundRows: result,
+        url: request.originalUrl ?? request.url,
+        params: request.params,
+        query: request.query,
+        userPayload: user,
+      });
+    } catch (e) {
+      // ignore logging errors
+    }
+
     if (!isAuthorized) {
+      try {
+        // eslint-disable-next-line no-console
+        console.warn('SubtreeGuard: access denied for non-subtree target', {
+          requester: user.sub,
+          userLevel: user.level,
+          target: targetIbId,
+          url: request.originalUrl ?? request.url,
+          params: request.params,
+          query: request.query,
+        });
+      } catch (e) {
+        // ignore logging errors
+      }
       throw new ForbiddenException({
         code: 'IB_NOT_IN_SUBTREE',
         message: 'Bạn không có quyền xem thông tin IB này',

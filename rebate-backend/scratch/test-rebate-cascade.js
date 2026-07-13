@@ -200,8 +200,8 @@ async function run() {
     const putOver = await putAssetConfig(lv2.id, lv1Login.token, overRequest.rebatePips, overRequest.markupPips);
     assert(putOver.status === 422, 'Giao vượt ngân sách (gấp đôi) → 422', putOver.body);
     assert(
-        putOver.body?.error?.code === 'REBATE_EXCEEDS_MAX',
-        `Error code đúng là REBATE_EXCEEDS_MAX (thực tế: ${putOver.body?.error?.code})`
+        putOver.body?.error?.code === 'REBATE_EXCEEDS_MAX' || putOver.body?.error?.code === 'MARKUP_EXCEEDS_MAX',
+        `Error code đúng là REBATE_EXCEEDS_MAX hoặc MARKUP_EXCEEDS_MAX (thực tế: ${putOver.body?.error?.code})`
     );
 
     // Verify ROLLBACK — Lv1Test và Lv2Test phải KHÔNG đổi sau request bị reject

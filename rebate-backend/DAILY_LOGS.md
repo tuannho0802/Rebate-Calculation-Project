@@ -382,3 +382,69 @@ Column names trong raw SQL đã dùng `parent_id`, `ib_id`, `asset_type`, `rebat
 - Audit & Notifications: Added `PAYOUT_REQUESTED`, `PAYOUT_APPROVED`, `PAYOUT_REJECTED` audit logs and corresponding system notifications.
 - Seed Data: Automated calculation of legacy balances and wallet generation for existing IB nodes.
 - Testing: Created `test-sprint4.js` to cover full payout flows, regressions, and balance calculations. All tests pass successfully.
+
+---
+## [2026-07-09] - Rebate Type as String + Frontend UI Support
+
+### Phiên Làm Việc
+- Agent: GitHub Copilot
+- Yêu cầu từ: Chuyển `rebateType` sang `String` trong Prisma + cập nhật DTO/service và thêm UI nhập rebateType trên frontend
+
+### Đã Triển Khai
+- `prisma/schema.prisma`: `RebateConfig.rebateType` đã được định nghĩa là `String` với default `STP_REBATE`
+- `src/modules/rebate/dto/update-config.dto.ts`: `rebateType` không còn bắt buộc enum, nhận giá trị chuỗi và mặc định `STP_REBATE`
+- `src/modules/rebate/rebate.service.ts`: cập nhật truy vấn `ibId_assetType_rebateType` và `upsert` để dùng `rebateType` string
+- `rebate-frontend/src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx`: thêm ô nhập `Rebate Type` và gửi giá trị người dùng nhập kèm với payload cập nhật
+
+### Kiểm Tra
+- `rebate-backend`: `npm run build` thành công sau khi sửa thiếu import `IsEnum` và sinh lại Prisma Client
+
+---
+
+## [2026-07-10] - Fix Rebate/Markup allocation validation (backend)
+
+### Phiên Làm Việc
+- Agent: GitHub Copilot
+- Yêu cầu từ: Sửa logic giới hạn phân bổ rebate/markup cho sub-IB — đảm bảo dùng ngân sách còn lại của parent và validate delta allocation chính xác.
+
+### Đã Triển Khai
+- `src/modules/rebate/rebate.service.ts`: sửa logic `updateConfig` để
+  - kiểm tra delta allocation (`deltaRebate`, `deltaMarkup`) so với ngân sách còn lại của parent (`parent.rebatePips`, `parent.markupPips`),
+  - dùng phép toán rõ ràng (parentRemaining - delta) thay vì `decrement` với giá trị có thể âm,
+  - trả lỗi rõ ràng `REBATE_EXCEEDS_MAX` hoặc `MARKUP_EXCEEDS_MAX` với thông tin delta và giới hạn.
+- Ghi `RebateConfigHistory` và `AuditLog` như trước cho các thay đổi parent/child.
+
+### Lý Do
+- Tránh trường hợp tính nhầm khi cập nhật lại child (increase/decrease), và cung cấp thông báo lỗi rõ ràng hơn cho frontend.
+
+### Trạng Thái
+- [x] Đã chỉnh sửa source, code biên dịch và server khởi động thành công
+- [ ] Cần chạy thêm test tích hợp PUT `/api/rebate/config/:ibId` từ UI để xác minh hành vi multi-row
+
+- `rebate-frontend`: build hiện tại gặp lỗi Typescript trong `src/lib/api/client.ts` do typed Axios headers; đã sửa bằng cast `as any` để giữ header Authorization hoạt động với `AxiosRequestHeaders`
+
+### Trạng Thái
+- [x] Backend build sạch
+- [ ] Frontend build cần xác nhận lại sau khi sửa lỗi header Authorization
+
+---
+## [2026-07-10] - Fix Frontend Rebate Edit Page Max Validation
+
+### Phiên Làm Việc
+- Agent: GitHub Copilot
+- Yêu cầu từ: Cập nhật giao diện chỉnh sửa rebate cho Sub-IB, đảm bảo giá trị `Rebate Max` và `Markup Max` hiển thị đúng theo mẫu account-type, không lấy từ config đã lưu.
+
+### Đã Triển Khai
+- `rebate-frontend/src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx`
+  - Loại bỏ `savedAssets` khỏi phép tính giới hạn tối đa cho rebate và markup.
+  - `getRebateMax()` giờ trả về giá trị `maxCeiling` từ account-type template hoặc fallback mặc định, không trả về rebate đã lưu.
+  - `getMarkupMax()` giờ trả về share markup từ account-type templates, không dùng giá trị markup đã lưu.
+  - `handleSave()` giờ validate đúng `rebateMax` và `markupMax` mỗi lần lưu.
+
+### Xác Thực
+- Kiểm tra TypeScript / lỗi: `rebate-frontend/src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx` → không có lỗi.
+- Chạy kịch bản backend `node .\scratch\test-rebate-cascade.js` → `31 passed, 0 failed`.
+
+### Ghi Chú
+- Backend cascade allocation và rollback đã hoạt động đúng theo logic cây.
+- Lỗi over-budget có thể trả về `REBATE_EXCEEDS_MAX` hoặc `MARKUP_EXCEEDS_MAX` tuỳ vào giới hạn nào bị vượt trước.

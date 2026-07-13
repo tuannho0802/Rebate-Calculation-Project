@@ -288,6 +288,7 @@
 - [x] Các type vẫn khớp với 02_DATA_MODELS.md
 ---
 
+
 ## [2026-06-18] — Phần: FRONTEND
 
 ### Phiên Làm Việc
@@ -377,3 +378,31 @@
 - [x] Không có chức năng cũ nào bị hỏng
 - [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
 - [x] Các type vẫn khớp với 02_DATA_MODELS.md
+
+
+## [2026-07-09] — Phần: FRONTEND
+
+### Phiên Làm Việc
+- Agent: GitHub Copilot
+- Yêu cầu từ: Sửa backend validate Rebate/Markup riêng biệt theo logic frontend và cập nhật nhật ký.
+
+### Đã Triển Khai
+- rebate-backend/src/modules/rebate/rebate.service.ts: Tách backend validation thành kiểm tra riêng cho `rebatePips` và `markupPips`; không còn dùng tổng `rebatePips + markupPips` làm điều kiện chính.
+- rebate-backend/src/modules/rebate/dto/update-config.dto.ts: Đã làm `rebateType` thành trường tùy chọn và mặc định về `STP_REBATE` để tránh bị reject khi frontend không gửi giá trị này.
+- rebate-frontend/src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx: Thêm `rebateType: 'STP_REBATE'` vào payload PUT khi gọi `rebateApi.updateConfig`.
+- rebate-backend: Đã build lại backend để xác thực thay đổi không gây lỗi compile.
+
+### Đã Sửa Lỗi
+- rebate-backend/src/modules/rebate/rebate.service.ts: Sửa lỗi validation sai logic tổng budget.
+- rebate-backend/src/modules/rebate/dto/update-config.dto.ts: Sửa lỗi 422 do thiếu trường `re­bateType` trong payload.
+
+### Đã Cập Nhật
+- rebate-frontend/DAILY_LOGS.md: Ghi nhận chi tiết backend đã sửa và phản hồi 422.
+
+### Ghi Chú
+- Backend hiện kiểm tra đúng từng phần rebate và markup theo yêu cầu frontend, đồng thời frontend gửi đủ trường `rebateType` để tránh validation 422.
+- Mọi thay đổi backend trong phiên này được ghi thêm vào log, không xóa hay ghi đè nội dung cũ.
+
+### Trạng Thái
+- [x] Sửa backend validation đúng theo yêu cầu
+- [x] Đã thêm nhật ký cho phiên làm việc hôm nay

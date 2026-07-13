@@ -27,6 +27,17 @@ export class IbService {
   async getMe(ibId: string) {
     const user = await this.prisma.ibNode.findUnique({
       where: { id: ibId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        level: true,
+        parentId: true,
+        accountType: true,
+        accountTypeTemplates: true,
+        markupLinkTemplates: true,
+        createdAt: true,
+      },
     });
 
     if (!user) {
@@ -41,13 +52,8 @@ export class IbService {
     });
 
     return {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      level: user.level,
-      parentId: user.parentId,
+      ...user,
       totalChildren,
-      createdAt: user.createdAt,
     };
   }
 
@@ -72,6 +78,8 @@ export class IbService {
         name: node.name,
         email: node.email,
         level: node.level,
+        accountType: node.accountType,
+        isActive: node.isActive,
         children: [],
       });
     });
@@ -92,6 +100,8 @@ export class IbService {
         name: child.name,
         email: child.email,
         level: child.level,
+        accountType: child.accountType,
+        isActive: child.isActive,
         children: [],
       }));
     }
@@ -132,6 +142,7 @@ export class IbService {
       email: user.email,
       level: user.level,
       parentId: user.parentId,
+      accountType: user.accountType,
       rebateConfig: formattedConfig,
       createdAt: user.createdAt,
     };
@@ -159,6 +170,14 @@ export class IbService {
     const hashedPassword = await bcrypt.hash(createIbDto.password, 10);
     const newLevel = currentUserLevel + 1;
 
+    let parentAccountType = createIbDto.accountType || 'SEA STD';
+    if (currentUserLevel > 0) {
+      const parentNode = await this.prisma.ibNode.findUnique({ where: { id: currentUserId }});
+      if (parentNode?.accountType) {
+        parentAccountType = parentNode.accountType;
+      }
+    }
+
     const newIb = await this.prisma.$transaction(async (tx: any) => {
       const referralCode = `IB-${Date.now().toString(36).toUpperCase()}`;
       const ib = await tx.ibNode.create({
@@ -170,6 +189,7 @@ export class IbService {
           parentId: currentUserId,
           phone: createIbDto.phone,
           country: createIbDto.country,
+          accountType: parentAccountType,
           bankAccount: createIbDto.bankAccount,
           paymentInfo: createIbDto.paymentInfo,
           notes: createIbDto.notes,
@@ -277,6 +297,7 @@ export class IbService {
       email: updated.email,
       level: updated.level,
       parentId: updated.parentId,
+      accountType: updated.accountType,
     };
   }
 

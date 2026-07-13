@@ -1,63 +1,117 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { use, useState, useEffect } from 'react';
 import { useRouter } from '@/i18n/routing';
 import { useMutation } from '@tanstack/react-query';
 import { rebateApi } from '@/lib/api/rebate';
+import { rebateTemplateApi } from '@/lib/api/rebateTemplates';
 import { ibApi } from '@/lib/api/ib';
 import { useAuthStore } from '@/store/auth.store';
 import { Loader2, Save, ArrowLeft } from 'lucide-react';
-import { AssetType, IbNode, RebateAssetConfig } from '@/types';
+import { AssetType, IbNode, RebateAssetConfig, RebateConfig } from '@/types';
 import { AccountTypeTable, MarkupLinkRow } from '@/components/rebate/AccountTypeBuilder';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
 
-export default function EditIbRebatePage({ params }: { params: { id: string } }) {
+export default function EditIbRebatePage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const { id } = params;
+  const { id } = use(params);
   const { user } = useAuthStore();
   
+  useEffect(() => {
+    try {
+      console.log('EditIbRebatePage target IB', { targetId: id, configPath: `/rebate/config/${id}` });
+    } catch (e) {
+      // ignore logging errors
+    }
+  }, [id]);
+  
   const [tables, setTables] = useState<AccountTypeTable[]>([]);
+  const [mounted, setMounted] = useState(false);
   // We'll store separate Rebate and Markup values for each table row.
   // Keys are `${tableId}_${assetType}_rebate` and `${tableId}_${assetType}_markup`.
   const [rebateValues, setRebateValues] = useState<Record<string, string>>({});
   const [markupValues, setMarkupValues] = useState<Record<string, string>>({});
 
-  const [mounted, setMounted] = useState(false);
-  const [subIbAccountType, setSubIbAccountType] = useState('SEA STD');
+  const [profile, setProfile] = useState<IbNode | null>(null);
+  const [currentUserConfig, setCurrentUserConfig] = useState<RebateConfig | null>(null);
+  const [subIbAccountType, setSubIbAccountType] = useState('Markup 0%');
   const [markupLinks, setMarkupLinks] = useState<MarkupLinkRow[]>([]);
 
-  useEffect(() => {
-    const saved = localStorage.getItem('accountTypeTemplates');
-    if (saved) {
-      try {
-        setTables(JSON.parse(saved));
-      } catch (e) {
-        console.error('Failed to parse templates', e);
-      }
-    }
-
-    const storedTypes = JSON.parse(localStorage.getItem('ibAccountTypes') || '{}');
-    setSubIbAccountType(storedTypes[id] || 'SEA STD');
-
-    const savedMarkupLinks = localStorage.getItem('markupLinkTemplates');
-    if (savedMarkupLinks) {
-      try {
-        setMarkupLinks(JSON.parse(savedMarkupLinks));
-      } catch (e) {
-        console.error('Failed to parse markupLinkTemplates', e);
-      }
-    }
-  }, [id]);
+  const [targetIb, setTargetIb] = useState<IbNode | null>(null);
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+
+    if (!user?.id) return;
+
+    const loadTemplates = async () => {
+      try {
+        const [profileRes, configRes, templatesRes, targetRes, targetConfigRes] = await Promise.all([
+          ibApi.getMe().catch(() => null),
+          rebateApi.getConfig(user.id).catch(() => null),
+          rebateTemplateApi.getTemplates(user.id).catch(() => null),
+          ibApi.getById(id).catch(() => null),
+          rebateApi.getConfig(id).catch(() => null),
+        ]);
+
+        if (profileRes?.data) setProfile(profileRes.data);
+        if (configRes?.data) setCurrentUserConfig(configRes.data);
+        
+        let loadedTables: AccountTypeTable[] = [];
+        if (templatesRes?.data) {
+          loadedTables = templatesRes.data.accountTypeTemplates.map((table: any) => ({
+            id: table.id,
+            name: table.name,
+            rows: table.rows.map((row: any) => ({
+              id: `${table.id}-${row.assetType}-${Math.random().toString(36).substr(2, 5)}`,
+              assetType: row.assetType,
+              maxCeiling: row.maxCeiling,
+              calcUnit: row.calcUnit,
+            })),
+          }));
+          setTables(loadedTables);
+          setMarkupLinks(templatesRes.data.markupLinkTemplates);
+        }
+        
+        if (targetRes?.data) {
+          setTargetIb(targetRes.data);
+          setSubIbAccountType(targetRes.data.accountType || 'Markup 0%');
+        }
+
+        if (targetConfigRes?.data?.assets && loadedTables.length > 0) {
+          const initialRebate: Record<string, string> = {};
+          const initialMarkup: Record<string, string> = {};
+          
+          loadedTables.forEach((table) => {
+            table.rows.forEach((row) => {
+              const assetConfig = targetConfigRes.data.assets.find(
+                (a: RebateAssetConfig) => a.assetType.toUpperCase() === row.assetType.toUpperCase().trim()
+              );
+              if (assetConfig) {
+                initialRebate[`${table.id}_${row.assetType}_rebate`] = String(assetConfig.rebatePips);
+                initialMarkup[`${table.id}_${row.assetType}_markup`] = String(assetConfig.markupPips);
+              }
+            });
+          });
+          
+          setRebateValues(initialRebate);
+          setMarkupValues(initialMarkup);
+        }
+
+      } catch (error) {
+        console.error('Failed to load rebate templates or IB details', error);
+      }
+    };
+
+    loadTemplates();
+  }, [id, user?.id]);
+
 
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   const updateConfigMutation = useMutation({
-    mutationFn: (assets: RebateAssetConfig[]) => rebateApi.updateConfig(id, { assets }),
+    mutationFn: (assets: RebateAssetConfig[]) => rebateApi.updateConfig(id, assets),
     onSuccess: (res) => {
       if (res.success) {
         setSaveSuccess(true);
@@ -65,6 +119,21 @@ export default function EditIbRebatePage({ params }: { params: { id: string } })
         setTimeout(() => {
           router.push('/dashboard/tree');
         }, 1200);
+      } else {
+        toast.error(getErrorMessage((res as any).error?.code));
+      }
+    },
+    onError: (err: any) => {
+      toast.error(getErrorMessage(err.response?.data?.error?.code || 'INTERNAL_ERROR'));
+    }
+  });
+
+  const updateAccountTypeMutation = useMutation({
+    mutationFn: (newType: string) => ibApi.update(id, { accountType: newType }),
+    onSuccess: (res, variables) => {
+      if (res.success) {
+        setSubIbAccountType(variables);
+        toast.success('Cập nhật Loại tài khoản (Link) thành công');
       } else {
         toast.error(getErrorMessage((res as any).error?.code));
       }
@@ -93,38 +162,37 @@ export default function EditIbRebatePage({ params }: { params: { id: string } })
     setMarkupValues(prev => ({ ...prev, [`${tableId}_${assetType}_markup`]: value }));
   };
 
-  const getRebateMax = (_assetType: string, originalMax: string) => {
-    return originalMax;
-  };
-
-  const normalizeKey = (value: string | undefined) => {
-    return String(value ?? '').trim().toLowerCase();
-  };
-
-  const readStoredAccountType = (ibId: string) => {
-    if (typeof window === 'undefined') return 'SEA STD';
-    const storedTypes = JSON.parse(localStorage.getItem('ibAccountTypes') || '{}');
-    return storedTypes[ibId] || 'SEA STD';
-  };
-
-  const readSavedMarkupLinks = () => {
-    if (typeof window === 'undefined') return [] as MarkupLinkRow[];
-    try {
-      return JSON.parse(localStorage.getItem('markupLinkTemplates') || '[]') as MarkupLinkRow[];
-    } catch {
-      return [];
+  const getRebateMax = (assetType: string, originalMax: string) => {
+    if (!profile) return originalMax;
+    if (profile.parentId === null) {
+      return originalMax;
     }
+
+    const normalizedAssetType = assetType.toUpperCase().trim();
+    const assetConfig = currentUserConfig?.assets?.find((a: RebateAssetConfig) => a.assetType.toUpperCase() === normalizedAssetType);
+    return assetConfig ? String(assetConfig.rebatePips ?? originalMax) : originalMax;
   };
 
   const getMarkupMax = (assetType: string) => {
-    const accountType = normalizeKey(subIbAccountType || readStoredAccountType(id));
-    const links = markupLinks.length > 0 ? markupLinks : readSavedMarkupLinks();
-    const link = links.find((linkItem) => normalizeKey(linkItem.name) === accountType);
-    if (link) {
-      return String(link.share ?? '0');
+    if (!profile) return '0';
+
+    if (profile.parentId === null) {
+      const accountType = subIbAccountType || 'Markup 0%';
+      if (accountType === 'Markup 0%') return '0';
+      
+      const link = markupLinks.find((linkItem) => linkItem.name === accountType);
+      if (link && link.share !== undefined && link.share !== null) {
+        return String(link.share);
+      }
+      if (markupLinks.length > 0) {
+        return String(markupLinks[0].share ?? '0');
+      }
+      return '0';
     }
 
-    return links.length > 0 ? String(links[0].share ?? '0') : '0';
+    const normalizedAssetType = assetType.toUpperCase().trim();
+    const assetConfig = currentUserConfig?.assets?.find((a: RebateAssetConfig) => a.assetType.toUpperCase() === normalizedAssetType);
+    return assetConfig ? String(assetConfig.markupPips ?? '0') : '0';
   };
 
   const getRowError = (tableId: string, row: AccountTypeTable['rows'][number]) => {
@@ -134,6 +202,9 @@ export default function EditIbRebatePage({ params }: { params: { id: string } })
     const parsedMarkup = parsePipsValue(markupVal);
     const rebateMax = parsePipsValue(getRebateMax(row.assetType, row.maxCeiling));
     const markupMax = parsePipsValue(getMarkupMax(row.assetType));
+    if (process.env.NODE_ENV === 'development') {
+      console.log('getRowError debug', { row: row.assetType, accountType: subIbAccountType, markupLinks, markupMax });
+    }
 
     if (parsedRebate > rebateMax) {
       return `Rebate không được vượt quá ${rebateMax}.`;
@@ -172,7 +243,8 @@ export default function EditIbRebatePage({ params }: { params: { id: string } })
       }
 
       assetsToUpdate.push({
-        assetType: row.assetType as AssetType,
+        assetType: row.assetType.toUpperCase().trim() as AssetType,
+        rebateType: 'STP_REBATE',
         rebatePips: parsedRebate,
         markupPips: parsedMarkup,
         maxPips: rebateMax + markupMax,
@@ -184,6 +256,8 @@ export default function EditIbRebatePage({ params }: { params: { id: string } })
       updateConfigMutation.mutate(assetsToUpdate);
     }
   };
+
+  if (!mounted) return null;
 
   if (tables.length === 0) {
     return (
@@ -213,8 +287,29 @@ export default function EditIbRebatePage({ params }: { params: { id: string } })
         </button>
         <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Chỉnh sửa Hoa Hồng Sub-IB</h1>
         <p className="text-gray-500 mt-1">
-          Lựa chọn gói phí và chia sẻ hoa hồng cho IB tuyến dưới (IB ID: <span className="font-mono text-gray-700">{id}</span>)
+          Lựa chọn gói phí và chia sẻ hoa hồng cho IB tuyến dưới (IB: <span className="font-semibold text-[#0066ff]">{targetIb ? (targetIb.name ? `${targetIb.name} - ${targetIb.email}` : targetIb.email) : id}</span>)
         </p>
+        
+        <div className="mt-6 flex items-center gap-4 bg-blue-50 p-4 rounded-xl border border-blue-100">
+          <label className="text-sm font-semibold text-gray-800">Loại tài khoản (Link Markup):</label>
+          <div className="relative flex items-center gap-3">
+            <select
+              value={subIbAccountType}
+              onChange={(e) => updateAccountTypeMutation.mutate(e.target.value)}
+              disabled={updateAccountTypeMutation.isPending || markupLinks.length === 0 || profile?.parentId !== null}
+              className="px-4 py-2 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#0066ff] focus:border-[#0066ff] text-sm font-medium disabled:opacity-50 min-w-[200px]"
+            >
+              {markupLinks.map((link) => (
+                <option key={link.id} value={link.name}>{link.name}</option>
+              ))}
+              {!markupLinks.some(l => l.name === subIbAccountType) && (
+                <option value={subIbAccountType}>{subIbAccountType}</option>
+              )}
+            </select>
+            {updateAccountTypeMutation.isPending && <Loader2 className="h-5 w-5 animate-spin text-[#0066ff]" />}
+          </div>
+          <p className="text-xs text-gray-500 ml-2">Bạn có thể đổi Link Markup (sẽ thay đổi Markup Max bên dưới).</p>
+        </div>
       </div>
 
       <div className="grid gap-8">

@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { useAuthStore } from '@/store/auth.store';
-import { Loader2, UserPlus, Eye, Edit } from 'lucide-react';
+import { Loader2, UserPlus, Eye, Edit, Trash2 } from 'lucide-react';
 import { CreateIbModal } from './CreateIbModal';
 import { ViewRebateModal } from './ViewRebateModal';
 import { useRouter } from '@/i18n/routing';
@@ -15,21 +15,27 @@ export function NetworkIbTable() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [viewIbId, setViewIbId] = useState<string | null>(null);
 
+  const queryClient = useQueryClient();
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => ibApi.deactivate(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['ibTree'] });
+    }
+  });
+
+  const handleDelete = (id: string) => {
+    if (confirm('Bạn có chắc chắn muốn xóa (ngừng hợp tác) với IB này?')) {
+      deleteMutation.mutate(id);
+    }
+  };
+
   const { data: treeData, isLoading } = useQuery({
     queryKey: ['ibTree', user?.id],
     queryFn: () => ibApi.getTree(1),
   });
 
-  const subIbs = treeData?.data?.children || [];
-
-  // Parse mocked account types from localStorage
-  const getAccountType = (id: string) => {
-    if (typeof window !== 'undefined') {
-      const storedTypes = JSON.parse(localStorage.getItem('ibAccountTypes') || '{}');
-      return storedTypes[id] || 'SEA STD';
-    }
-    return 'SEA STD';
-  };
+  const subIbs = (treeData?.data?.children || []).filter((ib: any) => ib.isActive !== false);
+  const getAccountType = (ib: any) => ib.accountType || 'Markup 0%';
 
   return (
     <div className="space-y-6">
@@ -78,7 +84,7 @@ export function NetworkIbTable() {
                     </td>
                     <td className="px-6 py-4">
                       <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
-                        {getAccountType(ib.id)}
+                        {getAccountType(ib)}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -96,6 +102,14 @@ export function NetworkIbTable() {
                           title="Edit"
                         >
                           <Edit className="h-4 w-4 group-hover:scale-110 transition-transform" />
+                        </button>
+                        <button
+                          onClick={() => handleDelete(ib.id)}
+                          disabled={deleteMutation.isPending}
+                          className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors group disabled:opacity-50"
+                          title="Delete"
+                        >
+                          <Trash2 className="h-4 w-4 group-hover:scale-110 transition-transform" />
                         </button>
                       </div>
                     </td>
@@ -123,3 +137,5 @@ export function NetworkIbTable() {
     </div>
   );
 }
+
+

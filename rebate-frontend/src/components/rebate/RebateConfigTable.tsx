@@ -61,8 +61,8 @@ export function RebateConfigTable() {
 
   const validateRow = (row: RebateAssetConfig) => {
     const limit = user?.level === 0
-      ? MAX_PIPS[row.assetType] ?? row.maxPips ?? 100
-      : row.maxPips ?? 100;
+      ? MAX_PIPS[row.assetType]
+      : row.maxPips ?? 0;
     return (row.rebatePips + row.markupPips) <= limit;
   };
 
@@ -151,7 +151,7 @@ export function RebateConfigTable() {
           )}
 
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[800px]">
+            <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-sm font-bold text-gray-700 uppercase tracking-wider">
                   <th className="p-4 pl-6 whitespace-nowrap">Tài Sản (Asset)</th>

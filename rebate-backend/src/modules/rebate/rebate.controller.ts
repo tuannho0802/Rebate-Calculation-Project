@@ -2,10 +2,11 @@ import { Controller, Get, Put, Body, Param, Query, UseGuards } from '@nestjs/com
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { RebateService } from './rebate.service';
 import { UpdateRebateConfigDto } from './dto/update-config.dto';
+import { SaveRebateTemplatesDto } from './dto/save-templates.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { AssetType, RebateType } from '@prisma/client';
+import { AssetType } from '@prisma/client';
 
 @ApiTags('💰 Rebate')
 @ApiBearerAuth('Bearer')
@@ -23,6 +24,12 @@ export class RebateController {
   @ApiResponse({ status: 403, description: 'Forbidden — not in subtree' })
   @ApiResponse({ status: 404, description: 'IB not found' })
   async getConfig(@Param('ibId') ibId: string) {
+    try {
+      // eslint-disable-next-line no-console
+      console.log('RebateController.getConfig called', { ibId, requestPath: `/rebate/config/${ibId}` });
+    } catch (e) {
+      // ignore logging errors
+    }
     return this.rebateService.getConfig(ibId);
   }
 
@@ -40,6 +47,12 @@ export class RebateController {
     @Param('ibId') ibId: string,
     @Body() updateDto: UpdateRebateConfigDto,
   ) {
+    try {
+      // eslint-disable-next-line no-console
+      console.log('RebateController.updateConfig called', { user: { sub: user?.sub, level: user?.level }, ibId, assetsCount: Array.isArray((updateDto as any)?.assets) ? (updateDto as any).assets.length : 0 });
+    } catch (e) {
+      // ignore logging errors
+    }
     return this.rebateService.updateConfig(user.sub, user.level, ibId, updateDto);
   }
 
@@ -65,6 +78,31 @@ export class RebateController {
     );
   }
 
+  @Get('templates/:ibId')
+  @ApiBearerAuth('Bearer')
+  @UseGuards(SubtreeGuard)
+  @ApiOperation({ summary: 'Lấy template account type và markup link cho IB' })
+  @ApiParam({ name: 'ibId', description: 'UUID của IB', example: 'clxyz123' })
+  @ApiResponse({ status: 200, description: 'Templates returned successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden — not in subtree' })
+  async getTemplates(@Param('ibId') ibId: string) {
+    return this.rebateService.getTemplates(ibId);
+  }
+
+  @Put('templates/:ibId')
+  @ApiBearerAuth('Bearer')
+  @UseGuards(SubtreeGuard)
+  @ApiOperation({ summary: 'Lưu template account type và markup link cho IB' })
+  @ApiParam({ name: 'ibId', description: 'UUID của IB', example: 'clxyz123' })
+  @ApiResponse({ status: 200, description: 'Templates saved successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden — not in subtree' })
+  async saveTemplates(
+    @Param('ibId') ibId: string,
+    @Body() dto: SaveRebateTemplatesDto,
+  ) {
+    return this.rebateService.saveTemplates(ibId, dto);
+  }
+
   @Get('calculate')
   @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
@@ -72,7 +110,7 @@ export class RebateController {
   @ApiQuery({ name: 'ibId', description: 'The IB account ID', example: 'clxyz123' })
   @ApiQuery({ name: 'assetType', enum: AssetType, description: 'Asset type for the calculation', example: AssetType.FOREX })
   @ApiQuery({ name: 'lots', description: 'Number of lots traded', example: '1.5' })
-  @ApiQuery({ name: 'rebateType', enum: RebateType, required: false, description: 'Rebate type (default: STP_REBATE)' })
+  @ApiQuery({ name: 'rebateType', description: 'Rebate type (default: STP_REBATE)', required: false, type: String })
   @ApiResponse({ status: 200, description: 'Rebate calculation result returned successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden — not in subtree' })
   @ApiResponse({ status: 404, description: 'IB or config not found' })
@@ -80,7 +118,7 @@ export class RebateController {
     @Query('ibId') ibId: string,
     @Query('assetType') assetType: AssetType,
     @Query('lots') lots: string,
-    @Query('rebateType') rebateType: RebateType = RebateType.STP_REBATE,
+    @Query('rebateType') rebateType: string = 'STP_REBATE',
   ) {
     const parsedLots = Number(lots);
     return this.rebateService.calculateCascadeDistribution(ibId, assetType, parsedLots, rebateType);

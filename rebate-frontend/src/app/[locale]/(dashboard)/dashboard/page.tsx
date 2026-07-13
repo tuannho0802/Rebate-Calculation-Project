@@ -24,7 +24,17 @@ export default function DashboardPage() {
       const loadDashboardData = async () => {
         try {
           const profileData = await ibApi.getMe();
-          setProfile(profileData.data);
+          let pData = profileData.data;
+          if (pData.parentId) {
+            try {
+              const parentRes = await ibApi.getById(pData.parentId);
+              pData.parentEmail = parentRes.data?.email;
+              pData.parentName = parentRes.data?.name;
+            } catch (err) {
+              // ignore
+            }
+          }
+          setProfile(pData);
           const configData = await rebateApi.getConfig(user.id);
           setConfig(configData.data);
         } catch (e) {
@@ -67,9 +77,9 @@ export default function DashboardPage() {
               <div className="text-lg font-bold text-white mt-1">{profile.totalChildren}</div>
             </div>
             <div>
-              <div className="text-xs text-slate-500 font-semibold uppercase tracking-wider">{t('parentId')}</div>
-              <div className="text-sm font-medium text-slate-300 mt-1 truncate" title={profile.parentId || 'N/A'}>
-                {profile.parentId || 'N/A'}
+              <div className="text-xs text-slate-500 font-semibold uppercase tracking-wider">IB Tuyến Trên</div>
+              <div className="text-sm font-medium text-[#0066ff] mt-1 truncate" title={profile.parentEmail || profile.parentId || 'N/A'}>
+                {profile.parentEmail ? (profile.parentName ? `${profile.parentName} - ${profile.parentEmail}` : profile.parentEmail) : (profile.parentId || 'N/A')}
               </div>
             </div>
             <div>
@@ -97,8 +107,8 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {config && config.assets?.filter(a => a.rebatePips > 0 || a.markupPips > 0).map((asset) => (
-                  <tr key={asset.assetType} className="hover:bg-slate-800/40">
+                {config && config.assets?.filter(a => a.rebatePips > 0 || a.markupPips > 0).map((asset, idx) => (
+                  <tr key={`${asset.assetType}-${idx}`} className="hover:bg-slate-800/40">
                     <td className="px-4 py-3 font-semibold text-white">{asset.assetType}</td>
                     <td className="px-4 py-3 text-right text-emerald-400 font-semibold">{asset.rebatePips} pips</td>
                     <td className="px-4 py-3 text-right text-slate-400">{asset.markupPips} pips</td>

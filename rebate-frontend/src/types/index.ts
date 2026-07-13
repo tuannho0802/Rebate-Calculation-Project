@@ -42,6 +42,7 @@ export interface PaginationMeta {
   page: number;
   limit: number;
   total: number;
+  unreadCount?: number;
 }
 
 // ─── User / Auth ──────────────────────────────────────────────────
@@ -67,6 +68,7 @@ export interface IbNode {
   name?: string;
   level: number;
   parentId: string | null;
+  accountType?: string;
   totalChildren?: number;
   createdAt: string;
 }
@@ -79,6 +81,7 @@ export interface IbTreeNode extends IbNode {
 
 export interface RebateAssetConfig {
   assetType: AssetType;
+  rebateType: string;
   rebatePips: number;
   markupPips: number;
   markupPercent: number;  // 80 hoặc 100
@@ -132,11 +135,61 @@ export interface ReportSummary {
 export interface RebateTransaction {
   id: string;
   ibId: string;
+  ibName?: string;
   assetType: AssetType;
   lots: number;
   rebateAmount: number;
   currency: string;
   tradedAt: string;
+}
+
+export enum NotificationType {
+  SYSTEM = "SYSTEM",
+  IB_JOINED = "IB_JOINED",
+  TRANSACTION_ADDED = "TRANSACTION_ADDED",
+  REBATE_UPDATED = "REBATE_UPDATED",
+  IB_DEACTIVATED = "IB_DEACTIVATED",
+  IB_RESTORED = "IB_RESTORED",
+  MANUAL = "MANUAL",
+}
+
+export enum PayoutStatus {
+  PENDING = "PENDING",
+  APPROVED = "APPROVED",
+  REJECTED = "REJECTED",
+  PAID = "PAID",
+}
+
+export interface Payout {
+  id: string;
+  ibId: string;
+  walletId: string;
+  amount: number;
+  status: PayoutStatus;
+  paymentMethod?: string | null;
+  note?: string | null;
+  rejectedReason?: string | null;
+  requestedAt: string;
+  processedAt?: string | null;
+  processedBy?: string | null;
+}
+
+export interface Notification {
+  id: string;
+  recipientId: string;
+  senderId?: string | null;
+  sender?: {
+    id: string;
+    email: string;
+    name?: string | null;
+  } | null;
+  type: NotificationType;
+  title: string;
+  body: string;
+  isRead: boolean;
+  readAt?: string | null;
+  metadata?: Record<string, unknown> | null;
+  createdAt: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────

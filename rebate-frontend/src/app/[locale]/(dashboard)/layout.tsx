@@ -6,9 +6,22 @@ import { useTranslations } from 'next-intl';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api/auth';
-import { Loader2, LogOut, LayoutDashboard, Users, Settings, BarChart3, Menu, X, UserCog } from 'lucide-react';
+import { Loader2, LogOut, LayoutDashboard, Users, Settings, BarChart3, Menu, X, UserCog, CreditCard, TrendingUp, Download, Bell } from 'lucide-react';
 
 import { useQueryClient } from '@tanstack/react-query';
+
+const decodeJwt = (token: string) => {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    return null;
+  }
+};
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -20,14 +33,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const token = localStorage.getItem('ib_access_token');
-    if (!token) {
-      router.replace('/login');
-    } else {
+    const checkAuth = async () => {
+      const token = localStorage.getItem('ib_access_token');
+      if (!token) {
+        router.replace('/login');
+        return;
+      }
+      
+      if (!user) {
+        const payload = decodeJwt(token);
+        if (payload && payload.sub) {
+          useAuthStore.getState().setUser({
+            id: payload.sub,
+            email: payload.email,
+            level: payload.level,
+            role: payload.role,
+          });
+        }
+      }
+      
       // Simulate slight delay for smooth transition and UX
-      setTimeout(() => setIsCheckingAuth(false), 500);
-    }
-  }, [router]);
+      setTimeout(() => setIsCheckingAuth(false), 300);
+    };
+    
+    checkAuth();
+  }, [router, user]);
 
   const handleLogout = async () => {
     try {
@@ -53,7 +83,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: t('overview'), href: '/dashboard', icon: LayoutDashboard },
     { name: t('ibNetwork'), href: '/dashboard/tree', icon: Users },
     { name: t('report'), href: '/dashboard/report', icon: BarChart3 },
+    { name: 'IB Management', href: '/dashboard/ib-management', icon: Users },
+    { name: 'Payout', href: '/dashboard/payout', icon: CreditCard },
+    { name: 'Transaction', href: '/dashboard/transaction', icon: TrendingUp },
+    { name: 'Export', href: '/dashboard/export', icon: Download },
     { name: t('config'), href: '/dashboard/rebate', icon: Settings },
+    { name: 'Notifications', href: '/dashboard/notification', icon: Bell },
     { name: 'Tài khoản', href: '/account', icon: UserCog },
   ];
 
