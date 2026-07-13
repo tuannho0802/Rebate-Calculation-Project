@@ -75,6 +75,7 @@ export interface IbNode {
   parentEmail?: string;
   parentName?: string | null;
   accountType?: string;
+  isActive: boolean;
   totalChildren?: number;
   createdAt: string;
 }
