@@ -520,26 +520,26 @@ export class IbService {
     page: number,
     limit: number,
   ) {
-    if (!q || typeof q !== 'string' || q.trim().length < 2) {
-      throw new BadRequestException({
-        code: 'SEARCH_QUERY_TOO_SHORT',
-        message: 'Từ khóa tìm kiếm phải có ít nhất 2 ký tự',
-      });
-    }
-
-    const keyword = q.trim();
-
     const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
     // Bỏ currentUser ra khỏi kết quả tìm kiếm
     const searchableIds = subtreeIds.filter((id) => id !== currentUserId);
 
     const where: any = {
       id: { in: searchableIds },
-      OR: [
+    };
+
+    if (q && typeof q === 'string' && q.trim().length >= 2) {
+      const keyword = q.trim();
+      where.OR = [
         { email: { contains: keyword, mode: 'insensitive' } },
         { name: { contains: keyword, mode: 'insensitive' } },
-      ],
-    };
+      ];
+    } else if (q && typeof q === 'string' && q.trim().length > 0) {
+      throw new BadRequestException({
+        code: 'SEARCH_QUERY_TOO_SHORT',
+        message: 'Từ khóa tìm kiếm phải có ít nhất 2 ký tự',
+      });
+    }
 
     if (!includeInactive) {
       where.isActive = true;

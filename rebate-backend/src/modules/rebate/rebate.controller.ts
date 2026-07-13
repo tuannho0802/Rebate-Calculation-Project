@@ -78,7 +78,7 @@ export class RebateController {
     );
   }
 
-  @Get('templates/:ibId')
+  @Get('ib/:ibId/templates')
   @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Lấy template account type và markup link cho IB' })
@@ -89,7 +89,7 @@ export class RebateController {
     return this.rebateService.getTemplates(ibId);
   }
 
-  @Put('templates/:ibId')
+  @Put('ib/:ibId/templates')
   @ApiBearerAuth('Bearer')
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Lưu template account type và markup link cho IB' })

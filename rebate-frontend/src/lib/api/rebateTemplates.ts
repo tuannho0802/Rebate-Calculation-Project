@@ -26,12 +26,12 @@ export interface RebateTemplatesResponse {
 
 export const rebateTemplateApi = {
   getTemplates: async (ibId: string): Promise<ApiResponse<RebateTemplatesResponse>> => {
-    const response = await apiClient.get<ApiResponse<RebateTemplatesResponse>>(`/rebate/templates/${ibId}`);
+    const response = await apiClient.get<ApiResponse<RebateTemplatesResponse>>(`/rebate/ib/${ibId}/templates`);
     return response.data;
   },
 
   saveTemplates: async (ibId: string, templates: RebateTemplatesResponse): Promise<ApiResponse<RebateTemplatesResponse>> => {
-    const response = await apiClient.put<ApiResponse<RebateTemplatesResponse>>(`/rebate/templates/${ibId}`, templates);
+    const response = await apiClient.put<ApiResponse<RebateTemplatesResponse>>(`/rebate/ib/${ibId}/templates`, templates);
     return response.data;
   },
 };
