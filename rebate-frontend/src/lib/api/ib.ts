@@ -28,8 +28,14 @@ export const ibApi = {
   },
 
   search: async (q: string, includeInactive = false, page = 1, limit = 20): Promise<ApiResponse<{ items: IbNode[]; total: number }>> => {
-    const response = await apiClient.get<ApiResponse<{ items: IbNode[]; total: number }>>(`/ib/search?q=${encodeURIComponent(q)}&includeInactive=${includeInactive}&page=${page}&limit=${limit}`);
-    return response.data;
+    const response = await apiClient.get<ApiResponse<any>>(`/ib/search?q=${encodeURIComponent(q)}&includeInactive=${includeInactive}&page=${page}&limit=${limit}`);
+    return {
+      ...response.data,
+      data: {
+        items: Array.isArray(response.data.data) ? response.data.data : [],
+        total: response.data.meta?.total || 0,
+      }
+    };
   },
 
   update: async (id: string, dto: { name?: string; email?: string; accountType?: string }): Promise<ApiResponse<IbNode>> => {
@@ -48,8 +54,14 @@ export const ibApi = {
   },
 
   getChildren: async (id: string, page = 1, limit = 20): Promise<ApiResponse<{ items: IbNode[]; total: number }>> => {
-    const response = await apiClient.get<ApiResponse<{ items: IbNode[]; total: number }>>(`/ib/${id}/children?page=${page}&limit=${limit}`);
-    return response.data;
+    const response = await apiClient.get<ApiResponse<any>>(`/ib/${id}/children?page=${page}&limit=${limit}`);
+    return {
+      ...response.data,
+      data: {
+        items: Array.isArray(response.data.data) ? response.data.data : [],
+        total: response.data.meta?.total || 0,
+      }
+    };
   },
 
   getPerformance: async (id: string, month?: string): Promise<ApiResponse<IbPerformanceResponse>> => {

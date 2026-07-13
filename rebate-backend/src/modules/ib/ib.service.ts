@@ -37,6 +37,12 @@ export class IbService {
         accountTypeTemplates: true,
         markupLinkTemplates: true,
         createdAt: true,
+        parent: {
+          select: {
+            email: true,
+            name: true,
+          }
+        }
       },
     });
 

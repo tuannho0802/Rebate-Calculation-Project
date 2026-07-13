@@ -25,15 +25,12 @@ export default function DashboardPage() {
         try {
           const profileData = await ibApi.getMe();
           let pData = profileData.data;
-          if (pData.parentId) {
-            try {
-              const parentRes = await ibApi.getById(pData.parentId);
-              pData.parentEmail = parentRes.data?.email;
-              pData.parentName = parentRes.data?.name;
-            } catch (err) {
-              // ignore
-            }
+          
+          if (pData.parent) {
+            pData.parentEmail = pData.parent.email;
+            pData.parentName = pData.parent.name;
           }
+          
           setProfile(pData);
           const configData = await rebateApi.getConfig(user.id);
           setConfig(configData.data);
