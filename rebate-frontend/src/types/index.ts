@@ -68,6 +68,12 @@ export interface IbNode {
   name?: string;
   level: number;
   parentId: string | null;
+  parent?: {
+    email: string;
+    name?: string | null;
+  } | null;
+  parentEmail?: string;
+  parentName?: string | null;
   accountType?: string;
   totalChildren?: number;
   createdAt: string;
