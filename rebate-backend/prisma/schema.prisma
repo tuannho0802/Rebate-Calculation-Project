@@ -17,7 +17,7 @@ model IbNode {
   parentId    String?
   parent      IbNode?  @relation("IbTree", fields: [parentId], references: [id])
   children    IbNode[] @relation("IbTree")
-  accountType String   @default("SEA STD")
+  accountType String   @default("Markup 0%")
 
   rebateConfig         RebateConfig[]
   transactions         RebateTransaction[]   @relation("TransactionOwner")

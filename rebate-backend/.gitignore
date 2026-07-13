@@ -5,7 +5,10 @@ dist/
 
 migrations/
 prisma/generated/
+prisma/
+!prisma/schema.prisma
 
 Sample Image
 
 scratch/export-test-output
+scratch/check-prod.js
