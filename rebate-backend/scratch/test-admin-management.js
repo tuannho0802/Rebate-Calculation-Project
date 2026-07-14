@@ -241,6 +241,156 @@ async function runTests() {
     await prisma.ibNode.deleteMany({ where: { email: 'admin_extra@test.com' } });
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // TC9 — Bảo mật: IB thường KHÔNG được gọi API quản trị
+  // ─────────────────────────────────────────────────────────────────────────
+  const mibLoginRes = await api('/auth/login', 'POST', { email: 'mib@test.com', password: 'Test@1234' });
+  if (mibLoginRes.status !== 200) {
+    logResult('TC9', 'Bảo mật IB không được gọi admin API', false, `Không login được MIB: ${JSON.stringify(mibLoginRes.data)}`);
+    console.error('\n⚠️  CRITICAL: Không thể login MIB để test TC9 — dừng báo cáo.');
+    process.exit(1);
+  }
+  const mibToken = mibLoginRes.data.data.accessToken;
+
+  const t9a = await api('/admin/users', 'GET', null, mibToken);
+  const t9b = await api('/trash', 'GET', null, mibToken);
+  // Dùng id giả — guard phải chặn ở tầng role trước khi lookup DB
+  const t9c = await api('/trash/00000000-0000-0000-0000-000000000001/permanent', 'DELETE', null, mibToken);
+
+  const all403 = t9a.status === 403 && t9b.status === 403 && t9c.status === 403;
+  if (all403) {
+    logResult('TC9', 'IB thường bị chặn khỏi toàn bộ admin/trash API', true,
+      `GET /admin/users=${t9a.status}, GET /trash=${t9b.status}, DELETE /trash/permanent=${t9c.status}`);
+  } else {
+    const issues = [];
+    if (t9a.status !== 403) issues.push(`GET /admin/users=${t9a.status} ← LỖ HỔNG BẢO MẬT`);
+    if (t9b.status !== 403) issues.push(`GET /trash=${t9b.status} ← LỖ HỔNG BẢO MẬT`);
+    if (t9c.status !== 403) issues.push(`DELETE /trash/permanent=${t9c.status} ← LỖ HỔNG BẢO MẬT`);
+    logResult('TC9', 'IB thường bị chặn khỏi toàn bộ admin/trash API', false, issues.join('; '));
+    console.error('\n⚠️  CRITICAL SECURITY: TC9 FAIL — có lỗ hổng bảo mật nghiêm trọng! Dừng lại để sửa ngay.');
+    process.exit(1);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TC10 — Kiểm tra HAS_RELATIONS phát hiện đúng bảng (wallet, không phải config)
+  // ─────────────────────────────────────────────────────────────────────────
+  const bcrypt10 = require('bcrypt');
+  const adminWalletTest = await prisma.ibNode.create({
+    data: {
+      email: 'admin_wallettest@test.com',
+      name: 'Admin Wallet Test',
+      password: await bcrypt10.hash('Test@1234', 10),
+      role: 'ADMIN',
+      level: 0,
+    },
+  });
+
+  // Tạo wallet giả cho admin này (không có rebate_config nào)
+  await prisma.wallet.create({
+    data: { ibId: adminWalletTest.id, balance: 0, totalEarned: 0, totalPaid: 0 },
+  });
+
+  // Deactivate rồi thử hard-delete
+  await prisma.ibNode.update({ where: { id: adminWalletTest.id }, data: { isActive: false } });
+  const t10Res = await api(`/trash/${adminWalletTest.id}/permanent`, 'DELETE', null, adminToken);
+
+  if (t10Res.status === 400 && t10Res.data?.error?.code === 'HAS_RELATIONS') {
+    const msg = t10Res.data.error.message || '';
+    const mentionsWallet = msg.toLowerCase().includes('wallet');
+    const mentionsConfig = msg.toLowerCase().includes('rebate_config');
+    if (mentionsWallet && !mentionsConfig) {
+      logResult('TC10', 'HAS_RELATIONS chỉ ra đúng bảng "wallets" (không nhầm rebate_configs)', true, msg);
+    } else {
+      logResult('TC10', 'HAS_RELATIONS chỉ ra đúng bảng "wallets" (không nhầm rebate_configs)', false,
+        `msg="${msg}" — mentionsWallet=${mentionsWallet}, mentionsConfig=${mentionsConfig}`);
+    }
+  } else {
+    logResult('TC10', 'HAS_RELATIONS chỉ ra đúng bảng "wallets" (không nhầm rebate_configs)', false,
+      `status=${t10Res.status}: ${JSON.stringify(t10Res.data)}`);
+  }
+
+  // Dọn wallet test + admin
+  await prisma.wallet.deleteMany({ where: { ibId: adminWalletTest.id } });
+  await prisma.notification.deleteMany({ where: { recipientId: adminWalletTest.id } });
+  await prisma.refreshToken.deleteMany({ where: { ibId: adminWalletTest.id } });
+  await prisma.ibNode.delete({ where: { id: adminWalletTest.id } });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TC11 — PATCH /admin/users/:id không cho sửa role/isRootAdmin
+  // ─────────────────────────────────────────────────────────────────────────
+  const bcrypt11 = require('bcrypt');
+  const adminPatchTest = await prisma.ibNode.create({
+    data: {
+      email: 'admin_patchtest@test.com',
+      name: 'Admin Patch Test',
+      password: await bcrypt11.hash('Test@1234', 10),
+      role: 'ADMIN',
+      level: 0,
+    },
+  });
+
+  const t11Res = await api(`/admin/users/${adminPatchTest.id}`, 'PATCH', {
+    name: 'Ten Moi Updated',
+    role: 'IB',
+    isRootAdmin: true,
+  }, adminToken);
+
+  if (t11Res.status === 200) {
+    const dbAfter = await prisma.ibNode.findUnique({ where: { id: adminPatchTest.id } });
+    const nameChanged = dbAfter?.name === 'Ten Moi Updated';
+    const roleUnchanged = dbAfter?.role === 'ADMIN';
+    const rootAdminUnchanged = dbAfter?.isRootAdmin === false;
+
+    if (nameChanged && roleUnchanged && rootAdminUnchanged) {
+      logResult('TC11', 'PATCH không cho sửa role/isRootAdmin, chỉ sửa được name', true,
+        `name=${dbAfter.name}, role=${dbAfter.role}, isRootAdmin=${dbAfter.isRootAdmin}`);
+    } else {
+      const issues = [];
+      if (!nameChanged) issues.push(`name không đổi: ${dbAfter?.name}`);
+      if (!roleUnchanged) issues.push(`role bị đổi thành: ${dbAfter?.role}`);
+      if (!rootAdminUnchanged) issues.push(`isRootAdmin bị đổi thành: ${dbAfter?.isRootAdmin}`);
+      logResult('TC11', 'PATCH không cho sửa role/isRootAdmin, chỉ sửa được name', false, issues.join('; '));
+    }
+  } else {
+    logResult('TC11', 'PATCH không cho sửa role/isRootAdmin, chỉ sửa được name', false,
+      `Expected 200, got ${t11Res.status}: ${JSON.stringify(t11Res.data)}`);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // TC12 — PATCH email trùng với Admin đang tồn tại → lỗi rõ ràng, không phải 500
+  // ─────────────────────────────────────────────────────────────────────────
+  // Tạo thêm 1 Admin thứ 2 để dùng email của nó làm email trùng
+  const bcrypt12 = require('bcrypt');
+  const adminPatchTest2 = await prisma.ibNode.create({
+    data: {
+      email: 'admin_patchtest2@test.com',
+      name: 'Admin Patch Test 2',
+      password: await bcrypt12.hash('Test@1234', 10),
+      role: 'ADMIN',
+      level: 0,
+    },
+  });
+
+  // Thử PATCH admin1 với email của admin2 (đang tồn tại)
+  const t12Res = await api(`/admin/users/${adminPatchTest.id}`, 'PATCH', {
+    email: 'admin_patchtest2@test.com',
+  }, adminToken);
+
+  if (t12Res.status === 409) {
+    logResult('TC12', 'PATCH email trùng → 409 rõ ràng, không phải 500', true,
+      t12Res.data?.error?.code || t12Res.data?.error?.message || '');
+  } else {
+    logResult('TC12', 'PATCH email trùng → 409 rõ ràng, không phải 500', false,
+      `Expected 409, got ${t12Res.status}: ${JSON.stringify(t12Res.data)}`);
+  }
+
+  // Dọn 2 admin patch test
+  for (const id of [adminPatchTest.id, adminPatchTest2.id]) {
+    await prisma.notification.deleteMany({ where: { recipientId: id } });
+    await prisma.refreshToken.deleteMany({ where: { ibId: id } });
+    await prisma.ibNode.delete({ where: { id } });
+  }
+
   // ─── Bảng tổng kết ────────────────────────────────────────────────────────
   console.log('\n--- BẢNG TỔNG KẾT ---');
   for (const r of results) {
