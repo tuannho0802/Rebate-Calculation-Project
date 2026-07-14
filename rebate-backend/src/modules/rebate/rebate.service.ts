@@ -134,7 +134,7 @@ export class RebateService {
       }
     }
 
-    const pendingCascades: Array<{ assetType: AssetType; rebateType: string; targetMaxPips: number }> = [];
+    const pendingCascades: Array<{ assetType: AssetType; rebateType: string }> = [];
 
     await this.prisma.$transaction(async (tx: any) => {
       for (const assetConfig of updateDto.assets) {
@@ -212,7 +212,6 @@ export class RebateService {
         }
 
         // 2. Update -> after
-        const targetMaxPips = rebatePips + markupPips;
         const updated = await tx.rebateConfig.upsert({
           where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
           update: {
@@ -261,12 +260,10 @@ export class RebateService {
         }
 
         // 4. Cascading update toàn subtree sau khi transaction commit
+        // (cascade đọc trực tiếp maxPips/rebatePips vừa ghi của targetIbId,
+        // không cần truyền số liệu qua tay — xem cascadeMaxPipsToSubtree)
         if (hasChange && existing && totalRequested !== totalExisting) {
-          pendingCascades.push({
-            assetType,
-            rebateType,
-            targetMaxPips,
-          });
+          pendingCascades.push({ assetType, rebateType });
         }
       }
     });
@@ -276,7 +273,6 @@ export class RebateService {
         targetIbId,
         cascade.assetType,
         cascade.rebateType,
-        cascade.targetMaxPips,
         currentUserId,
       );
     }
@@ -414,7 +410,7 @@ export class RebateService {
         },
       });
 
-      await this.cascadeMaxPipsToSubtree(mibId, ov.assetType, ov.rebateType, ov.maxPips, changedById);
+      await this.cascadeMaxPipsToSubtree(mibId, ov.assetType, ov.rebateType, changedById);
     }
 
     return this.getConfig(mibId);
@@ -424,7 +420,6 @@ export class RebateService {
     rootId: string,
     assetType: AssetType,
     rebateType: string,
-    ceiling: number,
     changedById: string,
   ) {
     const subtree: { id: string; parentId: string | null; level: number }[] = await this.prisma.$queryRaw`
@@ -438,20 +433,22 @@ export class RebateService {
       SELECT id, "parentId", level FROM subtree WHERE id != ${rootId} ORDER BY level ASC
     `;
 
+    // CÔNG THỨC DUY NHẤT cho maxPips trong toàn hệ thống — "ngân sách còn lại":
+    //   maxPips(con) = maxPips(cha) - rebatePips(cha)
+    // Tức là trần của con = trần của cha trừ đi phần cha đã tự giữ cho mình.
+    // Đây là cơ chế cascade DUY NHẤT ghi vào field maxPips — thay thế mọi cascade
+    // khác trong hệ thống (kể cả cascade từng chạy cuối updateConfig()).
+    // parentConfig luôn đọc được giá trị mới nhất vì subtree xử lý tuần tự theo
+    // level ASC (cha luôn được upsert xong trước khi tới lượt con).
     for (const node of subtree) {
-      let newMaxPips: number;
-      if (node.parentId === rootId) {
-        // Con trực tiếp của MIB: markupPips của MIB không mang ý nghĩa "đã phân bổ"
-        // (setMibMaxOverride luôn set markupPips=0 khi tạo mới), nên trần override
-        // (ceiling) áp dụng trực tiếp, không lấy min với markupPips của MIB.
-        newMaxPips = ceiling;
-      } else {
-        const parentConfig = await this.prisma.rebateConfig.findUnique({
-          where: { ibId_assetType_rebateType: { ibId: node.parentId!, assetType, rebateType: rebateType as any } },
-        });
-        const parentMarkup = parentConfig ? Number(parentConfig.markupPips) : 0;
-        newMaxPips = Math.min(parentMarkup, ceiling);
-      }
+      const parentConfig = await this.prisma.rebateConfig.findUnique({
+        where: { ibId_assetType_rebateType: { ibId: node.parentId!, assetType, rebateType: rebateType as any } },
+      });
+      const parentRemaining = parentConfig
+        ? Number(parentConfig.maxPips) - Number(parentConfig.rebatePips)
+        : 0;
+      const newMaxPips = Math.max(0, parentRemaining);
+
       const existingConfig = await this.prisma.rebateConfig.findUnique({
         where: { ibId_assetType_rebateType: { ibId: node.id, assetType, rebateType: rebateType as any } },
       });

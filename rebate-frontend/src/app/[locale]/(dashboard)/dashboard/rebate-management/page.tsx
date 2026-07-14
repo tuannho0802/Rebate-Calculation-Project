@@ -59,6 +59,13 @@ export default function RebateManagementPage() {
 
   const allNodes = useMemo(() => groups.flatMap(group => [group.root, ...group.ibs]), [groups]);
 
+  // Map id → node — dùng để lookup tên cha khi render indent
+  const ibNodesById = useMemo(() => {
+    const map: Record<string, IbTreeNode> = {};
+    for (const n of allNodes) map[n.id] = n;
+    return map;
+  }, [allNodes]);
+
   useEffect(() => {
     if (allNodes.length > 0) {
       const loadConfigs = async () => {
@@ -288,13 +295,30 @@ export default function RebateManagementPage() {
 
                       return (
                         <tr key={ib.id} className={`hover:bg-blue-50/30 transition-colors ${isDirty ? 'bg-amber-50/20' : ''}`}>
-                          <td className="px-4 py-2 border-r border-gray-100 sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10">
-                            <div className="font-medium text-gray-900 truncate" title={ib.email}>{ib.name || ib.email}</div>
-                            <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
-                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">
-                                {`Lv${ib.level}`}
-                              </span>
-                              {ib.id.substring(0, 8)}...
+                          <td className="py-2 border-r border-gray-100 sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10">
+                            {/* Indent theo level: mỗi level thụt vào 16px, bắt đầu từ level 1 */}
+                            <div
+                              className="flex items-start gap-1.5"
+                              style={{ paddingLeft: `${(ib.level - 1) * 16 + 16}px`, paddingRight: '16px' }}
+                            >
+                              {/* Connector line dọc thể hiện quan hệ cha–con */}
+                              {ib.level > 1 && (
+                                <span className="mt-1 shrink-0 w-3 h-3 border-l-2 border-b-2 border-gray-300 rounded-bl-sm" />
+                              )}
+                              <div className="min-w-0">
+                                <div className="font-medium text-gray-900 truncate" title={ib.email}>{ib.name || ib.email}</div>
+                                <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5 flex-wrap">
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">
+                                    {`Lv${ib.level}`}
+                                  </span>
+                                  {/* Tên cha — lookup từ ibNodesById + parentById */}
+                                  {parentById[ib.id] && ibNodesById[parentById[ib.id]!] && (
+                                    <span className="text-gray-400 text-[10px] truncate max-w-[100px]" title={ibNodesById[parentById[ib.id]!].email}>
+                                      ↑ {ibNodesById[parentById[ib.id]!].name || ibNodesById[parentById[ib.id]!].email}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                             </div>
                           </td>
                           <td className="px-4 py-2 text-center text-xs">
