@@ -12,6 +12,8 @@ Sample Image
 
 *.sql
 
+scratch/*
+!scratch/test-bulk-rebate.js
 scratch/export-test-output
 scratch/check-prod.js
 scratch/check-neon.js

@@ -6,9 +6,11 @@ import { useTranslations } from 'next-intl';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api/auth';
-import { Loader2, LogOut, LayoutDashboard, Users, Settings, BarChart3, Menu, X, UserCog, CreditCard, TrendingUp, Download, Bell, TableProperties, Trash2 } from 'lucide-react';
-
+import { Loader2, LogOut, Menu, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
+import { filterNavItemsByRole, getNavLabelKeyForPath, isAdminOnlyRoute } from '@/lib/nav-config';
+import { getErrorMessage } from '@/lib/error-messages';
+import { toast } from 'sonner';
 
 const decodeJwt = (token: string) => {
   try {
@@ -53,7 +55,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       }
       
-      // Simulate slight delay for smooth transition and UX
       setTimeout(() => setIsCheckingAuth(false), 300);
     };
     
@@ -61,12 +62,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [router, user]);
 
   useEffect(() => {
-    if (user && user.role !== 'ADMIN') {
-      if (pathname === '/dashboard/admin' || pathname?.startsWith('/dashboard/admin/') || 
-          pathname === '/dashboard/trash' || pathname?.startsWith('/dashboard/trash/') ||
-          pathname === '/dashboard/rebate-management' || pathname?.startsWith('/dashboard/rebate-management/')) {
-        router.replace('/dashboard');
-      }
+    if (user && user.role !== 'ADMIN' && isAdminOnlyRoute(pathname)) {
+      toast.error(getErrorMessage('AUTH_FORBIDDEN'));
+      router.replace('/dashboard');
     }
   }, [user, pathname, router]);
 
@@ -80,7 +78,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   };
 
-  // Auth Guard: Show full-page spinner while checking token
   if (isCheckingAuth) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-[#f8fafc]">
@@ -90,27 +87,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const navItems = [
-    { name: t('overview'), href: '/dashboard', icon: LayoutDashboard },
-    { name: t('ibNetwork'), href: '/dashboard/tree', icon: Users },
-    { name: t('report'), href: '/dashboard/report', icon: BarChart3 },
-    { name: 'IB Management', href: '/dashboard/ib-management', icon: Users },
-    { name: 'Payout', href: '/dashboard/payout', icon: CreditCard },
-    { name: 'Transaction', href: '/dashboard/transaction', icon: TrendingUp },
-    { name: 'Export', href: '/dashboard/export', icon: Download },
-    { name: t('config'), href: '/dashboard/rebate', icon: Settings },
-    { name: 'Notifications', href: '/dashboard/notification', icon: Bell },
-    ...(user?.role === 'ADMIN' ? [
-      { name: 'Admin Management', href: '/dashboard/admin', icon: UserCog },
-      { name: 'Bulk Rebate Edit', href: '/dashboard/rebate-management', icon: TableProperties },
-      { name: 'Thùng rác', href: '/dashboard/trash', icon: Trash2 },
-    ] : []),
-    { name: 'Tài khoản', href: '/account', icon: UserCog },
-  ];
+  const navItems = filterNavItemsByRole(user?.role).map((item) => ({
+    ...item,
+    name: t(item.labelKey),
+  }));
+
+  const headerTitle = (() => {
+    const labelKey = getNavLabelKeyForPath(pathname);
+    return labelKey ? t(labelKey) : t('dashboard');
+  })();
 
   return (
     <div className="min-h-screen bg-[#f1f5f9] flex font-sans">
-      {/* Mobile Sidebar Overlay */}
       {isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm transition-opacity"
@@ -118,7 +106,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         />
       )}
 
-      {/* Sidebar */}
       <aside className={`
         fixed lg:static inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 shadow-[4px_0_24px_rgba(0,0,0,0.02)]
         transform transition-transform duration-300 ease-in-out flex flex-col
@@ -146,7 +133,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             const isActive = pathname === item.href || pathname?.startsWith(`${item.href}/`);
             return (
               <Link
-                key={item.name}
+                key={item.href}
                 href={item.href}
                 onClick={() => setIsSidebarOpen(false)}
                 className={`
@@ -182,9 +169,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#f8fafc]">
-        {/* Header Top Navbar */}
         <header className="h-16 bg-white border-b border-gray-200 shadow-sm flex items-center justify-between px-4 sm:px-6 z-10 sticky top-0">
           <div className="flex items-center gap-4">
             <button
@@ -195,7 +180,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </button>
             <div className="hidden sm:block">
               <h2 className="text-lg font-semibold text-gray-800">
-                {navItems.find(i => i.href === pathname)?.name || t('dashboard')}
+                {headerTitle}
               </h2>
             </div>
           </div>
@@ -224,7 +209,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        {/* Page Content injected here */}
         <div className="flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
           <div className="mx-auto max-w-7xl animate-in fade-in slide-in-from-bottom-4 duration-500">
             {children}

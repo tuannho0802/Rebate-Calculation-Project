@@ -1,4 +1,4 @@
-import { ApiResponse, RebateConfig, RebateCalculation, AssetType } from '@/types';
+import { ApiResponse, RebateConfig, RebateCalculation, AssetType, BulkUpdateResponse } from '@/types';
 import { apiClient } from './client';
 
 export const rebateApi = {
@@ -20,6 +20,17 @@ export const rebateApi = {
     }
     const response = await apiClient.put<ApiResponse<RebateConfig>>(`/rebate/config/${ibId}`, { assets });
     return response.data;
+  },
+
+  bulkUpdateConfig: async (
+    items: { ibId: string; assets: RebateConfig['assets'] }[],
+    notifyScope?: 'direct' | 'cascade',
+  ): Promise<BulkUpdateResponse> => {
+    const response = await apiClient.put<ApiResponse<BulkUpdateResponse>>('/rebate/config/bulk', {
+      items,
+      notifyScope,
+    });
+    return response.data.data;
   },
 
   calculate: async (ibId: string, assetType: AssetType, lots: number, period?: string): Promise<ApiResponse<RebateCalculation>> => {

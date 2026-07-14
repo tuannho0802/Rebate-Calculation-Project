@@ -518,3 +518,65 @@ oles.guard.ts — phân quyền theo role (ADMIN/IB), dùng @Roles('ADMIN') deco
 - [x] 9/9 test-admin-rbac.js PASS
 - [x] 14/14 test-admin-management.js PASS
 - [!] FE còn 1 route restore cũ chưa cập nhật (PENDING)
+
+
+---
+## [2026-07-14] — Phần: BACKEND
+
+### Phiên Làm Việc
+- Agent: Composer
+- Yêu cầu từ: Đổi tên Bulk Operation → Rebate Management; thêm endpoint bulk thật ở BE;
+  role-based nav ở FE (Phần B không đổi BE)
+
+### Đã Triển Khai
+- `src/modules/rebate/dto/bulk-update-config.dto.ts`: DTO mới `BulkUpdateRebateConfigDto` +
+  `BulkRebateItemDto` với `@ArrayMaxSize(200)`, `@ArrayNotEmpty`, nested validation
+- `src/modules/rebate/rebate.controller.ts`: `PUT /rebate/config/bulk` đặt TRƯỚC
+  `PUT /rebate/config/:ibId`, guard `RolesGuard` + `@Roles('ADMIN')`
+- `src/modules/rebate/rebate.service.ts`: method `bulkUpdateConfig()` — lặp từng item, gọi lại
+  `updateConfig()` trong try/catch riêng, trả `results/successCount/failCount`
+
+### Đã Cập Nhật
+- `01_API_CONTRACT.md`: Changelog + section `PUT /rebate/config/bulk` (docs trước code)
+
+### Ghi Chú
+- Không thêm mã lỗi mới — tái sử dụng mã có sẵn từ `updateConfig()`
+- Partial success: mỗi item độc lập, không transaction bao trùm toàn request
+- Route order quan trọng: `config/bulk` phải đứng trước `config/:ibId`
+
+### Trạng Thái
+- [ ] Tất cả nội dung triển khai biên dịch không có lỗi
+- [ ] Không có chức năng cũ nào bị hỏng
+- [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [ ] Các type vẫn khớp với 02_DATA_MODELS.md
+---
+---
+## [2026-07-14] — Phần: BACKEND
+
+### Phiên Làm Việc
+- Agent: Composer
+- Yêu cầu từ: Viết và chạy scratch test `PUT /rebate/config/bulk`
+  (`scratch/test-bulk-rebate.js`)
+
+### Đã Triển Khai
+- `scratch/test-bulk-rebate.js`: script HTTP thuần (fetch) verify 7 test case bulk endpoint
+- `.gitignore`: thêm `scratch/` để không commit script test tay
+
+### Ghi Chú
+- Backend đã chạy tại `http://localhost:3001/api`; login `admin_test@azrebate.com` +
+  `lv1-a@test.com` OK
+- Script **crash** sau TEST setup: `GET /ib/tree?depth=all` với ADMIN trả `data` là **mảng**
+  root MIB (`ib.service.ts:103-107`), nhưng `flatten(treeRes.data)` kỳ vọng **một object node**
+  → `flat.length = 0` → `targetA` undefined → crash tại dòng log email
+- TEST 1–7 **chưa chạy** do crash trước `try` block; DB **không bị sửa** (chưa gọi bulk PUT)
+- Cần sửa script: flatten từng phần tử mảng root HOẶC dùng `treeRes.data.flatMap(flat)`
+  trước khi chạy lại
+
+### Trạng Thái
+- [!] Tất cả nội dung triển khai biên dịch không có lỗi — scratch test: 1 passed, 1 failed,
+  script crash (chưa đủ 7 test)
+- [ ] Không có chức năng cũ nào bị hỏng
+- [ ] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [ ] Các type vẫn khớp với 02_DATA_MODELS.md
+---
+

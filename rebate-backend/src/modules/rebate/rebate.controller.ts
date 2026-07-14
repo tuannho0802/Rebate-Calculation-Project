@@ -2,9 +2,12 @@ import { Controller, Get, Put, Body, Param, Query, UseGuards } from '@nestjs/com
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { RebateService } from './rebate.service';
 import { UpdateRebateConfigDto } from './dto/update-config.dto';
+import { BulkUpdateRebateConfigDto } from './dto/bulk-update-config.dto';
 import { SaveRebateTemplatesDto } from './dto/save-templates.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AssetType } from '@prisma/client';
 
@@ -31,6 +34,24 @@ export class RebateController {
       // ignore logging errors
     }
     return this.rebateService.getConfig(ibId);
+  }
+
+  @Put('config/bulk')
+  @ApiBearerAuth('Bearer')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Bulk update rebate config for multiple IBs (Admin only)',
+    description: 'Updates rebate configuration for multiple IBs in a single request. Each item is processed independently (partial success).',
+  })
+  @ApiResponse({ status: 200, description: 'Bulk update completed with per-item results' })
+  @ApiResponse({ status: 403, description: 'Forbidden — ADMIN only (FORBIDDEN_ROLES_ONLY)' })
+  @ApiResponse({ status: 422, description: 'Validation error — items empty or exceeds 200' })
+  async bulkUpdateConfig(
+    @CurrentUser() user: any,
+    @Body() dto: BulkUpdateRebateConfigDto,
+  ) {
+    return this.rebateService.bulkUpdateConfig(user.sub, user.level, dto, user.role);
   }
 
   @Put('config/:ibId')

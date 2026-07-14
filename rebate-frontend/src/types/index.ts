@@ -112,6 +112,19 @@ export interface RebateConfig {
   updatedAt: string;
 }
 
+export interface BulkUpdateResult {
+  ibId: string;
+  success: boolean;
+  config?: RebateConfig;
+  error?: { code: string; message: string; details?: Record<string, unknown> };
+}
+
+export interface BulkUpdateResponse {
+  results: BulkUpdateResult[];
+  successCount: number;
+  failCount: number;
+}
+
 // ─── Rebate Calculation ───────────────────────────────────────────
 
 export interface RebateCalculation {

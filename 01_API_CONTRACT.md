@@ -4,6 +4,12 @@
 > Mọi thay đổi phải cập nhật file này trước khi code.
 
 ## Changelog
+- **2026-07-14 (phát hiện qua test scratch PUT /rebate/config/bulk)**:
+  - Sửa `GET /ib/tree`: response shape phụ thuộc role, docs cũ chỉ ghi 1 dạng object, thiếu
+    trường hợp ADMIN. Nguồn: `ib.service.ts:103-107`.
+- **2026-07-14 (cập nhật lần 3 — Rebate Management bulk endpoint)**:
+  - **Thêm mới**: `PUT /rebate/config/bulk` — cập nhật cấu hình rebate cho nhiều IB trong một
+    request (thay thế vòng lặp FE gọi N lần `PUT /rebate/config/:ibId`). Chỉ dành cho ADMIN.
 - **2026-07-14 (cập nhật lần 2 — đối chiếu trực tiếp source code BE, không suy đoán)**:
   - **Thêm mới hoàn toàn**: `GET/PUT /api/rebate/ib/:ibId/templates` (Account Type Template +
     Markup Link Template) — trước đây không có trong docs dù đã tồn tại trên BE.
@@ -190,6 +196,33 @@ Lấy toàn bộ subtree của IB đang đăng nhập (chỉ thấy cấp dướ
 }
 ```
 
+**Lưu ý QUAN TRỌNG — shape khác nhau theo role (đã xác nhận qua code thật, không phải suy đoán):**
+
+- **IB thường:** `data` là **1 object** — chính node của IB đang đăng nhập (như ví dụ trên).
+- **ADMIN:** `data` là **MẢNG các root MIB node** (`level: 0`) trong toàn hệ thống, mỗi root
+  chứa `children` lồng đệ quy xuống hết subtree. KHÔNG phải 1 object đơn như IB thường.
+
+**Response 200 khi caller là ADMIN:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid-mib-1",
+      "email": "mib@test.com",
+      "level": 0,
+      "children": [
+        { "id": "uuid", "email": "lv1-a@test.com", "level": 1, "children": [ /* ... */ ] }
+      ]
+    }
+  ]
+}
+```
+
+⚠️ FE nào đang gọi `GET /ib/tree` với ADMIN mà xử lý `data` như 1 object đơn (ví dụ trang
+Rebate Management ở `13_PROMPT_REBATE_MANAGEMENT_AND_ROLE_UI.md`) cần kiểm tra lại và xử lý
+`Array.isArray(data)` trước khi flatten cây.
+
 ---
 
 ### GET /ib/:id
@@ -310,6 +343,99 @@ Cập nhật cấu hình rebate (chỉ IB cấp trên mới được update cho 
 **Error codes đặc thù:** `REBATE_INVALID` (422), `REBATE_EXCEEDS_MAX` (422), `MARKUP_INVALID`
 (422), `MARKUP_EXCEEDS_MAX` (422), `REBATE_TARGET_NOT_DIRECT_CHILD` (403). Xem chi tiết
 `06_ERROR_CODES.md`.
+
+---
+
+### PUT /rebate/config/bulk
+Cập nhật cấu hình rebate cho **NHIỀU IB** trong một request (thay thế cách làm cũ: FE gọi
+vòng lặp N lần `PUT /rebate/config/:ibId`). Dùng cho trang "Rebate Management".
+
+> ⚠️ **QUAN TRỌNG (NestJS route order):** route này PHẢI được khai báo **TRƯỚC** route
+> `PUT /rebate/config/:ibId` trong `rebate.controller.ts`, nếu không Nest sẽ hiểu `"bulk"` là
+> giá trị của param `:ibId`.
+
+**Auth:** `JwtAuthGuard` + `RolesGuard` + `@Roles('ADMIN')` — endpoint này **CHỈ** dành cho ADMIN.
+IB thường gọi nhận `FORBIDDEN_ROLES_ONLY` (403).
+
+**Giới hạn:** tối đa **200** phần tử trong `items[]` mỗi request → nếu vượt hoặc rỗng, trả
+`VALIDATION_ERROR` (422).
+
+**Request:**
+```json
+{
+  "notifyScope": "cascade",
+  "items": [
+    {
+      "ibId": "uuid",
+      "assets": [
+        {
+          "assetType": "FOREX",
+          "rebateType": "STP_REBATE",
+          "rebatePips": 2,
+          "markupPips": 8,
+          "markupPercent": 100
+        }
+      ]
+    }
+  ]
+}
+```
+> `notifyScope` optional: `"direct"` | `"cascade"` — giữ đúng hành vi như `PUT` đơn (caller luôn
+> là ADMIN ở endpoint này). `rebateType` trong mỗi asset optional, default `"STP_REBATE"`.
+
+**Hành vi xử lý (bắt buộc):**
+- Mỗi phần tử trong `items[]` được xử lý **độc lập** (không phải 1 transaction bao trùm toàn bộ
+  request) — semantics **partial success**: một IB lỗi không rollback các IB khác đã lưu thành công.
+- Mỗi phần tử tái sử dụng nguyên vẹn logic validate + upsert + ghi `RebateConfigHistory` +
+  `AuditLog` + `Notification` đã có trong `rebate.service.ts` cho `updateConfig()` — không viết
+  lại logic mới, không nới lỏng validate so với PUT đơn lẻ.
+- Không thêm mã lỗi mới — tái sử dụng: `REBATE_INVALID`, `REBATE_EXCEEDS_MAX`, `MARKUP_INVALID`,
+  `MARKUP_EXCEEDS_MAX`, `REBATE_TARGET_NOT_DIRECT_CHILD`, `IB_NOT_IN_SUBTREE`, `IB_NOT_FOUND`.
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "results": [
+      {
+        "ibId": "uuid",
+        "success": true,
+        "config": {
+          "ibId": "uuid",
+          "assets": [
+            {
+              "assetType": "FOREX",
+              "rebateType": "STP_REBATE",
+              "rebatePips": 2,
+              "markupPips": 8,
+              "markupPercent": 100,
+              "maxPips": 10,
+              "updatedAt": "2024-01-01T00:00:00Z"
+            }
+          ],
+          "updatedAt": "2024-01-01T00:00:00Z"
+        }
+      },
+      {
+        "ibId": "uuid-2",
+        "success": false,
+        "error": {
+          "code": "REBATE_EXCEEDS_MAX",
+          "message": "Số rebatePips vượt quá giới hạn tối đa (12 pips)",
+          "details": {}
+        }
+      }
+    ],
+    "successCount": 1,
+    "failCount": 1
+  }
+}
+```
+
+**Error đặc thù ở tầng request (không phải per-item):**
+- `VALIDATION_ERROR` (422) — `items` rỗng hoặc vượt quá 200 phần tử
+- `FORBIDDEN_ROLES_ONLY` (403) — caller không phải ADMIN
 
 ---
 

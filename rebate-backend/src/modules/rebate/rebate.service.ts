@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException, UnprocessableEntityException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnprocessableEntityException, ForbiddenException, HttpException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateRebateConfigDto } from './dto/update-config.dto';
+import { BulkUpdateRebateConfigDto } from './dto/bulk-update-config.dto';
 import { SaveRebateTemplatesDto } from './dto/save-templates.dto';
 import { AssetType } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
@@ -267,6 +268,60 @@ export class RebateService {
     }
 
     return this.getConfig(targetIbId);
+  }
+
+  async bulkUpdateConfig(
+    currentUserId: string,
+    currentUserLevel: number,
+    dto: BulkUpdateRebateConfigDto,
+    callerRole?: string,
+  ) {
+    const results: Array<{
+      ibId: string;
+      success: boolean;
+      config?: Awaited<ReturnType<RebateService['getConfig']>>;
+      error?: { code: string; message: string; details?: Record<string, unknown> };
+    }> = [];
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const item of dto.items) {
+      try {
+        const config = await this.updateConfig(
+          currentUserId,
+          currentUserLevel,
+          item.ibId,
+          { assets: item.assets, notifyScope: dto.notifyScope },
+          callerRole,
+        );
+        results.push({ ibId: item.ibId, success: true, config });
+        successCount += 1;
+      } catch (error) {
+        const err = error as HttpException;
+        const response = typeof err.getResponse === 'function'
+          ? (err.getResponse() as { code?: string; message?: string; details?: Record<string, unknown> })
+          : undefined;
+
+        // eslint-disable-next-line no-console
+        console.error('bulkUpdateConfig item failed', {
+          ibId: item.ibId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        results.push({
+          ibId: item.ibId,
+          success: false,
+          error: {
+            code: response?.code ?? 'INTERNAL_ERROR',
+            message: response?.message ?? (error instanceof Error ? error.message : 'Đã có lỗi xảy ra'),
+            details: response?.details ?? {},
+          },
+        });
+        failCount += 1;
+      }
+    }
+
+    return { results, successCount, failCount };
   }
 
   async calculateCascadeDistribution(
