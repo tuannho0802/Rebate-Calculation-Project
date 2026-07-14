@@ -30,7 +30,7 @@ export class TransactionController {
     @Req() req: Request,
   ) {
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
-    return this.transactionService.create(user.sub, dto, ip);
+    return this.transactionService.create(user.sub, dto, ip, user.role);
   }
 
   // QUAN TRỌNG: route /batch phải đặt TRƯỚC /:id để tránh conflict
@@ -44,14 +44,14 @@ export class TransactionController {
     @Req() req: Request,
   ) {
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
-    return this.transactionService.createBatch(user.sub, dto, ip);
+    return this.transactionService.createBatch(user.sub, dto, ip, user.role);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Xem chi tiết 1 giao dịch' })
   @ApiParam({ name: 'id', description: 'UUID của giao dịch' })
   findOne(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.transactionService.findOne(user.sub, id);
+    return this.transactionService.findOne(user.sub, id, user.role);
   }
 
   @Delete(':id')
@@ -63,6 +63,6 @@ export class TransactionController {
     @Req() req: Request,
   ) {
     const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
-    return this.transactionService.remove(user.sub, id, ip);
+    return this.transactionService.remove(user.sub, id, ip, user.role);
   }
 }

@@ -25,9 +25,9 @@ export class TransactionService {
    * POST /transactions — tạo 1 giao dịch
    * Chỉ cho phép nếu ibId nằm trong subtree của currentUser
    */
-  async create(currentUserId: string, dto: CreateTransactionDto, ipAddress?: string) {
+  async create(currentUserId: string, dto: CreateTransactionDto, ipAddress?: string, callerRole?: string) {
     // Kiểm tra ibId phải là subtree của currentUser
-    await this.assertInSubtree(currentUserId, dto.ibId);
+    await this.assertInSubtree(currentUserId, dto.ibId, callerRole);
 
     // Wrap in transaction to atomic credit wallet
     const tx = await this.prisma.$transaction(async (prismaTx) => {
@@ -78,18 +78,19 @@ export class TransactionService {
    * POST /transactions/batch — tạo nhiều giao dịch
    * Validate tất cả ibId phải nằm trong subtree của currentUser
    */
-  async createBatch(currentUserId: string, dto: CreateBatchTransactionDto, ipAddress?: string) {
-    // Lấy subtree một lần, validate tất cả ibId trong batch
-    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
-    const invalidIbIds = dto.transactions
-      .map((t) => t.ibId)
-      .filter((ibId) => !subtreeIds.includes(ibId));
+  async createBatch(currentUserId: string, dto: CreateBatchTransactionDto, ipAddress?: string, callerRole?: string) {
+    if (callerRole !== 'ADMIN') {
+      const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
+      const invalidIbIds = dto.transactions
+        .map((t) => t.ibId)
+        .filter((ibId) => !subtreeIds.includes(ibId));
 
-    if (invalidIbIds.length > 0) {
-      throw new ForbiddenException({
-        code: 'IB_NOT_IN_SUBTREE',
-        message: `Các IB sau không thuộc quyền quản lý của bạn: ${[...new Set(invalidIbIds)].join(', ')}`,
-      });
+      if (invalidIbIds.length > 0) {
+        throw new ForbiddenException({
+          code: 'IB_NOT_IN_SUBTREE',
+          message: `Các IB sau không thuộc quyền quản lý của bạn: ${[...new Set(invalidIbIds)].join(', ')}`,
+        });
+      }
     }
 
     const result = await this.prisma.$transaction(async (prismaTx) => {
@@ -136,7 +137,7 @@ export class TransactionService {
   /**
    * GET /transactions/:id — xem chi tiết 1 giao dịch
    */
-  async findOne(currentUserId: string, id: string) {
+  async findOne(currentUserId: string, id: string, callerRole?: string) {
     const tx = await this.prisma.rebateTransaction.findUnique({
       where: { id },
       include: {
@@ -148,7 +149,7 @@ export class TransactionService {
     if (!tx) throw new NotFoundException({ code: 'TRANSACTION_NOT_FOUND' });
 
     // Kiểm tra ibId của transaction phải trong subtree của currentUser
-    await this.assertInSubtree(currentUserId, tx.ibId);
+    await this.assertInSubtree(currentUserId, tx.ibId, callerRole);
 
     return tx;
   }
@@ -157,7 +158,7 @@ export class TransactionService {
    * DELETE /transactions/:id — xóa giao dịch nhập sai
    * Chỉ createdBy hoặc MIB (level=0) mới được xóa
    */
-  async remove(currentUserId: string, id: string, ipAddress?: string) {
+  async remove(currentUserId: string, id: string, ipAddress?: string, callerRole?: string) {
     const tx = await this.prisma.rebateTransaction.findUnique({
       where: { id },
     });
@@ -165,7 +166,7 @@ export class TransactionService {
     if (!tx) throw new NotFoundException({ code: 'TRANSACTION_NOT_FOUND' });
 
     // Kiểm tra ibId trong subtree
-    await this.assertInSubtree(currentUserId, tx.ibId);
+    await this.assertInSubtree(currentUserId, tx.ibId, callerRole);
 
     // Kiểm tra quyền xóa: phải là người tạo HOẶC MIB (level=0)
     const currentUser = await this.prisma.ibNode.findUnique({
@@ -216,7 +217,8 @@ export class TransactionService {
   /**
    * Throw ForbiddenException nếu targetId không nằm trong subtree của rootId
    */
-  private async assertInSubtree(rootId: string, targetId: string): Promise<void> {
+  private async assertInSubtree(rootId: string, targetId: string, callerRole?: string): Promise<void> {
+    if (callerRole === 'ADMIN') return;
     const subtreeIds = await getSubtreeIds(this.prisma, rootId);
     if (!subtreeIds.includes(targetId)) {
       throw new ForbiddenException({

@@ -46,7 +46,7 @@ export class AuthService {
       });
     }
 
-    const role = user.level === 0 ? 'MIB' : 'IB';
+    const role = user.role;
 
     const accessToken = this.generateAccessToken(user.id, user.email, user.level, role);
     const refreshToken = this.generateRefreshToken(user.id, user.email, user.level, role);
@@ -121,7 +121,7 @@ export class AuthService {
     });
 
     // Generate new tokens
-    const role = payload.role || (payload.level === 0 ? 'MIB' : 'IB');
+    const role = payload.role;
     const newAccessToken = this.generateAccessToken(payload.sub, payload.email, payload.level, role);
     const newRefreshToken = this.generateRefreshToken(payload.sub, payload.email, payload.level, role);
 

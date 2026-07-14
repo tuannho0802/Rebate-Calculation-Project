@@ -37,5 +37,15 @@ export class UpdateRebateConfigDto {
   @ValidateNested({ each: true })
   @Type(() => RebateAssetConfigDto)
   assets!: RebateAssetConfigDto[];
+
+  @ApiProperty({
+    enum: ['direct', 'cascade'],
+    required: false,
+    default: 'direct',
+    description: 'Admin only — phạm vi thông báo khi Admin sửa config: direct (chỉ IB đó) hoặc cascade (IB + toàn bộ chain cha)',
+  })
+  @IsOptional()
+  @IsString()
+  notifyScope?: 'direct' | 'cascade';
 }
 

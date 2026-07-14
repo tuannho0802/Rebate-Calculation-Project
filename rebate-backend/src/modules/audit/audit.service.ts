@@ -47,13 +47,14 @@ export class AuditService {
   /**
    * GET /audit/logs — lấy danh sách audit log trong subtree của currentUser
    */
-  async getLogs(currentUserId: string, query: QueryAuditDto) {
-    // Lấy subtree IDs của currentUser để filter logs chỉ trong phạm vi mình quản lý
-    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
-
-    const where: any = {
-      actorId: { in: subtreeIds },
-    };
+  async getLogs(currentUserId: string, query: QueryAuditDto, callerRole?: string) {
+    const where: any = {};
+    
+    if (callerRole !== 'ADMIN') {
+      const children = await this.prisma.ibNode.findMany({ where: { parentId: currentUserId }, select: { id: true } });
+      const targetIds = [currentUserId, ...children.map((c) => c.id)];
+      where.actorId = { in: targetIds };
+    }
 
     if (query.actorId) where.actorId = query.actorId;
     if (query.targetId) where.targetId = query.targetId;

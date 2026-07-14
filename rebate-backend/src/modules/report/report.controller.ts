@@ -32,7 +32,7 @@ export class ReportController {
     @Query('ibId') ibId?: string,
     @Query('period') period?: string,
   ) {
-    return this.reportService.getSummary(user.sub, user.level, ibId, period);
+    return this.reportService.getSummary(user.sub, user.level, ibId, period, user.role);
   }
 
   @Get('transactions')
@@ -74,6 +74,7 @@ export class ReportController {
       rebateType,
       pageNum,
       limitNum,
+      user.role,
     );
   }
 }

@@ -32,7 +32,7 @@ export class WalletController {
   @ApiResponse({ status: 200, description: 'Trả về thông tin ví' })
   @ApiResponse({ status: 403, description: 'Không thuộc subtree' })
   async getIbBalance(@CurrentUser() user: any, @Param('ibId') ibId: string) {
-    const wallet = await this.walletService.getBalance(user.sub, ibId, user.level);
+    const wallet = await this.walletService.getBalance(user.sub, ibId, user.level, user.role);
     return {
       ibId: wallet.ibId,
       balance: Number(wallet.balance),

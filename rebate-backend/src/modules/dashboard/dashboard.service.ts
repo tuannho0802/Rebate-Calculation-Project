@@ -22,9 +22,16 @@ export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   // ── GET /dashboard/summary (existing, kept for backwards compat) ────────────
-  async getSummary(currentUserId: string) {
-    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
-    const childIds = subtreeIds.filter((id) => id !== currentUserId);
+  async getSummary(currentUserId: string, callerRole?: string) {
+    let childIds: string[];
+    if (callerRole === 'ADMIN') {
+      const all = await this.prisma.ibNode.findMany({ select: { id: true } });
+      childIds = all.map((n) => n.id);
+    } else {
+      const children = await this.prisma.ibNode.findMany({ where: { parentId: currentUserId }, select: { id: true } });
+      childIds = children.map((c) => c.id);
+    }
+    const subtreeIds = callerRole === 'ADMIN' ? childIds : [currentUserId, ...childIds];
 
     const [activeCount, inactiveCount] = await Promise.all([
       this.prisma.ibNode.count({ where: { id: { in: childIds }, isActive: true } }),
@@ -112,9 +119,15 @@ export class DashboardService {
   }
 
   // ── GET /dashboard/overview ─────────────────────────────────────────────────
-  async getOverview(callerId: string) {
-    const subtreeIds = await getSubtreeIds(this.prisma, callerId);
-    const childIds = subtreeIds.filter((id) => id !== callerId);
+  async getOverview(callerId: string, callerRole?: string) {
+    let childIds: string[];
+    if (callerRole === 'ADMIN') {
+      const all = await this.prisma.ibNode.findMany({ select: { id: true } });
+      childIds = all.map((n) => n.id).filter((id) => id !== callerId);
+    } else {
+      const children = await this.prisma.ibNode.findMany({ where: { parentId: callerId }, select: { id: true } });
+      childIds = children.map((c) => c.id);
+    }
 
     // Wallet
     const wallet = await this.prisma.wallet.findUnique({
@@ -197,12 +210,19 @@ export class DashboardService {
   }
 
   // ── GET /dashboard/rebate-summary?period=YYYY-MM ───────────────────────────
-  async getRebateSummary(callerId: string, period: string) {
+  async getRebateSummary(callerId: string, period: string, callerRole?: string) {
     const { start, end, label } = parsePeriod(period);
-    const subtreeIds = await getSubtreeIds(this.prisma, callerId);
+    let ibIds: string[];
+    if (callerRole === 'ADMIN') {
+      const all = await this.prisma.ibNode.findMany({ select: { id: true } });
+      ibIds = all.map((n) => n.id);
+    } else {
+      const children = await this.prisma.ibNode.findMany({ where: { parentId: callerId }, select: { id: true } });
+      ibIds = [callerId, ...children.map((c) => c.id)];
+    }
 
     const txs = await this.prisma.rebateTransaction.findMany({
-      where: { ibId: { in: subtreeIds }, tradedAt: { gte: start, lt: end } },
+      where: { ibId: { in: ibIds }, tradedAt: { gte: start, lt: end } },
       include: { ib: { select: { level: true } } },
     });
 
@@ -252,16 +272,21 @@ export class DashboardService {
     period: string,
     page: number,
     limit: number,
+    callerRole?: string,
   ) {
     const { start, end, label } = parsePeriod(period);
-
-    // Previous month
     const [y, m] = label.split('-').map(Number);
     const prevStart = new Date(Date.UTC(y, m - 2, 1));
     const prevEnd = start;
 
-    const subtreeIds = await getSubtreeIds(this.prisma, callerId);
-    const childIds = subtreeIds.filter((id) => id !== callerId);
+    let childIds: string[];
+    if (callerRole === 'ADMIN') {
+      const all = await this.prisma.ibNode.findMany({ select: { id: true } });
+      childIds = all.map((n) => n.id).filter((id) => id !== callerId);
+    } else {
+      const children = await this.prisma.ibNode.findMany({ where: { parentId: callerId }, select: { id: true } });
+      childIds = children.map((c) => c.id);
+    }
 
     // Get all IBs in subtree with pagination
     const total = childIds.length;

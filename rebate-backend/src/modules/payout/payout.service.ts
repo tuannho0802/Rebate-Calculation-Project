@@ -53,15 +53,36 @@ export class PayoutService {
       after: { amount: amount.toString(), paymentMethod },
     });
 
-    // Notify MIB (level 0)
-    const mibs = await this.prisma.ibNode.findMany({ where: { level: 0 } });
-    for (const mib of mibs) {
-      this.notificationService.createSystemNotification({
-        recipientId: mib.id,
-        type: NotificationType.SYSTEM,
-        title: 'Yeu cau rut tien moi',
-        body: `Co yeu cau rut tien ${amount.toString()} tu IB ${ibId}`,
-      });
+    // Notify: chỉ gửi cho MIB trực tiếp quản lý IB này (trace lên root)
+    // Thay vì notify tất cả MIB trong hệ thống (bug R4 cũ)
+    const ibNode = await this.prisma.ibNode.findUnique({
+      where: { id: ibId },
+      select: { parentId: true, level: true },
+    });
+    // Tìm MIB chủa quản (level=0) của IB này bằng cách walk lên cây
+    if (ibNode) {
+      let currentId = ibNode.parentId;
+      let rootMibId: string | null = null;
+      while (currentId) {
+        const ancestor = await this.prisma.ibNode.findUnique({
+          where: { id: currentId },
+          select: { id: true, parentId: true, level: true },
+        });
+        if (!ancestor) break;
+        if (ancestor.level === 0) {
+          rootMibId = ancestor.id;
+          break;
+        }
+        currentId = ancestor.parentId;
+      }
+      if (rootMibId) {
+        this.notificationService.createSystemNotification({
+          recipientId: rootMibId,
+          type: NotificationType.SYSTEM,
+          title: 'Yeu cau rut tien moi',
+          body: `Co yeu cau rut tien ${amount.toString()} tu IB ${ibId}`,
+        });
+      }
     }
 
     return payout;
@@ -151,20 +172,23 @@ export class PayoutService {
     return updated;
   }
 
-  async listPayouts(callerId: string, callerLevel: number, query: QueryPayoutDto) {
+  async listPayouts(callerId: string, callerLevel: number, query: QueryPayoutDto, callerRole?: string) {
     const { status, ibId, page = 1, limit = 20 } = query;
     const where: any = {};
 
     if (status) where.status = status;
 
-    if (callerLevel > 0) {
+    if (callerRole === 'ADMIN') {
+      // ADMIN: xem toàn bộ hệ thống, có thể filter thêm theo ibId
+      if (ibId) where.ibId = ibId;
+    } else if (callerLevel > 0) {
+      // Lv1+: chỉ xem payout của chính mình
       if (ibId && ibId !== callerId) {
-        // Can't see others in this design, or maybe subtree?
-        // Prompt says: "Lv1+: chỉ xem payout của chính mình"
         throw new ForbiddenException({ code: 'FORBIDDEN' });
       }
       where.ibId = callerId;
     } else {
+      // Lv0 (MIB): xem toàn bộ trong hệ thống của mình, filter thêm nếu có
       if (ibId) where.ibId = ibId;
     }
 

@@ -11,25 +11,35 @@ export class ReportService {
    * A4: Validate filterIbId nằm trong subtree của caller.
    * Lv0 (level = 0) bỏ qua check — được xem bất kỳ IB nào trong cây.
    */
-  private async validateFilterIbId(rootIbId: string, callerLevel: number, filterIbId?: string) {
+  private async validateFilterIbId(rootIbId: string, callerLevel: number, filterIbId?: string, callerRole?: string) {
     if (!filterIbId || filterIbId === rootIbId) return;
+    if (callerRole === 'ADMIN') return; // ADMIN bypass
     if (callerLevel === 0) return; // Lv0 bypass
 
-    const subtree = await getSubtreeIds(this.prisma, rootIbId);
-    if (!subtree.includes(filterIbId)) {
+    // Lv1+: filterIbId phải là con trực tiếp của caller
+    const target = await this.prisma.ibNode.findUnique({ where: { id: filterIbId }, select: { parentId: true } });
+    if (!target || target.parentId !== rootIbId) {
       throw new ForbiddenException({ 
         code: 'IB_NOT_IN_SUBTREE',
-        message: 'IB này không thuộc subtree của bạn'
+        message: 'IB này không phải con trực tiếp của bạn'
       });
     }
   }
 
-  async getSummary(rootIbId: string, callerLevel: number, filterIbId?: string, period?: string) {
-    await this.validateFilterIbId(rootIbId, callerLevel, filterIbId);
+  async getSummary(rootIbId: string, callerLevel: number, filterIbId?: string, period?: string, callerRole?: string) {
+    await this.validateFilterIbId(rootIbId, callerLevel, filterIbId, callerRole);
 
-    // Determine the set of IBs to include
+    // ADMIN → không filter, lấy toàn bộ hệ thống
+    // IB → chỉ lấy chính mình + 1 cấp trực tiếp
     const baseIbId = filterIbId || rootIbId;
-    const targetIbIds = await getSubtreeIds(this.prisma, baseIbId);
+    let targetIbIds: string[];
+    if (callerRole === 'ADMIN') {
+      const all = await this.prisma.ibNode.findMany({ select: { id: true } });
+      targetIbIds = all.map((n) => n.id);
+    } else {
+      const children = await this.prisma.ibNode.findMany({ where: { parentId: baseIbId }, select: { id: true } });
+      targetIbIds = [baseIbId, ...children.map((c) => c.id)];
+    }
 
     // Parse period
     let periodStr = period;
@@ -109,14 +119,22 @@ export class ReportService {
     filterIbId?: string,
     period?: string,
     assetType?: AssetType,
-    rebateType?: RebateType,   // C2: new filter
+    rebateType?: RebateType,
     page = 1,
     limit = 20,
+    callerRole?: string,
   ) {
-    await this.validateFilterIbId(rootIbId, callerLevel, filterIbId);
+    await this.validateFilterIbId(rootIbId, callerLevel, filterIbId, callerRole);
 
     const baseIbId = filterIbId || rootIbId;
-    const targetIbIds = await getSubtreeIds(this.prisma, baseIbId);
+    let targetIbIds: string[];
+    if (callerRole === 'ADMIN') {
+      const all = await this.prisma.ibNode.findMany({ select: { id: true } });
+      targetIbIds = all.map((n) => n.id);
+    } else {
+      const children = await this.prisma.ibNode.findMany({ where: { parentId: baseIbId }, select: { id: true } });
+      targetIbIds = [baseIbId, ...children.map((c) => c.id)];
+    }
 
     const where: any = {
       ibId: { in: targetIbIds },

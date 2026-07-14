@@ -46,12 +46,14 @@ export class NotificationService {
   /**
    * POST /notifications/send — gửi thông báo thủ công cho IB trong subtree
    */
-  async send(currentUserId: string, dto: SendNotificationDto) {
-    // Verify recipientId nằm trong subtree của currentUser
-    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
-    const childIds = subtreeIds.filter((id) => id !== currentUserId);
-    if (!childIds.includes(dto.recipientId)) {
-      throw new ForbiddenException({ code: 'RECIPIENT_NOT_IN_SUBTREE' });
+  async send(currentUserId: string, dto: SendNotificationDto, callerRole?: string) {
+    // ADMIN: được gửi cho bất kỳ IB nào trong hệ thống
+    if (callerRole !== 'ADMIN') {
+      // IB thường: chỉ gửi cho con trực tiếp
+      const target = await this.prisma.ibNode.findUnique({ where: { id: dto.recipientId }, select: { parentId: true } });
+      if (!target || target.parentId !== currentUserId) {
+        throw new ForbiddenException({ code: 'RECIPIENT_NOT_IN_SUBTREE' });
+      }
     }
 
     const notification = await this.prisma.notification.create({
@@ -150,6 +152,47 @@ export class NotificationService {
       });
     } catch {
       // Non-blocking — không để lỗi notification làm gián đoạn luồng chính
+    }
+  }
+
+  /**
+   * Internal — Admin sửa config của 1 IB, gửi thông báo theo scope
+   * notifyScope = 'direct': chỉ gửi cho targetIbId
+   * notifyScope = 'cascade': gửi cho targetIbId + toàn bộ chain cha (lên tới MIB root)
+   */
+  async notifyConfigChangedByAdmin(
+    targetIbId: string,
+    notifyScope: 'direct' | 'cascade',
+    changes: Record<string, unknown>,
+    adminId?: string,
+  ) {
+    const body = `Cấu hình rebate của bạn vừa được Admin cập nhật. Thay đổi: ${JSON.stringify(changes)}`;
+
+    const recipientIds: string[] = [targetIbId];
+
+    if (notifyScope === 'cascade') {
+      // Walk lên cây tới MIB root
+      let currentId: string | null = targetIbId;
+      while (currentId) {
+        const targetNode: any = await this.prisma.ibNode.findUnique({
+          where: { id: currentId },
+          select: { parentId: true, level: true },
+        });
+        if (!targetNode || targetNode.parentId === null) break;
+        recipientIds.push(targetNode.parentId);
+        if (targetNode.level === 0) break; // đã ở MIB root
+        currentId = targetNode.parentId;
+      }
+    }
+
+    for (const recipientId of [...new Set(recipientIds)]) {
+      await this.createSystemNotification({
+        recipientId,
+        type: NotificationType.REBATE_UPDATED,
+        title: 'Cấu hình rebate đã bị Admin cập nhật',
+        body,
+        metadata: { adminId, targetIbId, changes, scope: notifyScope },
+      });
     }
   }
 }

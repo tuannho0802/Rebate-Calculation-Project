@@ -15,6 +15,6 @@ export class AuditController {
   @ApiBearerAuth('Bearer')
   @ApiOperation({ summary: 'Xem nhật ký thao tác trong subtree của mình' })
   getLogs(@CurrentUser() user: any, @Query() query: QueryAuditDto) {
-    return this.auditService.getLogs(user.sub, query);
+    return this.auditService.getLogs(user.sub, query, user.role);
   }
 }

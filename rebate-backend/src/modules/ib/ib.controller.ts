@@ -87,7 +87,7 @@ export class IbController {
     @CurrentUser() user: any,
     @Query('depth') depth: '1' | 'all' = '1',
   ) {
-    return this.ibService.getTree(user.sub, depth);
+    return this.ibService.getTree(user.sub, depth, user.role);
   }
 
   // ─── LEADERBOARD — phải đặt TRƯỜC GET :id ─────────────────────────────────────
@@ -121,6 +121,7 @@ export class IbController {
       includeInactive === 'true',
       parseInt(page, 10) || 1,
       Math.min(parseInt(limit, 10) || 20, 100),
+      user.role,
     );
   }
 
@@ -167,13 +168,13 @@ export class IbController {
   @Get(':id/profile')
   @ApiOperation({ summary: 'Xem profile đầy đủ của IB' })
   getProfile(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.ibService.getProfile(user.sub, user.level, id);
+    return this.ibService.getProfile(user.sub, user.level, id, user.role);
   }
 
   @Patch(':id/profile')
   @ApiOperation({ summary: 'Cập nhật profile IB' })
   updateProfile(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateIbDto) {
-    return this.ibService.updateProfile(user.sub, user.level, id, dto);
+    return this.ibService.updateProfile(user.sub, user.level, id, dto, user.role);
   }
 
   @Patch(':id/reset-password')
@@ -258,7 +259,7 @@ export class IbController {
     @Param('id') id: string,
     @Query('month') month?: string,
   ) {
-    return this.ibService.getIbPerformance(user.sub, id, month);
+    return this.ibService.getIbPerformance(user.sub, id, month, user.role);
   }
 
   // ─── RESET PASSWORD (Lv0 only) ──────────────────────────────────

@@ -63,7 +63,7 @@ export class IbService {
     };
   }
 
-  async getTree(ibId: string, depth: '1' | 'all') {
+  async getTree(ibId: string, depth: '1' | 'all', role?: string) {
     const current = await this.prisma.ibNode.findUnique({
       where: { id: ibId },
     });
@@ -75,44 +75,49 @@ export class IbService {
       });
     }
 
-    const allNodes = await this.prisma.ibNode.findMany();
-    const map = new Map<string, any>();
+    // ADMIN: full tree (cho phép depth=all, load toàn bộ cây từ root)
+    // IB: luôn ép depth=1 — chỉ trả về chính mình + con trực tiếp
+    const effectiveDepth = role === 'ADMIN' ? depth : '1';
 
-    allNodes.forEach((node: any) => {
-      map.set(node.id, {
-        id: node.id,
-        name: node.name,
-        email: node.email,
-        level: node.level,
-        accountType: node.accountType,
-        isActive: node.isActive,
-        children: [],
+    if (effectiveDepth === 'all') {
+      // Full tree — dùng BFS in-memory
+      const allNodes = await this.prisma.ibNode.findMany();
+      const map = new Map<string, any>();
+      allNodes.forEach((node: any) => {
+        map.set(node.id, {
+          id: node.id,
+          name: node.name,
+          email: node.email,
+          level: node.level,
+          accountType: node.accountType,
+          isActive: node.isActive,
+          children: [],
+        });
       });
-    });
-
-    allNodes.forEach((node: any) => {
-      if (node.parentId) {
-        const parent = map.get(node.parentId);
-        if (parent) {
-          parent.children.push(map.get(node.id));
+      allNodes.forEach((node: any) => {
+        if (node.parentId) {
+          const parent = map.get(node.parentId);
+          if (parent) parent.children.push(map.get(node.id));
         }
-      }
-    });
-
-    const tree = map.get(ibId);
-    if (depth === '1') {
-      tree.children = tree.children.map((child: any) => ({
-        id: child.id,
-        name: child.name,
-        email: child.email,
-        level: child.level,
-        accountType: child.accountType,
-        isActive: child.isActive,
-        children: [],
-      }));
+      });
+      return map.get(ibId);
     }
 
-    return tree;
+    // IB (depth=1): chỉ trả chính mình + con trực tiếp, không đệ quy
+    const children = await this.prisma.ibNode.findMany({
+      where: { parentId: ibId },
+      select: { id: true, name: true, email: true, level: true, accountType: true, isActive: true },
+    });
+
+    return {
+      id: current.id,
+      name: current.name,
+      email: current.email,
+      level: current.level,
+      accountType: current.accountType,
+      isActive: current.isActive,
+      children: children.map((c) => ({ ...c, children: [] })),
+    };
   }
 
   async getById(id: string) {
@@ -433,11 +438,13 @@ export class IbService {
     return updated;
   }
 
-  async updateProfile(callerId: string, callerLevel: number, targetIbId: string, dto: UpdateIbDto) {
-    // callerLevel > 0 && callerId !== targetIbId → chỉ được sửa trong subtree
-    if (callerLevel > 0 && callerId !== targetIbId) {
-      const subtreeIds = await getSubtreeIds(this.prisma, callerId);
-      if (!subtreeIds.includes(targetIbId)) {
+  async updateProfile(callerId: string, callerLevel: number, targetIbId: string, dto: UpdateIbDto, callerRole?: string) {
+    // ADMIN bypass — cho phép sửa bất kỳ IB nào
+    // Lv0/MIB: cũng bypass (level === 0)
+    // Lv1+: chỉ được sửa con trực tiếp (parentId === callerId) hoặc chính mình
+    if (callerRole !== 'ADMIN' && callerLevel > 0 && callerId !== targetIbId) {
+      const target = await this.prisma.ibNode.findUnique({ where: { id: targetIbId }, select: { parentId: true } });
+      if (!target || target.parentId !== callerId) {
         throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn' });
       }
     }
@@ -485,10 +492,10 @@ export class IbService {
     };
   }
 
-  async getProfile(callerId: string, callerLevel: number, targetIbId: string) {
-    if (callerLevel > 0 && callerId !== targetIbId) {
-      const subtreeIds = await getSubtreeIds(this.prisma, callerId);
-      if (!subtreeIds.includes(targetIbId)) {
+  async getProfile(callerId: string, callerLevel: number, targetIbId: string, callerRole?: string) {
+    if (callerRole !== 'ADMIN' && callerLevel > 0 && callerId !== targetIbId) {
+      const target = await this.prisma.ibNode.findUnique({ where: { id: targetIbId }, select: { parentId: true } });
+      if (!target || target.parentId !== callerId) {
         throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn' });
       }
     }
@@ -519,10 +526,22 @@ export class IbService {
     includeInactive: boolean,
     page: number,
     limit: number,
+    callerRole?: string,
   ) {
-    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
-    // Bỏ currentUser ra khỏi kết quả tìm kiếm
-    const searchableIds = subtreeIds.filter((id) => id !== currentUserId);
+    let searchableIds: string[];
+
+    if (callerRole === 'ADMIN') {
+      // ADMIN: tìm toàn hệ thống (trừ chính Admin)
+      const all = await this.prisma.ibNode.findMany({ select: { id: true } });
+      searchableIds = all.map((n) => n.id).filter((id) => id !== currentUserId);
+    } else {
+      // IB: chỉ tìm trong con trực tiếp (parentId = currentUserId)
+      const children = await this.prisma.ibNode.findMany({
+        where: { parentId: currentUserId },
+        select: { id: true },
+      });
+      searchableIds = children.map((c) => c.id);
+    }
 
     const where: any = {
       id: { in: searchableIds },
@@ -573,11 +592,13 @@ export class IbService {
   /**
    * GET /ib/:id/performance — hiệu suất 1 IB theo tháng
    */
-  async getIbPerformance(currentUserId: string, ibId: string, month?: string) {
-    // 1. Verify ibId trong subtree của currentUser
-    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
-    if (!subtreeIds.includes(ibId)) {
-      throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+  async getIbPerformance(currentUserId: string, ibId: string, month?: string, callerRole?: string) {
+    // 1. Verify ibId: ADMIN bypass; IB chỉ được xem chính mình hoặc con trực tiếp
+    if (callerRole !== 'ADMIN' && currentUserId !== ibId) {
+      const target = await this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { parentId: true } });
+      if (!target || target.parentId !== currentUserId) {
+        throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+      }
     }
 
     // 2. Validate và parse month format YYYY-MM
@@ -610,8 +631,8 @@ export class IbService {
       periodMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     }
 
-    // 3. Lấy subtree của ibId (performance bao gồm downline)
-    const ibSubtree = await getSubtreeIds(this.prisma, ibId);
+    // 3. Chỉ tính riêng ibId (không cộng dồn downline theo nghiệp vụ mới)
+    const ibSubtree = [ibId];
 
     // 4. Aggregate
     const [byAsset, overall, ibInfo] = await Promise.all([
@@ -657,8 +678,12 @@ export class IbService {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
-    const childIds = subtreeIds.filter((id) => id !== currentUserId);
+    // Leaderboard luôn chỉ so sánh con trực tiếp của caller (kể cả Admin)
+    const children = await this.prisma.ibNode.findMany({
+      where: { parentId: currentUserId },
+      select: { id: true },
+    });
+    const childIds = children.map((c) => c.id);
 
     const grouped = await this.prisma.rebateTransaction.groupBy({
       by: ['ibId'],

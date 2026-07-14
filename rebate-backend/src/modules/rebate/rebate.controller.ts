@@ -53,7 +53,7 @@ export class RebateController {
     } catch (e) {
       // ignore logging errors
     }
-    return this.rebateService.updateConfig(user.sub, user.level, ibId, updateDto);
+    return this.rebateService.updateConfig(user.sub, user.level, ibId, updateDto, user.role);
   }
 
   @Get('config/:ibId/history')
@@ -75,6 +75,7 @@ export class RebateController {
       ibId,
       parseInt(page, 10) || 1,
       Math.min(parseInt(limit, 10) || 20, 100),
+      user.role,
     );
   }
 

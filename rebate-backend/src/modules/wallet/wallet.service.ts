@@ -47,10 +47,16 @@ export class WalletService {
     });
   }
 
-  async getBalance(callerId: string, ibId: string, callerLevel: number) {
+  async getBalance(callerId: string, ibId: string, callerLevel: number, callerRole?: string) {
+    // ADMIN: xem tự do vi của bất kỳ IB nào
+    if (callerRole === 'ADMIN') {
+      return this.getOrCreate(ibId);
+    }
+
     if (callerId !== ibId && callerLevel > 0) {
-      const subtreeIds = await getSubtreeIds(this.prisma, callerId);
-      if (!subtreeIds.includes(ibId)) {
+      // Lv1+: chỉ xem con trực tiếp
+      const target = await this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { parentId: true } });
+      if (!target || target.parentId !== callerId) {
         throw new ForbiddenException({
           code: 'IB_NOT_IN_SUBTREE',
           message: 'IB này không thuộc subtree của bạn',

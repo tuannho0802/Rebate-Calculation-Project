@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { PayoutService } from './payout.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Lv0Guard } from '../../common/guards/lv0.guard';
+import { SelfFinanceGuard } from '../../common/guards/self-finance.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequestPayoutDto } from './dto/request-payout.dto';
 import { RejectPayoutDto } from './dto/reject-payout.dto';
@@ -17,7 +18,8 @@ export class PayoutController {
   constructor(private readonly payoutService: PayoutService) {}
 
   @Post()
-  @ApiOperation({ summary: 'IB yêu cầu rút tiền' })
+  @UseGuards(SelfFinanceGuard)
+  @ApiOperation({ summary: 'IB yêu cầu rút tiền (Admin bị chặn)' })
   requestPayout(@CurrentUser() user: any, @Body() dto: RequestPayoutDto) {
     return this.payoutService.requestPayout(user.sub, new Decimal(dto.amount), dto.paymentMethod, dto.note);
   }
@@ -32,14 +34,14 @@ export class PayoutController {
   @Get()
   @ApiOperation({ summary: 'Lấy danh sách payout (Lv0 xem tất cả, Lv1+ xem của mình)' })
   listPayouts(@CurrentUser() user: any, @Query() query: QueryPayoutDto) {
-    return this.payoutService.listPayouts(user.sub, user.level, query);
+    return this.payoutService.listPayouts(user.sub, user.level, query, user.role);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Xem chi tiết 1 payout' })
   async getPayout(@CurrentUser() user: any, @Param('id') id: string) {
     // Để cho nhanh, call service. listPayouts có thể tái dùng, hoặc chỉ query trực tiếp
-    const { data } = await this.payoutService.listPayouts(user.sub, user.level, { page: 1, limit: 1 });
+    const { data } = await this.payoutService.listPayouts(user.sub, user.level, { page: 1, limit: 1 }, user.role);
     // Ở đây đơn giản hóa theo yêu cầu, có thể bổ sung check chi tiết
     return data;
   }

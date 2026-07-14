@@ -14,10 +14,10 @@ export class Lv0Guard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    if (!user || user.level !== 0) {
+    if (!user || (user.level !== 0 && user.role !== 'ADMIN')) {
       throw new ForbiddenException({
         code: 'FORBIDDEN_LV0_ONLY',
-        message: 'Chức năng này chỉ dành cho MIB (Level 0)',
+        message: 'Chức năng này chỉ dành cho MIB (Level 0) hoặc Admin',
       });
     }
 

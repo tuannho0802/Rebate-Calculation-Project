@@ -6,6 +6,7 @@ import { AssetType } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.constants';
 import { getSubtreeIds } from '../../common/utils/subtree.util';
+import { NotificationService } from '../notification/notification.service';
 
 export const MAX_PIPS: Record<AssetType, number> = {
   [AssetType.D_FOREX]: 12,
@@ -33,6 +34,7 @@ export class RebateService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   async getConfig(ibId: string) {
@@ -114,10 +116,11 @@ export class RebateService {
     return this.getTemplates(ibId);
   }
 
-  async updateConfig(currentUserId: string, currentUserLevel: number, targetIbId: string, updateDto: UpdateRebateConfigDto) {
-    // A3: Lv1+ chi duoc set config cho con truc tiep (parentId = currentUserId).
-    // Lv0 co the set cho bat ky IB nao trong subtree (SubtreeGuard van chay tren controller).
-    if (currentUserLevel > 0) {
+  async updateConfig(currentUserId: string, currentUserLevel: number, targetIbId: string, updateDto: UpdateRebateConfigDto, callerRole?: string) {
+    // ADMIN: bypass chọn hoàn toàn, được set config cho bất kỳ IB nào
+    // Lv0: bypass subtree (SubtreeGuard đã kiểm soat cross-tree)
+    // Lv1+: chỉ được set config cho con trực tiếp
+    if (callerRole !== 'ADMIN' && currentUserLevel > 0) {
       const targetIb = await this.prisma.ibNode.findUnique({
         where: { id: targetIbId },
         select: { parentId: true },
@@ -254,6 +257,15 @@ export class RebateService {
       }
     });
 
+    // ADMIN sửa xong -> bắn notification theo notifyScope
+    // (chạy non-blocking sau khi transaction đã commit)
+    if (callerRole === 'ADMIN') {
+      const scope = updateDto.notifyScope || 'direct';
+      // Trích xuất những asset bị thay đổi thực sự
+      const changes = { assets: updateDto.assets.map(a => ({ asset: a.assetType, rebatePips: a.rebatePips, markupPips: a.markupPips })) };
+      this.notificationService.notifyConfigChangedByAdmin(targetIbId, scope as any, changes, currentUserId);
+    }
+
     return this.getConfig(targetIbId);
   }
 
@@ -334,11 +346,14 @@ export class RebateService {
     ibId: string,
     page: number,
     limit: number,
+    callerRole?: string,
   ) {
-    // Verify ibId trong subtree
-    const subtreeIds = await getSubtreeIds(this.prisma, currentUserId);
-    if (!subtreeIds.includes(ibId)) {
-      throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+    // Verify ibId trong subtree (ADMIN bypass)
+    if (callerRole !== 'ADMIN' && currentUserId !== ibId) {
+      const target = await this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { parentId: true } });
+      if (!target || target.parentId !== currentUserId) {
+        throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+      }
     }
 
     // Lấy tất cả config IDs của IB này

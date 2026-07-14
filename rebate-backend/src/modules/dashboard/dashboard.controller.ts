@@ -14,13 +14,13 @@ export class DashboardController {
   @Get('summary')
   @ApiOperation({ summary: 'Lấy tổng quan nhanh toàn cây IB của mình' })
   getSummary(@CurrentUser() user: any) {
-    return this.dashboardService.getSummary(user.sub);
+    return this.dashboardService.getSummary(user.sub, user.role);
   }
 
   @Get('overview')
   @ApiOperation({ summary: 'Tổng quan dashboard: wallet, rebate, subtree, top IBs' })
   getOverview(@CurrentUser() user: any) {
-    return this.dashboardService.getOverview(user.sub);
+    return this.dashboardService.getOverview(user.sub, user.role);
   }
 
   @Get('rebate-summary')
@@ -30,7 +30,7 @@ export class DashboardController {
     @CurrentUser() user: any,
     @Query('period') period: string,
   ) {
-    return this.dashboardService.getRebateSummary(user.sub, period);
+    return this.dashboardService.getRebateSummary(user.sub, period, user.role);
   }
 
   @Get('ib-performance')
@@ -46,6 +46,6 @@ export class DashboardController {
   ) {
     const safePage = Math.max(1, page);
     const safeLimit = Math.min(100, Math.max(1, limit));
-    return this.dashboardService.getIbPerformance(user.sub, period, safePage, safeLimit);
+    return this.dashboardService.getIbPerformance(user.sub, period, safePage, safeLimit, user.role);
   }
 }

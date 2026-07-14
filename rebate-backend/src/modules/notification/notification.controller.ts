@@ -31,7 +31,7 @@ export class NotificationController {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Gửi thông báo thủ công cho IB trong subtree' })
   send(@CurrentUser() user: any, @Body() dto: SendNotificationDto) {
-    return this.notificationService.send(user.sub, dto);
+    return this.notificationService.send(user.sub, dto, user.role);
   }
 
   // QUAN TRỌNG: route /read-all phải đặt TRƯỚC /:id để tránh conflict
