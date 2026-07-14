@@ -18,6 +18,7 @@ model IbNode {
   name        String   @default("")
   password    String // bcrypt hash
   role        Role     @default(IB)
+  isRootAdmin Boolean  @default(false)
   isActive    Boolean  @default(true)
   level       Int // 0=MIB, 1, 2, 3, 4, 5
   parentId    String?

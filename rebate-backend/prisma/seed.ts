@@ -13,10 +13,24 @@ async function main() {
   await prisma.rebateConfig.deleteMany({});
   await prisma.auditLog.deleteMany({});
   await prisma.notification.deleteMany({});
+  await prisma.accountTypeTemplate.deleteMany({});
+  await prisma.markupLinkTemplate.deleteMany({});
   await prisma.ibNode.deleteMany({});
 
   console.log('Seeding test accounts...');
   const passwordHash = await bcrypt.hash('Test@1234', 10);
+
+  // ⚠️ PRODUCTION: Tạo Root Admin thật riêng, KHÔNG dùng tài khoản test này khi deploy.
+  await prisma.ibNode.create({
+    data: {
+      email: 'admin_test@azrebate.com',
+      password: passwordHash,
+      name: 'Root Admin Test',
+      level: 0,
+      role: 'ADMIN',
+      isRootAdmin: true,
+    },
+  });
 
   // 1. MIB (Lv0)
   const mib = await prisma.ibNode.create({

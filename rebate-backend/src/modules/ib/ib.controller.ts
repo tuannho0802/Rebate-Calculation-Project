@@ -10,6 +10,9 @@ import { UpdateIbDto } from './dto/update-ib.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { ProtectRootAdminGuard } from '../../common/guards/protect-root-admin.guard';
 import { Lv0Guard } from '../../common/guards/lv0.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import {
@@ -181,7 +184,7 @@ export class IbController {
 
   @Delete(':id')
   @ApiBearerAuth('Bearer')
-  @UseGuards(SubtreeGuard)
+  @UseGuards(ProtectRootAdminGuard, SubtreeGuard)
   @ApiOperation({
     summary: 'Vô hiệu hóa Sub-IB (soft delete)',
     description: 'Đánh dấu IB là không hoạt động (`isActive = false`). **Không xóa khỏi database.**',
@@ -214,22 +217,6 @@ export class IbController {
     return this.ibService.getChildren(id, +page, +limit);
   }
 
-  // ─── RESTORE — đặt SAU các route GET ─────────────────────────────────────────
-  @Patch(':id/restore')
-  @UseGuards(SubtreeGuard)
-  @ApiBearerAuth('Bearer')
-  @ApiOperation({ summary: 'Khôi phục IB đã bị vô hiệu hóa' })
-  @ApiParam({ name: 'id', description: 'UUID của IB cần khôi phục' })
-  @ApiResponse({ status: 200, description: 'Khôi phục thành công' })
-  @ApiResponse({ status: 422, description: 'IB đang active, không cần khôi phục' })
-  restoreIb(
-    @Param('id') id: string,
-    @CurrentUser() user: any,
-    @Req() req: Request,
-  ) {
-    const ip = (req.headers['x-forwarded-for'] as string) || req.ip;
-    return this.ibService.restoreIb(id, user.sub, ip);
-  }
 
   // ─── PERFORMANCE ─────────────────────────────────────────────────────
   @Get(':id/performance')

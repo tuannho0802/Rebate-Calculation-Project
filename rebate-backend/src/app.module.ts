@@ -14,6 +14,8 @@ import { WalletModule } from './modules/wallet/wallet.module';
 import { PayoutModule } from './modules/payout/payout.module';
 import { ExportModule } from './modules/export/export.module';
 import { AppController } from './app.controller';
+import { AdminModule } from './modules/admin/admin.module';
+import { TrashModule } from './modules/trash/trash.module';
 
 @Module({
   imports: [
@@ -31,6 +33,8 @@ import { AppController } from './app.controller';
     WalletModule,
     PayoutModule,
     ExportModule,
+    AdminModule,
+    TrashModule,
   ],
   controllers: [AppController],
 })

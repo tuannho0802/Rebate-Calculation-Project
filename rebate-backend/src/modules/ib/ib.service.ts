@@ -398,50 +398,7 @@ export class IbService {
   /**
    * PATCH /ib/:id/restore — khôi phục IB đã bị vô hiệu hóa
    */
-  async restoreIb(ibId: string, currentUserId: string, ipAddress?: string) {
-    const ib = await this.prisma.ibNode.findUnique({ where: { id: ibId } });
 
-    if (!ib) throw new NotFoundException({ code: 'IB_NOT_FOUND' });
-
-    if (ib.isActive) {
-      throw new UnprocessableEntityException({
-        code: 'IB_ALREADY_ACTIVE',
-        message: 'Tài khoản này đang hoạt động, không cần khôi phục',
-      });
-    }
-
-    const updated = await this.prisma.ibNode.update({
-      where: { id: ibId },
-      data: { isActive: true },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        level: true,
-        isActive: true,
-        parentId: true,
-      },
-    });
-
-    await this.auditService.log({
-      actorId: currentUserId,
-      action: AUDIT_ACTIONS.IB_RESTORE,
-      targetType: 'IB',
-      targetId: ibId,
-      after: { isActive: true },
-      ipAddress,
-    });
-
-    // System notification: IB_RESTORED — gửi cho IB được khôi phục
-    this.notificationService.createSystemNotification({
-      recipientId: ibId,
-      type: NotificationType.IB_RESTORED,
-      title: 'Tai khoan da duoc khoi phuc',
-      body: 'Tai khoan cua ban da duoc khoi phuc va co the dang nhap binh thuong.',
-    });
-
-    return updated;
-  }
 
   async updateProfile(callerId: string, callerLevel: number, targetIbId: string, dto: UpdateIbDto, callerRole?: string) {
     // ADMIN bypass — cho phép sửa bất kỳ IB nào
