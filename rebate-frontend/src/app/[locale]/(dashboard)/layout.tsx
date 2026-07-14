@@ -48,6 +48,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             email: payload.email,
             level: payload.level,
             role: payload.role,
+            isRootAdmin: payload.isRootAdmin || false,
           });
         }
       }
@@ -58,6 +59,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     
     checkAuth();
   }, [router, user]);
+
+  useEffect(() => {
+    if (user && user.role !== 'ADMIN') {
+      if (pathname === '/dashboard/admin' || pathname?.startsWith('/dashboard/admin/') || 
+          pathname === '/dashboard/trash' || pathname?.startsWith('/dashboard/trash/')) {
+        router.replace('/dashboard');
+      }
+    }
+  }, [user, pathname, router]);
 
   const handleLogout = async () => {
     try {
@@ -89,6 +99,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: 'Export', href: '/dashboard/export', icon: Download },
     { name: t('config'), href: '/dashboard/rebate', icon: Settings },
     { name: 'Notifications', href: '/dashboard/notification', icon: Bell },
+    ...(user?.role === 'ADMIN' ? [
+      { name: 'Admin', href: '/dashboard/admin', icon: UserCog },
+      { name: 'Thùng rác', href: '/dashboard/trash', icon: LogOut } // Will change icon if needed
+    ] : []),
     { name: 'Tài khoản', href: '/account', icon: UserCog },
   ];
 
@@ -159,7 +173,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 Lv {user?.level ?? 0}
               </span>
               <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#0066ff]/10 text-[#0066ff] border border-[#0066ff]/20">
-                {user?.role || 'MIB'}
+                {user?.role === 'ADMIN' ? 'Admin' : 'MIB'}
               </span>
             </div>
           </div>

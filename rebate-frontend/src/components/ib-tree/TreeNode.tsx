@@ -1,18 +1,44 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { ibApi } from '@/lib/api/ib';
 import { IbTreeNode } from '@/types';
-import { ChevronRight, ChevronDown, User, Users } from 'lucide-react';
+import { ChevronRight, ChevronDown, User, Users, Loader2 } from 'lucide-react';
 
 interface TreeNodeProps {
   node: IbTreeNode;
   isLast?: boolean;
+  isLazy?: boolean;
   onNodeClick?: (id: string) => void;
 }
 
-export function TreeNode({ node, isLast = true, onNodeClick }: TreeNodeProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
-  const hasChildren = node.children && node.children.length > 0;
+export function TreeNode({ node, isLast = true, isLazy = false, onNodeClick }: TreeNodeProps) {
+  const [isExpanded, setIsExpanded] = useState(node.level === 0);
+  const [localChildren, setLocalChildren] = useState<IbTreeNode[]>(node.children || []);
+  
+  useEffect(() => {
+    if (node.children && node.children.length > 0) {
+      setLocalChildren(node.children);
+    }
+  }, [node.children]);
+
+  const hasChildren = (node.totalChildren && node.totalChildren > 0) || localChildren.length > 0;
+
+  const shouldFetchChildren = isLazy && isExpanded && localChildren.length === 0 && (node.totalChildren ? node.totalChildren > 0 : false);
+
+  const { data: childrenRes, isLoading: isLoadingChildren } = useQuery({
+    queryKey: ['ibChildren', node.id],
+    queryFn: () => ibApi.getChildren(node.id, 1, 500),
+    enabled: shouldFetchChildren,
+  });
+
+  useEffect(() => {
+    if (childrenRes?.success && childrenRes.data?.items) {
+      const mapped = childrenRes.data.items.map((item: any) => ({ ...item, children: [] } as IbTreeNode));
+      setLocalChildren(mapped);
+    }
+  }, [childrenRes]);
 
   const roleText = node.level === 0 ? 'MIB' : `Lv${node.level}`;
 
@@ -54,7 +80,13 @@ export function TreeNode({ node, isLast = true, onNodeClick }: TreeNodeProps) {
       {/* Children Hierarchy with precise Tailwind CSS tree lines */}
       {isExpanded && hasChildren && (
         <div className="relative ml-3 border-l-2 border-gray-200/80 pl-6 pb-2 mt-[-4px]">
-          {node.children!.filter(c => c.isActive !== false).map((child, index, filteredChildren) => {
+          {isLoadingChildren && (
+            <div className="flex items-center gap-2 py-4 pl-4 text-blue-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span className="text-xs font-medium">Đang tải...</span>
+            </div>
+          )}
+          {!isLoadingChildren && localChildren.filter(c => c.isActive !== false).map((child, index, filteredChildren) => {
             const isChildLast = index === filteredChildren.length - 1;
             return (
               <div key={child.id} className="relative">
@@ -64,7 +96,7 @@ export function TreeNode({ node, isLast = true, onNodeClick }: TreeNodeProps) {
                 {isChildLast && (
                   <div className="absolute top-6 -left-[2px] bottom-0 w-1 bg-white z-0" />
                 )}
-                <TreeNode node={child} isLast={isChildLast} onNodeClick={onNodeClick} />
+                <TreeNode node={child} isLast={isChildLast} isLazy={isLazy} onNodeClick={onNodeClick} />
               </div>
             );
           })}

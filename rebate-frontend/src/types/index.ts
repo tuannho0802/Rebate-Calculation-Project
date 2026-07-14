@@ -21,6 +21,14 @@ export enum AssetType {
   GAUCNH         = "GAUCNH",
 }
 
+export enum RebateType {
+  STP_REBATE = "STP_REBATE",
+  CENT_REBATE = "CENT_REBATE",
+  COMMISSION_PERCENT = "COMMISSION_PERCENT",
+  STP_ADDED_POINTS = "STP_ADDED_POINTS",
+  ECN_COPY_REBATE = "ECN_COPY_REBATE",
+}
+
 // ─── API Response Envelope ────────────────────────────────────────
 
 export interface ApiResponse<T> {
@@ -51,7 +59,8 @@ export interface AuthUser {
   id: string;
   email: string;
   level: number;
-  role: "IB" | "MIB" | "ADMIN";
+  role: "IB" | "ADMIN";
+  isRootAdmin: boolean;
 }
 
 export interface AuthTokens {
@@ -67,6 +76,8 @@ export interface IbNode {
   email: string;
   name?: string;
   level: number;
+  role: "IB" | "ADMIN";
+  isRootAdmin: boolean;
   parentId: string | null;
   parent?: {
     email: string;
@@ -88,7 +99,7 @@ export interface IbTreeNode extends IbNode {
 
 export interface RebateAssetConfig {
   assetType: AssetType;
-  rebateType: string;
+  rebateType: RebateType;
   rebatePips: number;
   markupPips: number;
   markupPercent: number;  // 80 hoặc 100

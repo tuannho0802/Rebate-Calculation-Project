@@ -134,7 +134,7 @@ export function AccountTypeBuilder() {
     setMarkupLinks(newLinks);
   };
 
-  if (!mounted || user?.role !== 'MIB') return null;
+  if (!mounted || !(user?.level === 0 && user?.role === 'IB')) return null;
 
   const handleCreateTable = () => {
     if (!newTableName.trim()) return;

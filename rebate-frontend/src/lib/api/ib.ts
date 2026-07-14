@@ -48,10 +48,7 @@ export const ibApi = {
     return response.data;
   },
 
-  restore: async (id: string): Promise<ApiResponse<null>> => {
-    const response = await apiClient.patch<ApiResponse<null>>(`/ib/${id}/restore`);
-    return response.data;
-  },
+
 
   getChildren: async (id: string, page = 1, limit = 20): Promise<ApiResponse<{ items: IbNode[]; total: number }>> => {
     const response = await apiClient.get<ApiResponse<any>>(`/ib/${id}/children?page=${page}&limit=${limit}`);

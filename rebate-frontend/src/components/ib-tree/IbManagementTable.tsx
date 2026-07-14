@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
+import { trashApi } from '@/lib/api/trash';
 import { Loader2, Search, Edit, Trash2, RefreshCw } from 'lucide-react';
 import { useRouter } from '@/i18n/routing';
 import { getErrorMessage } from '@/lib/error-messages';
@@ -45,7 +46,7 @@ export function IbManagementTable() {
   });
 
   const restoreMutation = useMutation({
-    mutationFn: (id: string) => ibApi.restore(id),
+    mutationFn: (id: string) => trashApi.restore(id),
     onSuccess: (res) => {
       if (res.success) {
         toast.success('Đã khôi phục');

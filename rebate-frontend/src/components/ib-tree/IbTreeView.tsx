@@ -15,9 +15,12 @@ export function IbTreeView() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   const { user } = useAuthStore();
+  const isAdmin = user?.role === 'ADMIN';
+  const depth = isAdmin ? 'all' : 1;
+
   const { data: response, isLoading, isError } = useQuery({
-    queryKey: ['ibTree', 'all', user?.id],
-    queryFn: () => ibApi.getTree('all'),
+    queryKey: ['ibTree', depth, user?.id],
+    queryFn: () => ibApi.getTree(depth),
   });
 
   const handleNodeClick = (id: string) => {
@@ -63,7 +66,7 @@ export function IbTreeView() {
       </div>
       
       <div className="pl-2">
-        <TreeNode node={rootNode} onNodeClick={handleNodeClick} />
+        <TreeNode node={rootNode} onNodeClick={handleNodeClick} isLazy={!isAdmin} />
       </div>
 
       <IbDetailsDrawer 

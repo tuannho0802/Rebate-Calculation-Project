@@ -26,7 +26,7 @@ export default function PayoutPage() {
   const [note, setNote] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  const isAdmin = user?.level === 0;
+  const isAdmin = user?.role === 'ADMIN';
   const params = useMemo(() => ({ status: status || undefined, page, limit }), [status, page, limit]);
 
   const {

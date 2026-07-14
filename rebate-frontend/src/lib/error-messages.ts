@@ -7,7 +7,11 @@ export const ERROR_MESSAGES: Record<string, string> = {
   AUTH_REFRESH_EXPIRED:      "Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại",
   AUTH_FORBIDDEN:            "Bạn không có quyền thực hiện thao tác này",
 
-  // IB
+  // IB & Admin
+  IB_INACTIVE:               "Tài khoản IB đã bị vô hiệu hóa",
+  ROOT_ADMIN_PROTECTED:      "Không thể thực hiện thao tác trên Root Admin",
+  HAS_RELATIONS:             "Dữ liệu đang được sử dụng, không thể xóa",
+  EMAIL_ALREADY_EXISTS:      "Email đã tồn tại",
   IB_NOT_FOUND:              "Không tìm thấy IB",
   IB_EMAIL_TAKEN:            "Email này đã được sử dụng",
   IB_NOT_IN_SUBTREE:         "Bạn không có quyền xem thông tin IB này",

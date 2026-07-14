@@ -8,7 +8,7 @@ import { rebateTemplateApi } from '@/lib/api/rebateTemplates';
 import { ibApi } from '@/lib/api/ib';
 import { useAuthStore } from '@/store/auth.store';
 import { Loader2, Save, ArrowLeft } from 'lucide-react';
-import { AssetType, IbNode, RebateAssetConfig, RebateConfig } from '@/types';
+import { AssetType, IbNode, RebateAssetConfig, RebateConfig, RebateType } from '@/types';
 import { AccountTypeTable, MarkupLinkRow } from '@/components/rebate/AccountTypeBuilder';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
@@ -244,7 +244,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
 
       assetsToUpdate.push({
         assetType: row.assetType.toUpperCase().trim() as AssetType,
-        rebateType: 'STP_REBATE',
+        rebateType: RebateType.STP_REBATE,
         rebatePips: parsedRebate,
         markupPips: parsedMarkup,
         maxPips: rebateMax + markupMax,

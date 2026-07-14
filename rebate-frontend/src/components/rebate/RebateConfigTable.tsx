@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/store/auth.store';
 import { rebateApi } from '@/lib/api/rebate';
-import { AssetType, MAX_PIPS, RebateAssetConfig } from '@/types';
+import { AssetType, MAX_PIPS, RebateAssetConfig, RebateType } from '@/types';
 import { getErrorMessage } from '@/lib/error-messages';
 import { Loader2, AlertCircle, Save, CheckCircle2, Search } from 'lucide-react';
 
@@ -12,7 +12,7 @@ export function RebateConfigTable() {
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
   
-  const defaultIbId = user?.id || 'mib-uuid-001';
+  const defaultIbId = user?.role === 'ADMIN' ? '' : (user?.id || 'mib-uuid-001');
   const [targetIbId, setTargetIbId] = useState<string>(defaultIbId);
   const [searchIbId, setSearchIbId] = useState<string>(defaultIbId);
 
@@ -50,17 +50,24 @@ export function RebateConfigTable() {
   }, [response]);
 
   const handleInputChange = (index: number, field: keyof RebateAssetConfig, value: string) => {
-    const numValue = parseFloat(value);
     const newFormData = [...formData];
-    newFormData[index] = {
-      ...newFormData[index],
-      [field]: isNaN(numValue) ? 0 : numValue,
-    };
+    if (field === 'rebateType') {
+      newFormData[index] = {
+        ...newFormData[index],
+        [field]: value as RebateType,
+      };
+    } else {
+      const numValue = parseFloat(value);
+      newFormData[index] = {
+        ...newFormData[index],
+        [field]: isNaN(numValue) ? 0 : numValue,
+      };
+    }
     setFormData(newFormData);
   };
 
   const validateRow = (row: RebateAssetConfig) => {
-    const limit = user?.level === 0
+    const limit = user?.role === 'ADMIN'
       ? MAX_PIPS[row.assetType]
       : row.maxPips ?? 0;
     return (row.rebatePips + row.markupPips) <= limit;
@@ -155,6 +162,7 @@ export function RebateConfigTable() {
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-sm font-bold text-gray-700 uppercase tracking-wider">
                   <th className="p-4 pl-6 whitespace-nowrap">Tài Sản (Asset)</th>
+                  <th className="p-4 whitespace-nowrap">Loại (Type)</th>
                   <th className="p-4 whitespace-nowrap">Rebate Pips</th>
                   <th className="p-4 whitespace-nowrap">Markup Pips</th>
                   <th className="p-4 whitespace-nowrap">Markup (%)</th>
@@ -163,7 +171,7 @@ export function RebateConfigTable() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {formData.map((row, idx) => {
-                  const limit = user?.level === 0
+                  const limit = user?.role === 'ADMIN'
                     ? MAX_PIPS[row.assetType] ?? row.maxPips ?? 100
                     : row.maxPips ?? 100;
                   const isRowInvalid = !validateRow(row);
@@ -175,6 +183,19 @@ export function RebateConfigTable() {
                         <span className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-bold bg-[#0066ff]/10 text-[#0066ff] border border-[#0066ff]/20 shadow-sm">
                           {row.assetType}
                         </span>
+                      </td>
+                      <td className="p-4">
+                        <select
+                          value={row.rebateType}
+                          onChange={(e) => handleInputChange(idx, 'rebateType', e.target.value)}
+                          className="w-40 px-3 py-2 text-sm font-semibold rounded-lg border border-gray-200 bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#0066ff]/50"
+                        >
+                          <option value={RebateType.STP_REBATE}>STP_REBATE</option>
+                          <option value={RebateType.CENT_REBATE}>CENT_REBATE</option>
+                          <option value={RebateType.COMMISSION_PERCENT}>COMMISSION_PERCENT</option>
+                          <option value={RebateType.STP_ADDED_POINTS}>STP_ADDED_POINTS</option>
+                          <option value={RebateType.ECN_COPY_REBATE}>ECN_COPY_REBATE</option>
+                        </select>
                       </td>
                       <td className="p-4">
                         <div className="relative">
