@@ -186,11 +186,11 @@ export default function RebateManagementPage() {
       return t('parentMissingConfig');
     }
 
-    if (parentAssetConfig.markupPips === 0) {
+    if (parentAssetConfig.maxPips === 0) {
       return t('parentNotAllocated');
     }
 
-    return t('maxLabel', { max: parentAssetConfig.markupPips });
+    return t('maxLabel', { max: parentAssetConfig.maxPips });
   };
 
   return (
