@@ -43,7 +43,7 @@ async function setup() {
     console.log('--- ĐANG CHUẨN BỊ DỮ LIỆU ---');
     // 1. Tạo 1 tài khoản Admin
     const adminEmail = 'admin_test@azrebate.com';
-    const adminPassword = await bcrypt.hash('123456', 10);
+    const adminPassword = await bcrypt.hash('Test@1234', 10);
 
     let admin = await prisma.ibNode.findUnique({ where: { email: adminEmail } });
     if (!admin) {
@@ -77,7 +77,7 @@ async function setup() {
     }
 
     // Ensure MIB password is known for login
-    await prisma.ibNode.update({ where: { id: mib.id }, data: { password: await bcrypt.hash('123456', 10) } });
+    await prisma.ibNode.update({ where: { id: mib.id }, data: { password: await bcrypt.hash('Test@1234', 10) } });
     console.log(`Dùng MIB: ${mib.email}, Lv1: ${lv1.email}, Lv2: ${lv2.email}`);
 
     console.log('--- BẮT ĐẦU TEST ---');
@@ -92,7 +92,7 @@ async function runTests() {
 
     try {
         // TC1
-        const t1Res = await api('/auth/login', 'POST', { email: admin.email, password: '123456' });
+        const t1Res = await api('/auth/login', 'POST', { email: admin.email, password: 'Test@1234' });
         if (t1Res.status === 200 && t1Res.data?.data?.accessToken) {
             adminToken = t1Res.data.data.accessToken;
             const payload = decodeJwt(adminToken);
@@ -106,7 +106,7 @@ async function runTests() {
         }
 
         // TC9 prep
-        const mibRes = await api('/auth/login', 'POST', { email: mib.email, password: '123456' });
+        const mibRes = await api('/auth/login', 'POST', { email: mib.email, password: 'Test@1234' });
         if (mibRes.status === 200 && mibRes.data?.data?.accessToken) {
             mibToken = mibRes.data.data.accessToken;
         }
@@ -182,10 +182,10 @@ async function runTests() {
         }
 
         // TC6
-        const t6Res = await api(`/ib/${mib.id}/reset-password`, 'PATCH', { newPassword: 'newpassword123' }, adminToken);
+        const t6Res = await api(`/ib/${mib.id}/reset-password`, 'PATCH', { newPassword: 'Test@1234' }, adminToken);
         if (t6Res.status === 200) {
             await new Promise(r => setTimeout(r, 1000)); // wait 1s to ensure JWT iat is different
-            const checkLogin = await api('/auth/login', 'POST', { email: mib.email, password: 'newpassword123' });
+            const checkLogin = await api('/auth/login', 'POST', { email: mib.email, password: 'Test@1234' });
             if (checkLogin.status === 200) {
                 logResult('TC6', 'Admin reset password cho 1 MIB', true);
             } else {
@@ -195,7 +195,7 @@ async function runTests() {
             logResult('TC6', 'Admin reset password cho 1 MIB', false, `Expected 200, got ${t6Res.status} - ${JSON.stringify(t6Res.data)}`);
         }
         // Restore mib password
-        await prisma.ibNode.update({ where: { id: mib.id }, data: { password: await bcrypt.hash('123456', 10) } });
+        await prisma.ibNode.update({ where: { id: mib.id }, data: { password: await bcrypt.hash('Test@1234', 10) } });
 
         // TC7
         const mibChildren = await prisma.ibNode.findMany({ where: { parentId: mib.id } });

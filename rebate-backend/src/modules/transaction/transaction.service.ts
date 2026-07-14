@@ -66,8 +66,8 @@ export class TransactionService {
     this.notificationService.createSystemNotification({
       recipientId: tx.ibId,
       type: NotificationType.TRANSACTION_ADDED,
-      title: 'Giao dich moi duoc ghi nhan',
-      body: `Giao dich ${tx.lots} lots (${tx.assetType}) da duoc ghi nhan cho tai khoan cua ban.`,
+      title: 'Giao dịch mới được ghi nhận',
+      body: `Giao dịch ${tx.lots} lots (${tx.assetType}) đã được ghi nhận cho tài khoản của bạn.`,
       metadata: { transactionId: tx.id, assetType: tx.assetType, lots: tx.lots.toString() },
     });
 

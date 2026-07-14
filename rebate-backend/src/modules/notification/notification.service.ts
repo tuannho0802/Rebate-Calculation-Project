@@ -150,7 +150,12 @@ export class NotificationService {
           metadata: params.metadata as any,
         },
       });
-    } catch {
+    } catch (error) {
+      console.error('[NotificationService] Failed to create notification:', {
+        recipientId: params.recipientId,
+        type: params.type,
+        error: error.message
+      });
       // Non-blocking — không để lỗi notification làm gián đoạn luồng chính
     }
   }
@@ -166,7 +171,7 @@ export class NotificationService {
     changes: Record<string, unknown>,
     adminId?: string,
   ) {
-    const body = `Cau hinh rebate cua ban vua duoc Admin cap nhat. Thay doi: ${JSON.stringify(changes)}`;
+    const body = `Cấu hình rebate của bạn vừa được Admin cập nhật. Thay đổi: ${JSON.stringify(changes)}`;
 
     const recipientIds: string[] = [targetIbId];
 
@@ -189,7 +194,7 @@ export class NotificationService {
       await this.createSystemNotification({
         recipientId,
         type: NotificationType.REBATE_UPDATED,
-        title: 'Cau hinh rebate da bi Admin cap nhat',
+        title: 'Cấu hình rebate đã bị Admin cập nhật',
         body,
         metadata: { adminId, targetIbId, changes, scope: notifyScope },
       });

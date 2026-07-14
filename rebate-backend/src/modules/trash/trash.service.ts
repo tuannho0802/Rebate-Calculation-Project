@@ -62,8 +62,8 @@ export class TrashService {
     this.notificationService.createSystemNotification({
       recipientId: id,
       type: NotificationType.IB_RESTORED,
-      title: 'Tai khoan da duoc khoi phuc',
-      body: 'Tai khoan cua ban da duoc khoi phuc va co the dang nhap binh thuong.',
+      title: 'Tài khoản đã được khôi phục',
+      body: 'Tài khoản của bạn đã được khôi phục và có thể đăng nhập bình thường.',
     });
 
     return { success: true, message: 'Khôi phục thành công' };

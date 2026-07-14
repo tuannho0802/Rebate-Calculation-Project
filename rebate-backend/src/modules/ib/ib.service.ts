@@ -357,8 +357,8 @@ export class IbService {
     this.notificationService.createSystemNotification({
       recipientId: id,
       type: NotificationType.IB_DEACTIVATED,
-      title: 'Tai khoan da bi vo hieu hoa',
-      body: 'Tai khoan cua ban da bi vo hieu hoa. Vui long lien he cap tren de biet them thong tin.',
+      title: 'Tài khoản đã bị vô hiệu hóa',
+      body: 'Tài khoản của bạn đã bị vô hiệu hóa. Vui lòng liên hệ cấp trên để biết thêm thông tin.',
     });
 
     return { message: 'IB đã bị deactivate' };
