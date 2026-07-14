@@ -1,4 +1,5 @@
 import { AccountTypeBuilder } from '@/components/rebate/AccountTypeBuilder';
+import { MibMaxOverrideSection } from '@/components/rebate/MibMaxOverrideSection';
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
@@ -14,6 +15,8 @@ export default function RebatePage() {
           Tạo các mẫu Gói Phí (Account Types) và Mẫu Link Markup để gán cho các IB tuyến dưới khi tạo mới.
         </p>
       </div>
+
+      <MibMaxOverrideSection />
       
       <AccountTypeBuilder />
     </div>

@@ -33,6 +33,17 @@ export const rebateApi = {
     return response.data.data;
   },
 
+  setMibMaxOverride: async (
+    mibId: string,
+    overrides: { assetType: AssetType; rebateType: string; maxPips: number }[],
+  ): Promise<ApiResponse<RebateConfig>> => {
+    const response = await apiClient.put<ApiResponse<RebateConfig>>(
+      `/rebate/config/mib/${mibId}/max-override`,
+      { overrides },
+    );
+    return response.data;
+  },
+
   calculate: async (ibId: string, assetType: AssetType, lots: number, period?: string): Promise<ApiResponse<RebateCalculation>> => {
     const response = await apiClient.get<ApiResponse<RebateCalculation>>('/rebate/calculate', {
       params: { ibId, assetType, lots, period }
