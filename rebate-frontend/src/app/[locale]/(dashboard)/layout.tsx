@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
 import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api/auth';
-import { Loader2, LogOut, LayoutDashboard, Users, Settings, BarChart3, Menu, X, UserCog, CreditCard, TrendingUp, Download, Bell } from 'lucide-react';
+import { Loader2, LogOut, LayoutDashboard, Users, Settings, BarChart3, Menu, X, UserCog, CreditCard, TrendingUp, Download, Bell, TableProperties, Trash2 } from 'lucide-react';
 
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -63,7 +63,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     if (user && user.role !== 'ADMIN') {
       if (pathname === '/dashboard/admin' || pathname?.startsWith('/dashboard/admin/') || 
-          pathname === '/dashboard/trash' || pathname?.startsWith('/dashboard/trash/')) {
+          pathname === '/dashboard/trash' || pathname?.startsWith('/dashboard/trash/') ||
+          pathname === '/dashboard/rebate-management' || pathname?.startsWith('/dashboard/rebate-management/')) {
         router.replace('/dashboard');
       }
     }
@@ -100,8 +101,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     { name: t('config'), href: '/dashboard/rebate', icon: Settings },
     { name: 'Notifications', href: '/dashboard/notification', icon: Bell },
     ...(user?.role === 'ADMIN' ? [
-      { name: 'Admin', href: '/dashboard/admin', icon: UserCog },
-      { name: 'Thùng rác', href: '/dashboard/trash', icon: LogOut } // Will change icon if needed
+      { name: 'Admin Management', href: '/dashboard/admin', icon: UserCog },
+      { name: 'Bulk Rebate Edit', href: '/dashboard/rebate-management', icon: TableProperties },
+      { name: 'Thùng rác', href: '/dashboard/trash', icon: Trash2 },
     ] : []),
     { name: 'Tài khoản', href: '/account', icon: UserCog },
   ];

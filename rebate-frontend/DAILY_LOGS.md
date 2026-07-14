@@ -462,3 +462,25 @@
 - [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
 - [x] Các type vẫn khớp với 02_DATA_MODELS.md
 ---
+
+## [2026-07-14]  Phan: FRONTEND (Phase 8 to 11)
+
+### Phien Lam Viec
+- Agent: Antigravity
+- Yeu cau: Phase 8-11 Account Type Template, Audit Refactor, Admin Management, Bulk Rebate Spreadsheet
+
+### Da Trien Khai
+- AccountTypeBuilder.tsx: Mo quyen cho ADMIN (root cause dropdown hardcode Markup 0%)
+- rebate/page.tsx: Doi tieu de 'Goi Phi & Mau Hoa Hong'
+- IbManagementTable.tsx: Bo checkbox Bao gom vo hieu hoa va restoreMutation
+- admin/page.tsx: Bo sung tim kiem, dong bo mau sac hover
+- rebate-management/page.tsx: Bulk edit spreadsheet 18 AssetType x N IB. Promise.allSettled load + save.
+- layout.tsx: Them Bulk Rebate Edit vao nav ADMIN, sua icon Thung rac, cap nhat route guard
+
+### Gap API Can Xu Ly
+- KHONG co PUT /rebate/config/bulk tren BE. Dang dung client-side batch tam thoi.
+- GET/PUT /rebate/ib/:ibId/templates chua ghi vao 01_API_CONTRACT.md
+
+### Trang Thai
+- Build thanh cong 17 routes TypeScript clean
+---

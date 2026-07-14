@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '@/lib/api/admin';
-import { Loader2, Plus, Edit2, Trash2, UserCog, AlertCircle } from 'lucide-react';
+import { Loader2, Plus, Edit2, Trash2, UserCog, AlertCircle, Search } from 'lucide-react';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
 
@@ -18,6 +18,8 @@ export default function AdminManagementPage() {
     name: '',
     password: '',
   });
+
+  const [q, setQ] = useState('');
 
   const { data: adminRes, isLoading } = useQuery({
     queryKey: ['adminUsers'],
@@ -92,6 +94,10 @@ export default function AdminManagementPage() {
   };
 
   const admins = adminRes?.data || [];
+  const filteredAdmins = admins.filter(a => 
+    (a.email?.toLowerCase().includes(q.toLowerCase())) || 
+    (a.name?.toLowerCase().includes(q.toLowerCase()))
+  );
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -110,6 +116,18 @@ export default function AdminManagementPage() {
           <Plus className="h-4 w-4" />
           Thêm Admin
         </button>
+      </div>
+
+      <div className="flex gap-2 items-center">
+        <div className="relative flex-1">
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Tìm kiếm Admin theo email hoặc tên..."
+            className="w-full rounded-lg border border-gray-200 px-4 py-2 pr-10"
+          />
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
+        </div>
       </div>
 
       <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -131,14 +149,14 @@ export default function AdminManagementPage() {
                     <Loader2 className="mx-auto h-6 w-6 animate-spin text-blue-600" />
                   </td>
                 </tr>
-              ) : admins.length === 0 ? (
+              ) : filteredAdmins.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
-                    Không có tài khoản Admin nào.
+                    Không tìm thấy Admin nào phù hợp.
                   </td>
                 </tr>
               ) : (
-                admins.map((admin) => (
+                filteredAdmins.map((admin) => (
                   <tr key={admin.id} className="hover:bg-slate-50/50">
                     <td className="px-4 py-3 text-xs font-mono text-gray-500">{admin.id}</td>
                     <td className="px-4 py-3 font-medium text-gray-900">{admin.name || '—'}</td>
@@ -158,7 +176,7 @@ export default function AdminManagementPage() {
                       <div className="flex justify-end gap-2">
                         <button
                           onClick={() => openEditModal(admin)}
-                          className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-blue-600 transition"
+                          className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-amber-500 transition"
                           title="Sửa thông tin"
                         >
                           <Edit2 className="h-4 w-4" />

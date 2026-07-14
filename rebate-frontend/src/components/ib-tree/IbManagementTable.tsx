@@ -3,8 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
-import { trashApi } from '@/lib/api/trash';
-import { Loader2, Search, Edit, Trash2, RefreshCw } from 'lucide-react';
+import { Loader2, Search, Edit, Trash2 } from 'lucide-react';
 import { useRouter } from '@/i18n/routing';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
@@ -13,13 +12,11 @@ export function IbManagementTable() {
   const queryClient = useQueryClient();
   const router = useRouter();
   const [q, setQ] = useState('');
-  const [includeInactive, setIncludeInactive] = useState(false);
   const [page, setPage] = useState(1);
-
   const { data, isFetching } = useQuery({
-    queryKey: ['ibSearch', q, includeInactive, page],
-    queryFn: () => ibApi.search(q, includeInactive, page, 20),
-    enabled: q.trim().length >= 2 || includeInactive,
+    queryKey: ['ibSearch', q, page],
+    queryFn: () => ibApi.search(q, false, page, 20),
+    enabled: q.trim().length >= 2,
   });
 
   const updateMutation = useMutation({
@@ -45,15 +42,6 @@ export function IbManagementTable() {
     },
   });
 
-  const restoreMutation = useMutation({
-    mutationFn: (id: string) => trashApi.restore(id),
-    onSuccess: (res) => {
-      if (res.success) {
-        toast.success('Đã khôi phục');
-        queryClient.invalidateQueries({ queryKey: ['ibSearch'] });
-      }
-    },
-  });
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,9 +63,6 @@ export function IbManagementTable() {
             <Search className="h-4 w-4" />
           </button>
         </div>
-        <label className="inline-flex items-center gap-2 text-sm text-gray-600">
-          <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} /> Bao gồm đã vô hiệu hóa
-        </label>
       </form>
 
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
@@ -117,15 +102,9 @@ export function IbManagementTable() {
                             <button onClick={() => router.push(`/dashboard/tree/edit/${ib.id}`)} className="p-2 text-gray-500 hover:text-amber-500">
                               <Edit className="h-4 w-4" />
                             </button>
-                            {ib.isActive ? (
-                              <button onClick={() => deactivateMutation.mutate(ib.id)} className="p-2 text-gray-500 hover:text-red-600">
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            ) : (
-                              <button onClick={() => restoreMutation.mutate(ib.id)} className="p-2 text-gray-500 hover:text-green-600">
-                                <RefreshCw className="h-4 w-4" />
-                              </button>
-                            )}
+                            <button onClick={() => deactivateMutation.mutate(ib.id)} className="p-2 text-gray-500 hover:text-red-600">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
                           </div>
                         </td>
                       </tr>
