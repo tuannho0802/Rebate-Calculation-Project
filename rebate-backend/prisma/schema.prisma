@@ -7,11 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  ADMIN
+  IB
+}
+
 model IbNode {
   id          String   @id @default(uuid())
   email       String   @unique
   name        String   @default("")
   password    String // bcrypt hash
+  role        Role     @default(IB)
   isActive    Boolean  @default(true)
   level       Int // 0=MIB, 1, 2, 3, 4, 5
   parentId    String?

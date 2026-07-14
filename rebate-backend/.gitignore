@@ -10,6 +10,8 @@ prisma/
 
 Sample Image
 
+*.sql
+
 scratch/export-test-output
 scratch/check-prod.js
 scratch/check-neon.js

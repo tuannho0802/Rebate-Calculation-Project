@@ -566,7 +566,7 @@ export class IbService {
 
     return {
       data: items,
-      meta: { page, limit, total, query: keyword },
+      meta: { page, limit, total, query: q?.trim() || '' },
     };
   }
 

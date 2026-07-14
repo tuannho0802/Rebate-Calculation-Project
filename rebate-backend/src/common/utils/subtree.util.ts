@@ -7,15 +7,19 @@ import { PrismaService } from '../../prisma/prisma.service';
 export async function getSubtreeIds(
   prisma: PrismaService,
   rootId: string,
+  role?: string,
 ): Promise<string[]> {
-  const result = await prisma.$queryRaw<{ id: string }[]>`
-    WITH RECURSIVE subtree AS (
-      SELECT id FROM ib_nodes WHERE id = ${rootId}
-      UNION ALL
-      SELECT n.id FROM ib_nodes n
-      INNER JOIN subtree s ON n."parentId" = s.id
-    )
-    SELECT id FROM subtree
-  `;
-  return result.map((r) => r.id);
+  // ADMIN -> xem toàn bộ hệ thống
+  if (role === 'ADMIN') {
+    const all = await prisma.ibNode.findMany({ select: { id: true } });
+    return all.map((r) => r.id);
+  }
+
+  // IB -> xem chính mình + 1 cấp trực tiếp
+  const children = await prisma.ibNode.findMany({
+    where: { parentId: rootId },
+    select: { id: true },
+  });
+  
+  return [rootId, ...children.map((c) => c.id)];
 }

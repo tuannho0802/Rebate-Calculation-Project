@@ -30,6 +30,9 @@ export class SubtreeGuard implements CanActivate {
       return true;
     }
 
+    // Nếu là ADMIN -> cho qua
+    if (user.role === 'ADMIN') return true;
+
     // A user can always access their own data
     if (user.sub === targetIbId) {
       return true;
@@ -51,39 +54,18 @@ export class SubtreeGuard implements CanActivate {
       // ignore logging errors
     }
 
-    // Check if targetIbId exists in the user's subtree recursively
-    const result = await this.prisma.$queryRaw<{ found: boolean }[]>`
-      WITH RECURSIVE subtree AS (
-        SELECT id FROM ib_nodes WHERE id = ${user.sub}
-        UNION ALL
-        SELECT n.id FROM ib_nodes n
-        INNER JOIN subtree s ON n."parentId" = s.id
-      )
-      SELECT EXISTS(SELECT 1 FROM subtree WHERE id = ${targetIbId}) as found
-    `;
+    // IB chỉ được xem 1 cấp dưới trực tiếp (parentId === user.sub)
+    const target = await this.prisma.ibNode.findUnique({
+      where: { id: targetIbId },
+      select: { parentId: true },
+    });
 
-    const isAuthorized = result?.[0]?.found ?? false;
-    try {
-      // eslint-disable-next-line no-console
-      console.debug('SubtreeGuard: subtree authorization result', {
-        requester: user.sub,
-        userLevel: user.level,
-        target: targetIbId,
-        isAuthorized,
-        foundRows: result,
-        url: request.originalUrl ?? request.url,
-        params: request.params,
-        query: request.query,
-        userPayload: user,
-      });
-    } catch (e) {
-      // ignore logging errors
-    }
+    const isAuthorized = target?.parentId === user.sub;
 
     if (!isAuthorized) {
       try {
         // eslint-disable-next-line no-console
-        console.warn('SubtreeGuard: access denied for non-subtree target', {
+        console.warn('SubtreeGuard: access denied for non-direct child target', {
           requester: user.sub,
           userLevel: user.level,
           target: targetIbId,
@@ -96,7 +78,7 @@ export class SubtreeGuard implements CanActivate {
       }
       throw new ForbiddenException({
         code: 'IB_NOT_IN_SUBTREE',
-        message: 'Bạn không có quyền xem thông tin IB này',
+        message: 'Bạn không có quyền xem thông tin IB này (chỉ được xem cấp con trực tiếp)',
       });
     }
 
