@@ -1,5 +1,11 @@
 # Auth Flow & Authorization
 
+## Changelog
+- **2026-07-14**:
+  - JWT payload: `role` được lấy trực tiếp từ database thay vì suy diễn.
+  - Thêm đặc quyền Admin (parentId=null, bỏ qua subtree filter).
+  - Cập nhật logic SubtreeGuard: chỉ kiểm tra 1 cấp trực tiếp, không dùng đệ quy CTE.
+
 ---
 
 ## Tổng quan
@@ -71,16 +77,18 @@ FE                                    BE
 
 ## JWT Payload Structure
 
-```typescript
 interface JwtPayload {
   sub: string;      // IB ID (UUID)
   email: string;
   level: number;    // 0=MIB, 1, 2, 3, 4, 5
-  role: "IB" | "MIB" | "ADMIN";
+  role: "IB" | "ADMIN";
   iat: number;
   exp: number;
 }
 ```
+
+> **Lưu ý Role:** Trường `role` hiện tại được đọc trực tiếp từ database (model `IbNode`), không còn suy diễn từ `level === 0` nữa. Admin có `role = 'ADMIN'`, các IB khác có `role = 'IB'`.
+> **Admin Node:** Admin thực sự không có cấu hình rebate hay ví riêng, và `parentId` = `null`.
 
 ---
 
@@ -99,19 +107,21 @@ interface JwtPayload {
 ### Guard logic (BE)
 
 ```typescript
-// Kiểm tra ibId có nằm trong subtree của currentUser không
-async function isInSubtree(currentUserId: string, targetIbId: string): Promise<boolean> {
-  // Dùng recursive CTE để check
-  const result = await prisma.$queryRaw`
-    WITH RECURSIVE subtree AS (
-      SELECT id FROM ib_nodes WHERE id = ${currentUserId}
-      UNION ALL
-      SELECT n.id FROM ib_nodes n
-      INNER JOIN subtree s ON n.parent_id = s.id
-    )
-    SELECT EXISTS(SELECT 1 FROM subtree WHERE id = ${targetIbId}) as found
-  `;
-  return result[0].found;
+// Kiểm tra ibId có nằm trong nhánh quản lý của currentUser không
+async function isInSubtree(currentUserId: string, targetIbId: string, currentUserRole: string): Promise<boolean> {
+  // Nếu là ADMIN, luôn cho phép
+  if (currentUserRole === 'ADMIN') return true;
+
+  // Nếu tự truy cập chính mình
+  if (currentUserId === targetIbId) return true;
+
+  // Với IB thường, chỉ được phép xem 1 cấp con TRỰC TIẾP (depth=1)
+  const target = await prisma.ibNode.findUnique({
+    where: { id: targetIbId },
+    select: { parentId: true }
+  });
+
+  return target?.parentId === currentUserId;
 }
 ```
 

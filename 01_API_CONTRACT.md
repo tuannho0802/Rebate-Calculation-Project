@@ -3,6 +3,13 @@
 > **Nguồn sự thật duy nhất cho toàn bộ API.**
 > Mọi thay đổi phải cập nhật file này trước khi code.
 
+## Changelog
+- **2026-07-14**:
+  - Thêm Admin endpoints (`/admin/users`).
+  - Thêm Trash Can endpoints (`/trash`).
+  - Cập nhật hành vi theo Role (Admin vs IB).
+  - Thêm `notifyScope` vào `PUT /rebate/config/:ibId`.
+
 ---
 
 ## Conventions
@@ -144,6 +151,9 @@ Lấy thông tin IB hiện tại đang đăng nhập.
 
 ### GET /ib/tree
 Lấy toàn bộ subtree của IB đang đăng nhập (chỉ thấy cấp dưới mình).
+**Lưu ý Role:** 
+- Admin: Lấy toàn bộ cây hệ thống (bỏ qua filter parentId).
+- IB thường: Chỉ lấy cấp dưới trực tiếp (depth=1).
 
 **Query params:**
 ```
@@ -259,6 +269,7 @@ Cập nhật cấu hình rebate (chỉ IB cấp trên mới được update cho 
 **Request:**
 ```json
 {
+  "notifyScope": "cascade", // optional: "direct" | "cascade"
   "assets": [
     {
       "assetType": "FOREX",
@@ -686,4 +697,54 @@ Lịch sử thay đổi cấu hình rebate của một IB.
   }
 }
 ```
+
+---
+
+## Admin Endpoints
+
+> **Lưu ý:** Chỉ user có role='ADMIN' mới có quyền gọi các endpoint này. Bất kỳ IB thường nào gọi sẽ nhận 403 Forbidden.
+
+### POST /admin/users
+Tạo Admin mới.
+**Request:**
+```json
+{
+  "email": "admin2@azrebate.com",
+  "name": "Admin 2",
+  "password": "Password123!"
+}
+```
+**Response 201:** `success: true`
+
+### GET /admin/users
+Lấy danh sách tất cả Admin (trừ những Admin đã bị xóa tạm/vô hiệu hóa).
+**Response 200:** Trả về danh sách Admin.
+
+### PATCH /admin/users/:id
+Sửa thông tin Admin (tên, email, password...). **Không** cho phép sửa `role` hoặc `isRootAdmin` qua API này.
+**Response 200:** `success: true`
+
+### DELETE /admin/users/:id
+Xóa tạm thời (deactivate) một Admin. (Chuyển vào Trash Can). Không cho phép xóa Root Admin.
+**Response 200:** `success: true`
+
+---
+
+## Trash Can Endpoints
+
+> **Lưu ý:** Chỉ user có role='ADMIN' mới có quyền gọi các endpoint này.
+
+### GET /trash
+Lấy danh sách các tài khoản đã bị vô hiệu hóa (Admin và IB).
+**Response 200:** Danh sách tài khoản đã deactivated (isActive=false).
+
+### PATCH /trash/:id/restore
+Khôi phục (restore) một tài khoản đã bị vô hiệu hóa.
+**Response 200:** `success: true`
+
+### DELETE /trash/:id/permanent
+Xóa vĩnh viễn (hard delete) một tài khoản khỏi cơ sở dữ liệu.
+**Ràng buộc:** Sẽ bị chặn (lỗi 400 HAS_RELATIONS) nếu tài khoản còn dính líu đến dữ liệu quan trọng như ví, giao dịch, payout, hoặc cấu hình rebate.
+**Response 200:** `success: true`
+
 

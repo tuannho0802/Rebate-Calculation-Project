@@ -3,6 +3,11 @@
 > Types này dùng chung cho cả FE và BE.
 > FE copy vào `src/types/`, BE dùng làm Prisma schema reference.
 
+## Changelog
+- **2026-07-14**:
+  - Thêm enum `Role` (`ADMIN`, `IB`).
+  - Thêm trường `role` và `isRootAdmin` vào model `IbNode`.
+
 ---
 
 ## Database Schema (Prisma)
@@ -26,6 +31,8 @@ model IbNode {
   email     String   @unique
   password  String   // bcrypt hash
   level     Int      // 0=MIB, 1, 2, 3, 4, 5
+  role      Role     @default(IB)
+  isRootAdmin Boolean @default(false)
   parentId  String?
   parent    IbNode?  @relation("IbTree", fields: [parentId], references: [id])
   children  IbNode[] @relation("IbTree")
@@ -93,6 +100,11 @@ model RefreshToken {
 }
 
 // ─── Enums ───────────────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  IB
+}
 
 enum AssetType {
   D_FOREX
@@ -175,7 +187,8 @@ export interface AuthUser {
   id: string;
   email: string;
   level: number;
-  role: "IB" | "MIB" | "ADMIN";
+  role: "IB" | "ADMIN";
+  isRootAdmin: boolean;
 }
 
 export interface AuthTokens {
@@ -190,6 +203,8 @@ export interface IbNode {
   id: string;
   email: string;
   level: number;
+  role: "IB" | "ADMIN";
+  isRootAdmin: boolean;
   parentId: string | null;
   totalChildren?: number;
   createdAt: string;

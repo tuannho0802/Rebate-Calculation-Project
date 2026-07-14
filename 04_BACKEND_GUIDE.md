@@ -1,5 +1,12 @@
 # Backend Development Guide (NestJS + Prisma + Neon)
 
+## Changelog
+- **2026-07-14**:
+  - Thêm module `admin` và `trash`.
+  - Cập nhật SubtreeGuard (chỉ check 1 cấp trực tiếp).
+  - Thêm các Guard mới: `RolesGuard`, `SelfFinanceGuard`, `ProtectRootAdminGuard`.
+  - Bổ sung cảnh báo quan trọng về encoding DB (bắt buộc dùng UTF-8).
+
 ---
 
 ## Setup dự án
@@ -38,7 +45,10 @@ src/
 │   │   └── http-exception.filter.ts   # Format error response chuẩn
 │   ├── guards/
 │   │   ├── jwt-auth.guard.ts
-│   │   └── subtree.guard.ts           # Kiểm tra IB thuộc subtree
+│   │   ├── subtree.guard.ts           # Kiểm tra IB thuộc subtree (chỉ check 1 cấp)
+│   │   ├── roles.guard.ts             # Phân quyền role-based (ADMIN, IB)
+│   │   ├── self-finance.guard.ts      # Chặn thao tác tài chính của Admin lên chính mình
+│   │   └── protect-root-admin.guard.ts# Chặn thao tác xóa/sửa Root Admin
 │   ├── interceptors/
 │   │   └── response.interceptor.ts    # Wrap response thành envelope
 │   └── pipes/
@@ -67,10 +77,20 @@ src/
 │   │   └── dto/
 │   │       └── update-config.dto.ts
 │   │
-│   └── report/
-│       ├── report.module.ts
-│       ├── report.controller.ts
-│       └── report.service.ts
+│   ├── report/
+│   │   ├── report.module.ts
+│   │   ├── report.controller.ts
+│   │   └── report.service.ts
+│   │
+│   ├── admin/                         # Quản lý users (CRUD Admin)
+│   │   ├── admin.module.ts
+│   │   ├── admin.controller.ts
+│   │   └── admin.service.ts
+│   │
+│   └── trash/                         # Thùng rác (Soft delete & Restore)
+│       ├── trash.module.ts
+│       ├── trash.controller.ts
+│       └── trash.service.ts
 │
 └── prisma/
     ├── prisma.module.ts
@@ -79,7 +99,14 @@ src/
 
 ---
 
-## Kết nối Neon Database
+## Kết nối Database (Local & Neon)
+
+> **CẢNH BÁO QUAN TRỌNG VỀ ENCODING TRÊN LOCAL (Windows):**
+> Khi chạy PostgreSQL trên Windows, DB mặc định có thể bị tạo bằng `WIN1252`, dẫn đến lỗi font chữ tiếng Việt (Mojibake).
+> BẮT BUỘC tạo DB local bằng lệnh psql sau trước khi chạy Prisma migrate:
+> ```sql
+> CREATE DATABASE rebate_db WITH ENCODING 'UTF8' LC_COLLATE='C' LC_CTYPE='C' TEMPLATE=template0;
+> ```
 
 1. Tạo project tại [neon.tech](https://neon.tech)
 2. Copy `DATABASE_URL` vào `.env`:

@@ -3,6 +3,12 @@
 > File này nằm ngang cấp với tất cả `.md` khác, ngoài `rebate-backend/` và `rebate-frontend/`.
 > Chứa toàn bộ lệnh SQL thực tế đã chạy thành công để setup local PostgreSQL.
 
+## Changelog
+- **2026-07-14**:
+  - Hướng dẫn bắt buộc tạo DB với encoding `UTF8` để tránh lỗi font tiếng Việt.
+  - Cập nhật thông tin Seed: set `isRootAdmin` cho `admin_test@azrebate.com`.
+  - Cảnh báo bắt buộc: KHÔNG tự viết `migration.sql` bằng tay để tránh lệch pha (schema drift).
+
 ---
 
 ## Yêu cầu
@@ -54,9 +60,10 @@ Bấm **Test** → thấy xanh → bấm **Connect**.
 CREATE USER rebate_user WITH PASSWORD 'rebate_pass_123';
 ```
 
-**Lệnh 2 — Tạo database:**
+**Lệnh 2 — Tạo database (BẮT BUỘC DÙNG UTF8):**
+> **QUAN TRỌNG:** PostgreSQL trên Windows (qua DBngin/pgAdmin) thường mặc định tạo DB bằng `WIN1252`, gây lỗi font tiếng Việt (Mojibake). Phải dùng lệnh dưới đây để ép `UTF8`:
 ```sql
-CREATE DATABASE rebate_db OWNER rebate_user;
+CREATE DATABASE rebate_db WITH ENCODING 'UTF8' LC_COLLATE='C' LC_CTYPE='C' TEMPLATE=template0 OWNER rebate_user;
 ```
 
 **Lệnh 3 — Grant privileges trên database:**
@@ -108,9 +115,16 @@ npx prisma migrate dev --name "First Setup"
 Output thành công:
 ```
 Applying migration `20260616065558_first_setup`
+...
+Applying migration `20260714031045_add_root_admin_flag`
 Your database is now in sync with your schema.
 ✔ Generated Prisma Client
 ```
+
+> **BÀI HỌC VỀ MIGRATION SỰ CỐ SCHEMA DRIFT:**
+> Trong quá trình code, **TUYỆT ĐỐI KHÔNG** tự tạo thư mục và viết file `migration.sql` bằng tay. Điều này làm hỏng checksum lưu trong bảng `_prisma_migrations` và làm lịch sử DB bị lệch pha với schema Prisma.
+> **Cách đúng:** Chỉ chỉnh sửa `schema.prisma`, sau đó chạy `npx prisma migrate dev --name <ten>`. 
+> Nếu cần viết SQL tùy chỉnh (vd: data migration), chạy `npx prisma migrate dev --create-only --name <ten>`, Prisma sẽ tạo folder và file trống chuẩn checksum, sau đó bạn mới vào file đó viết SQL, rồi chạy `npx prisma migrate dev` để apply.
 
 ---
 
@@ -121,6 +135,7 @@ npm run seed
 ```
 
 Seed sẽ tạo:
+- 1 Root Admin: `admin_test@azrebate.com` (isRootAdmin = true) — **TUYỆT ĐỐI KHÔNG mang lên production**.
 - 1 MIB account: `mib@test.com`
 - 2 Lv1 IB: `lv1-a@test.com`, `lv1-b@test.com`
 - 3 Lv2 IB dưới `lv1-a`
@@ -130,9 +145,10 @@ Seed sẽ tạo:
 
 **Test accounts (password đều là `Test@1234`):**
 ```
-mib@test.com      ← MIB, thấy toàn bộ cây
-lv1-a@test.com    ← Lv1, thấy Lv2 của mình
-lv2-a@test.com    ← Lv2, thấy Lv3 của mình
+admin_test@azrebate.com ← Root Admin (quản lý toàn bộ)
+mib@test.com            ← MIB, thấy toàn bộ cây nhánh của nó
+lv1-a@test.com          ← Lv1, thấy Lv2 của mình
+lv2-a@test.com          ← Lv2, thấy Lv3 của mình
 ```
 
 ---

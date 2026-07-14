@@ -1,6 +1,13 @@
 # Error Codes Reference
 
-> BE phải return đúng các code này. FE dùng code để map ra message hiển thị cho user.
+> Danh sách toàn bộ mã lỗi trả về từ API.
+> Frontend dựa vào mã code này để map ra câu thông báo tiếng Việt tương ứng.
+
+## Changelog
+- **2026-07-14**:
+  - Thêm lỗi bảo vệ Root Admin (`ROOT_ADMIN_PROTECTED`).
+  - Thêm lỗi ràng buộc khi xóa cứng (`HAS_RELATIONS`).
+  - Thêm lỗi trùng email (`EMAIL_ALREADY_EXISTS`).
 
 ---
 
@@ -35,6 +42,10 @@
 
 | Code | HTTP | Mô tả | FE hiển thị |
 |---|---|---|---|
+| `IB_INACTIVE` | 403 | Tài khoản IB đã bị vô hiệu hóa, không thể đăng nhập | "Tài khoản IB đã bị vô hiệu hóa" |
+| `ROOT_ADMIN_PROTECTED` | 403 | Không thể xóa, vô hiệu hóa, hoặc sửa Root Admin | "Không thể thực hiện thao tác trên Root Admin" |
+| `HAS_RELATIONS` | 400 | Không thể xóa vĩnh viễn do dữ liệu còn liên kết ở bảng khác (ví, giao dịch...) | "Dữ liệu đang được sử dụng, không thể xóa" |
+| `EMAIL_ALREADY_EXISTS` | 409 | Email đã tồn tại trong hệ thống | "Email đã tồn tại" |
 | `IB_NOT_FOUND` | 404 | IB không tồn tại | "Không tìm thấy IB" |
 | `IB_EMAIL_TAKEN` | 422 | Email đã được dùng | "Email này đã được sử dụng" |
 | `IB_NOT_IN_SUBTREE` | 403 | IB không thuộc subtree của bạn | "Bạn không có quyền xem thông tin IB này" |

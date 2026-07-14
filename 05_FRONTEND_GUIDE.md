@@ -1,5 +1,11 @@
 # Frontend Development Guide (Next.js 14)
 
+> Hướng dẫn setup và cấu trúc Frontend (Next.js App Router).
+
+## Changelog
+- **2026-07-14**:
+  - PENDING: Cần cập nhật FE (cụ thể `src/lib/api/ib.ts`) để gọi route restore mới (`/api/trash/:id/restore` thay vì `/api/ib/:id/restore`).
+
 ---
 
 ## Setup dự án

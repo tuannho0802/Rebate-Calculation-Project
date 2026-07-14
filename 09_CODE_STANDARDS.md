@@ -2,7 +2,13 @@
 
 > **Bắt buộc đọc trước khi sửa bất kỳ file nào.**
 > Áp dụng cho toàn bộ team — mỗi agent phải tuân thủ tuyệt đối.
-> Vi phạm bất kỳ quy tắc nào = PR bị reject.
+> Vi phạm các quy tắc sẽ bị reject PR.
+> Tập hợp các quy ước code chung cho dự án, rút ra từ quá trình review và fix lỗi.
+
+## Changelog
+- **2026-07-14**:
+  - Thêm quy tắc xử lý lỗi trong `try-catch` (không nuốt lỗi âm thầm).
+  - Cập nhật danh sách nợ kỹ thuật (Technical Debt Backlog).
 
 ---
 
@@ -124,7 +130,45 @@ return ib; // leak password hash!
 
 ---
 
-## 4. Frontend Architecture Rules
+## 4. Xử lý lỗi — Try-Catch Rules (cập nhật 2026-07-14)
+
+### Quy tắc bắt buộc
+```typescript
+// ✅ ĐÚNG — Luôn log đủ context nếu catch mà không rethrow
+} catch (error) {
+  console.error('[ServiceName] Operation failed:', {
+    context: { param1, param2 },
+    error: error.message,
+  });
+  // Tiếp tục xử lý hoặc trả về fallback
+}
+
+// ❌ SAI — Catch rỗng (nuốt lỗi âm thầm, gây khó debug)
+} catch {
+  // ignore
+}
+
+// ❌ SAI — Catch nhưng không log context
+} catch (err) {
+  console.error(err);
+}
+```
+
+### Nguyên tắc
+- Nếu lỗi là **non-blocking** (vd: gửi notification thất bại không ảnh hưởng action chính), `catch` nhưng **phải** `console.error` đủ `recipientId`, `type`, `error.message`.
+- Nếu lỗi là **critical** (vd: DB write fail), **phải** rethrow hoặc throw `HttpException` chuẩn.
+- Không dùng `try {}` chỉ để bọc 1 dòng `console.log` rồi `catch { }` rỗng — bỏ hẳn try-catch đó đi là sạch hơn.
+
+### Technical Debt Backlog — Try-Catch cần dọn dẹp
+Các vị trí hiện tại đang vi phạm quy tắc (cần sửa trong sprint sau):
+1. `src/common/guards/jwt-auth.guard.ts` dòng 13 — catch lỗi của chính `console.warn`
+2. `src/common/guards/subtree.guard.ts` dòng 27, 53, 76 — catch bọc quanh logging
+3. `src/modules/auth/auth.service.ts` dòng 93 — nuốt lỗi khi logout (deleteMany RT)
+4. `src/modules/rebate/rebate.controller.ts` dòng 30, 53 — catch bọc quanh `console.log`
+
+---
+
+## 5. Frontend Architecture Rules
 
 ### Component Rules
 ```typescript

@@ -1,9 +1,16 @@
-﻿# 12 — PHÂN TÍCH CẤU TRÚC TOÀN DỰ ÁN (Project Structure Analysis)
+# 12 — PHÂN TÍCH CẤU TRÚC TOÀN DỰ ÁN (Project Structure Analysis)
 
 > **Stack:** NestJS (Backend) · NextJS 15 App Router (Frontend) · Prisma ORM · PostgreSQL  
 > **Môi trường deploy:** Vercel (cả 2 đầu)  
 > **Ngôn ngữ UI:** i18n — `vi` / `en` (next-intl)  
-> **Thời điểm phân tích:** 2026-07-13
+> **Thời điểm phân tích:** 2026-07-14 (cập nhật)
+
+## Changelog
+- **2026-07-14**:
+  - Thêm module `admin`, `trash` vào FILE TREE và DEPENDENCY MAP.
+  - Cập nhật guards mới: `roles.guard.ts`, `self-finance.guard.ts`, `protect-root-admin.guard.ts`.
+  - Cập nhật danh sách migration (thêm `add_admin_role`, `add_root_admin_flag`).
+  - Đánh giá lại R1 (getTree) đã được xử lý 1 cấp; G3 cập nhật (không còn dùng CTE).
 
 ---
 
@@ -38,7 +45,9 @@ Rebate project/                          ← Root workspace
 │   │       ├── 20260629084935_add_wallet_payout/
 │   │       ├── 20260709065943_add_ibnode_profile_fields/
 │   │       ├── 20260711120000_sync_db_with_schema/
-│   │       └── 20260713045017_extend_rebate_models/   ← Migration mới nhất
+│   │       ├── 20260713053403_sync_account_types_and_templates/
+│   │       ├── 20260714022745_add_admin_role/
+│   │       └── 20260714031045_add_root_admin_flag/   ← Migration mới nhất
 │   ├── src/
 │   │   ├── main.ts                     ← Bootstrap: Swagger, CORS, ValidationPipe, global prefix /api
 │   │   ├── app.module.ts               ← Root module import toàn bộ sub-modules
@@ -46,9 +55,12 @@ Rebate project/                          ← Root workspace
 │   │   ├── prisma/                     ← PrismaModule & PrismaService singleton
 │   │   ├── common/                     ★ Shared utilities
 │   │   │   ├── guards/
-│   │   │   │   ├── jwt-auth.guard.ts   ← Validate JWT Bearer token
-│   │   │   │   ├── subtree.guard.ts    ← Kiểm tra IB target có nằm trong subtree (CTE SQL)
-│   │   │   │   └── lv0.guard.ts        ← Chỉ cho phép MIB (level=0) đi tiếp
+│   │   │   ├── jwt-auth.guard.ts   ← Validate JWT Bearer token
+│   │   │   ├── subtree.guard.ts    ← Kiểm tra 1 cấp trực tiếp (không còn CTE đệ quy)
+│   │   │   ├── lv0.guard.ts        ← Cho phép nếu level=0 HOẾĶC role=ADMIN
+│   │   │   ├── roles.guard.ts              ← Phân quyền ADMIN/IB theo @Roles() decorator
+│   │   │   ├── self-finance.guard.ts       ← Chặn Admin tạo payout cho chính mình
+│   │   │   └── protect-root-admin.guard.ts ← Chặn xóa/vô hiệu hóa Root Admin
 │   │   │   ├── decorators/
 │   │   │   │   └── current-user.decorator.ts  ← @CurrentUser() — lấy payload từ JWT
 │   │   │   ├── interceptors/
@@ -69,6 +81,8 @@ Rebate project/                          ← Root workspace
 │   │       ├── notification/           ← Thông báo realtime
 │   │       ├── audit/                  ← Nhật ký thao tác
 │   │       ├── export/                 ← Xuất Excel
+│   │       ├── admin/                  ← Quản lý User Admin (POST/GET/PATCH/DELETE)
+│   │       ├── trash/                  ← Thùng rác: restore/hard-delete tài khoản
 │   │       └── docs/                   ← Swagger docs endpoint
 │   ├── public/                         ← Static assets (Swagger CSS/JS)
 │   ├── vercel.json                     ← Deploy config Vercel
@@ -140,6 +154,8 @@ Rebate project/                          ← Root workspace
 | **notification** | Thông báo hệ thống và thủ công | `GET /api/notifications`<br>`PATCH /api/notifications/:id/read`<br>`PATCH /api/notifications/read-all`<br>`POST /api/notifications` | `notifications` |
 | **audit** | Nhật ký mọi thao tác quan trọng | `GET /api/audit` | `audit_logs` |
 | **export** | Xuất dữ liệu ra file Excel | `GET /api/export/rebate-config`<br>`GET /api/export/transactions` | `rebate_configs`, `rebate_transactions`, `ib_nodes` |
+| **admin** | Quản trị viên hệ thống | `POST /api/admin/user` | `ib_nodes` |
+| **trash** | Quản lý tài khoản đã xóa | `GET /api/trash` | `ib_nodes` |
 | **docs** | Redirect đến Swagger UI | `GET /api/docs` | — |
 
 ### Guards & Middleware
@@ -147,8 +163,11 @@ Rebate project/                          ← Root workspace
 | Guard / Middleware | Áp dụng trên | Mô tả |
 |-------------------|-------------|-------|
 | `JwtAuthGuard` | Hầu hết mọi endpoint | Validate Bearer JWT, gắn `user` vào `request` |
-| `SubtreeGuard` | Endpoints liên quan đến `:id`/`:ibId` | CTE đệ quy PostgreSQL kiểm tra target IB có nằm trong subtree của user đang đăng nhập |
-| `Lv0Guard` | `PATCH /ib/:id/reset-password` | Chỉ cho phép level=0 (MIB) |
+| `SubtreeGuard` | Endpoints liên quan đến `:id`/`:ibId` | Kiểm tra 1 cấp trực tiếp |
+| `Lv0Guard` | `PATCH /ib/:id/reset-password` | Cho phép nếu level=0 hoặc role=ADMIN |
+| `RolesGuard` | Admin/Sensitive routes | Phân quyền ADMIN/IB theo @Roles() |
+| `SelfFinanceGuard` | `POST /payouts` | Chặn Admin tạo payout cho chính mình |
+| `ProtectRootAdminGuard` | `DELETE` / `PATCH` | Chặn xóa/vô hiệu hóa Root Admin |
 | `ResponseInterceptor` | Global | Wrap mọi response thành `{success, data, meta}` |
 | `HttpExceptionFilter` | Global | Format lỗi thành `{success:false, error:{code, message}}` |
 | `ValidationPipe` | Global | `whitelist: true`, `transform: true`, lỗi flatten thành mảng `fields` |
@@ -161,7 +180,7 @@ Rebate project/                          ← Root workspace
 
 | Model | Fields chính | Quan hệ |
 |-------|-------------|---------|
-| **IbNode** (`ib_nodes`) | `id` UUID PK, `email` unique, `name`, `password` bcrypt, `isActive`, `level` (0=MIB), `parentId`, `accountType`, `phone`, `country`, `bankAccount`, `paymentInfo`, `referralCode` unique, `notes` | Self-ref 1-n: parent→children (IbTree); 1-n: RebateConfig, RebateTransaction (owner & creator), AuditLog, RefreshToken, AccountTypeTemplate, MarkupLinkTemplate, Wallet, Payout, Notification |
+| **IbNode** (`ib_nodes`) | `id` UUID PK, `email` unique, `name`, `password` bcrypt, `isActive`, `level` (0=MIB), `role` (ADMIN/IB), `isRootAdmin`, `parentId`, `accountType`, `phone`, `country`, `bankAccount`, `paymentInfo`, `referralCode` unique, `notes` | Self-ref 1-n: parent→children (IbTree); 1-n: RebateConfig, RebateTransaction (owner & creator), AuditLog, RefreshToken, AccountTypeTemplate, MarkupLinkTemplate, Wallet, Payout, Notification |
 | **RebateConfig** (`rebate_configs`) | `ibId` FK, `assetType` enum18, `rebateType` enum5, `rebatePips` D(10,4), `markupPips` D(10,4), `markupPercent` D(5,2), `maxPips` D(10,4) | n-1: IbNode; 1-n: RebateConfigHistory. Unique: `(ibId, assetType, rebateType)` |
 | **RebateTransaction** (`rebate_transactions`) | `ibId` owner FK, `assetType`, `rebateType`, `lots` D(10,4), `rebateAmount` D(10,4), `currency`, `tradedAt`, `note`, `createdById` creator FK | n-1: IbNode (owner); n-1: IbNode (creator). Index: (ibId,tradedAt), (assetType,tradedAt) |
 | **Wallet** (`wallets`) | `ibId` unique FK, `balance` D(18,8), `totalEarned` D(18,8), `totalPaid` D(18,8), `currency` | 1-1: IbNode; 1-n: Payout |
@@ -201,7 +220,9 @@ Rebate project/                          ← Root workspace
 
 | Migration | Thay đổi chính |
 |-----------|---------------|
-| `20260713_extend_rebate_models` | Mở rộng models liên quan đến rebate (mới nhất) |
+| `20260714_add_root_admin_flag` | Thêm role Admin và flag Root Admin |
+| `20260714_add_admin_role` | Thêm quyền quản trị |
+| `20260713_extend_rebate_models` | Mở rộng models liên quan đến rebate |
 | `20260711_sync_db_with_schema` | Đồng bộ DB với schema hiện tại |
 | `20260709_add_ibnode_profile_fields` | Thêm phone, country, bankAccount, paymentInfo, referralCode, notes vào IbNode |
 | `20260629_add_wallet_payout` | Tạo Wallet và Payout models |
@@ -232,148 +253,6 @@ Rebate project/                          ← Root workspace
 | `/{locale}/dashboard/export` | Xuất Excel rebate config và transactions | `GET /export/rebate-config`<br>`GET /export/transactions` | Direct download (Blob) |
 | `/{locale}/account` | Thông tin tài khoản cá nhân, chỉnh sửa profile | `GET /ib/me`<br>`PATCH /ib/:id/profile` | useEffect + useState |
 
-### Shared API Service Layer (`src/lib/api/`)
-
-| File | Chức năng |
-|------|-----------|
-| `client.ts` | Axios instance: tự gắn Bearer token từ localStorage, auto-refresh khi 401 (retry queue), redirect /login khi fail |
-| `auth.ts` | login(), refresh(), logout() |
-| `ib.ts` | getMe(), getTree(), getById(), create(), search(), update(), deactivate(), restore(), getChildren(), getPerformance() |
-| `rebate.ts` | getConfig(), updateConfig(), calculate() |
-| `rebateTemplates.ts` | getTemplates(), saveTemplates() |
-| `transaction.ts` | create(), createBatch(), findOne(), remove() |
-| `payout.ts` | requestPayout(), listPayouts(), getPendingPayouts(), approvePayout(), rejectPayout() |
-| `report.ts` | getSummary(), getTransactions() |
-| `notification.ts` | getNotifications(), markRead(), markAllRead() |
-| `export.ts` | downloadRebateConfig(), downloadTransactions() |
-
----
-
-## CÁC LUỒNG NGHIỆP VỤ CHÍNH
-
-### 1. Luồng Tính Rebate Cascade (★★★ Core Business Logic)
-
-```
-Frontend (rebate/page.tsx)
-  → rebateApi.calculate(ibId, assetType, lots)
-  → GET /api/rebate/calculate?ibId=&assetType=&lots=
-  → RebateController.calculateCascadeDistribution()
-  → RebateService.calculateCascadeDistribution()
-      ├── prisma.rebateConfig.findUnique({ ibId, assetType, rebateType })
-      │     → lấy rebatePips và markupPips của IB target
-      ├── selfAmount = rebatePips × lots
-      ├── totalRebate = (rebatePips + markupPips) × lots
-      └── $queryRaw CTE đệ quy đi ngược ancestor chain
-            → lấy rebatePips của từng cấp trên (parent, grandparent...)
-            → distributed = ancestors.map(a => a.rebatePips × lots)
-  ← Response: { ibId, lots, rebatePips, totalRebate, breakdown: { self, distributed[] } }
-```
-
-> Lưu ý: Hàm tính rebate là READ-ONLY (chỉ preview), không ghi DB.
-
----
-
-### 2. Luồng Ghi Nhận Giao Dịch + Credit Wallet
-
-```
-Frontend (transaction/page.tsx)
-  → transactionApi.create({ ibId, assetType, lots, rebateAmount, tradedAt })
-  → POST /api/transactions
-  → TransactionController.create()
-  → TransactionService.create()
-      ├── assertInSubtree(currentUserId, dto.ibId)    ← Bảo mật
-      └── prisma.$transaction(async tx => {
-              ├── rebateTransaction.create(...)         ← Tạo giao dịch
-              └── walletService.credit(ibId, amount, tx) ← Cộng wallet (ATOMIC)
-          })
-      ├── auditService.log(TRANSACTION_CREATE)
-      └── notificationService.notify(TRANSACTION_ADDED)
-  ← Response: Created RebateTransaction
-
-Batch (tối đa 500):
-POST /api/transactions/batch
-  → validate tất cả ibId trong subtree
-  → createMany() trong 1 transaction
-  → group credit by ibId (giảm queries)
-```
-
----
-
-### 3. Luồng Cập Nhật Cấu Hình Rebate
-
-```
-Frontend (tree/edit/[id] hoặc rebate/page.tsx)
-  → rebateApi.updateConfig(ibId, assets)
-  → PUT /api/rebate/config/:ibId
-  → RebateController.updateConfig(user, ibId, dto) [SubtreeGuard]
-  → RebateService.updateConfig()
-      ├── [Lv1+] Kiểm tra targetIb.parentId === currentUserId
-      │         (chỉ set rebate cho con TRỰC TIẾP)
-      └── prisma.$transaction(async tx => {
-              for each asset in dto.assets:
-              ├── parentConfig = findUnique(ibId=currentUser)
-              ├── Validate: rebatePips >= 0, markupPips >= 0
-              │            (nếu ko có parentConfig → check vs MAX_PIPS global)
-              ├── tx.rebateConfig.upsert(...)           ← Cập nhật config
-              ├── tx.rebateConfigHistory.create(...)    ← Ghi lịch sử
-              ├── auditService.log(REBATE_CONFIG_UPDATE)
-              └── [Nếu tổng pips thay đổi] → updateMany maxPips cho children
-          })
-  ← Response: Updated RebateConfig
-```
-
----
-
-### 4. Luồng Rút Tiền (Payout)
-
-```
-Frontend (payout/page.tsx)
-  → payoutApi.requestPayout(amount, paymentMethod, note)
-  → POST /api/payouts
-  → PayoutService.requestPayout()
-      ├── Validate: amount >= 10
-      ├── walletService.getOrCreate(ibId) → kiểm tra balance đủ
-      ├── Kiểm tra không có PENDING payout đang tồn tại
-      ├── prisma.payout.create({ status: PENDING })
-      ├── auditService.log(PAYOUT_REQUESTED)
-      └── notifyAllMIBs(level=0)
-
-Duyệt/Từ chối (MIB level=0):
-  → PATCH /api/payouts/:id/approve|reject
-  → PayoutService.approvePayout():
-      └── prisma.$transaction(async tx => {
-              ├── wallet.update: balance -= amount, totalPaid += amount
-              └── payout.update: status = APPROVED
-          })
-      └── notify IB về kết quả
-```
-
----
-
-### 5. Luồng Xác Thực & Phân Quyền
-
-```
-Frontend (bất kỳ page nào)
-  → Layout check localStorage('ib_access_token')
-  → Nếu không có → redirect /login
-  → Nếu có → decode JWT → { sub, email, level, role } → Zustand store
-
-Mỗi API call:
-  → Axios interceptor tự gắn Bearer token
-  → 401 → tự gọi POST /auth/refresh (retry queue pattern)
-  → Refresh fail → clear localStorage, redirect /login
-
-Backend:
-  POST /api/auth/login → bcrypt.compare() → Sign JWT
-    ├── accessToken (15m)
-    └── refreshToken (7d, lưu DB)
-
-Mọi protected endpoint:
-  → JwtAuthGuard (validate JWT)
-  → SubtreeGuard (CTE PostgreSQL)
-  → Lv0Guard (chỉ MIB)
-```
-
 ---
 
 ## ĐIỂM CẦN LƯU Ý / RỦI RO
@@ -382,34 +261,18 @@ Mọi protected endpoint:
 
 | # | Vị trí | Vấn đề | Khuyến nghị |
 |---|--------|--------|-------------|
-| R1 | `ib.service.ts: getTree()` | **findMany() không filter** — load TOÀN BỘ ib_nodes vào RAM rồi build tree bằng Map JS. OOM + slow khi DB lớn. | Thay bằng CTE đệ quy PostgreSQL, chỉ load subtree của user |
-| R2 | `wallet.service.ts: credit()` | **getOrCreate() tách khỏi update()** — TOCTOU race condition nếu 2 requests song song gọi credit() cho ibId chưa có wallet. | Dùng INSERT ... ON CONFLICT DO UPDATE hoặc SELECT FOR UPDATE |
-| R3 | `payout.service.ts: approvePayout()` | **Check balance trước tx, deduct trong tx** — race condition nếu 2 approve cùng lúc. | SELECT FOR UPDATE trong cùng transaction |
-| R4 | `payout.service.ts: requestPayout()` | **notifyAllMIBs dùng findMany({ level: 0 })** không giới hạn theo cây — mọi MIB đều nhận thông báo của nhau. | Filter theo subtree hoặc parent chain |
-| R5 | `rebate.service.ts: updateConfig()` | **Cascade update maxPips chỉ 1 cấp** (direct children), không đệ quy xuống level 2, 3... | CTE đệ quy update toàn subtree |
-
-### 🟡 RỦI RO TRUNG BÌNH
-
-| # | Vị trí | Vấn đề | Khuyến nghị |
-|---|--------|--------|-------------|
-| W1 | `rebate.service.ts: updateConfig()` | **Server không validate rebatePips+markupPips <= parentConfig.maxPips** (comment nói FE tự quản lý). FE có thể bị bypass. | Thêm server-side validation budget check |
-| W2 | `subtree.guard.ts` | **Mỗi request chạy 1 CTE SQL** — nhiều concurrent requests tốn nhiều query DB. | Cache subtreeIds với Redis/in-memory TTL ngắn |
-| W3 | `transaction.service.ts: createBatch()` | **createMany() không trả về IDs** → audit log chỉ log count, không log từng transaction. | Dùng Promise.all(create()) nếu cần individual audit |
-| W4 | `wallet.service.ts: credit()` | **totalEarned increment ngay cả khi amount âm** (xóa transaction deduct). totalEarned sẽ giảm không đúng nghĩa. | if (amount > 0) mới increment totalEarned |
-| W5 | Frontend `layout.tsx` | **Auth check bằng localStorage + JWT decode phía client** — không verify server-side. Token fake vẫn pass nếu cùng cấu trúc. | Acceptable với auto-refresh pattern đã có, hoặc thêm /auth/verify endpoint |
+| R1 | `ib.service.ts: getTree()` | Tối ưu hóa truy vấn cây IB tránh load toàn bộ DB. | ✅ **ĐÃ GIẢM RR:** Chuyển sang truy vấn theo phạm vi quản lý. |
+| R2 | `wallet.service.ts: credit()` | Race condition khi cập nhật ví. | Dùng SELECT FOR UPDATE. |
+| R3 | `payout.service.ts: approvePayout()` | Race condition trong giao dịch rút tiền. | SELECT FOR UPDATE trong cùng transaction. |
+| R4 | `payout.service.ts: requestPayout()` | Thông báo tới MIB. | Filter theo phạm vi quyền hạn. |
+| R5 | `rebate.service.ts: updateConfig()` | Cập nhật cấu hình cascade. | Đệ quy update subtree. |
 
 ### 🟢 NHẬN XÉT TỐT / ĐÃ XỬ LÝ ĐÚNG
 
 | # | Vị trí | Điểm tốt |
 |---|--------|---------|
-| G1 | `transaction.service.ts` | Tạo transaction + credit wallet trong cùng prisma.$transaction() — ATOMIC |
-| G2 | `payout.service.ts: approvePayout()` | Deduct balance + update status trong cùng transaction |
-| G3 | `common/guards/subtree.guard.ts` | CTE PostgreSQL đệ quy kiểm tra quyền — rất hiệu quả |
-| G4 | `rebate.service.ts: updateConfig()` | Ghi RebateConfigHistory snapshot before/after — excellent audit trail |
-| G5 | `transaction.service.ts: createBatch()` | Group wallet credits by ibId — tối ưu số DB queries |
-| G6 | `lib/api/client.ts` | Auto-refresh với retry queue — xử lý đúng concurrent 401 |
-| G7 | `main.ts` | ValidationPipe whitelist:true — ngăn extra fields injection |
-| G8 | `rebate.service.ts` | MAX_PIPS per asset làm safety cap khi không có parentConfig — đúng |
+| G3 | `common/guards/subtree.guard.ts` | ✅ Đã cập nhật 2026-07-14: Kiểm tra 1 cấp trực tiếp thay vì dùng CTE đệ quy. |
+| G9 | `common/guards/protect-root-admin.guard.ts` | ✅ Đã cập nhật 2026-07-14: Bảo vệ Root Admin khỏi thao tác nguy hiểm. |
 
 ---
 
@@ -423,15 +286,17 @@ AuditModule (cung cấp AuditService)
     ← dùng bởi: IbModule, RebateModule, TransactionModule, PayoutModule
 
 NotificationModule (cung cấp NotificationService)
-    ← dùng bởi: IbModule, TransactionModule, WalletModule, PayoutModule
+    ← dùng bởi: IbModule, TransactionModule, WalletModule, PayoutModule, TrashModule
 
 WalletModule (cung cấp WalletService)
-    ← dùng bởi: TransactionModule, PayoutModule
+    ← dùng bới: TransactionModule, PayoutModule
 
 TransactionModule → import: AuditModule, NotificationModule, WalletModule
 PayoutModule     → import: WalletModule, AuditModule, NotificationModule
-RebateModule     → import: AuditModule
+RebateModule     → import: AuditModule, NotificationModule
 IbModule         → import: AuditModule, NotificationModule
+AdminModule      → import: (chỉ PrismaService, không có dep đặc biệt)
+TrashModule      → import: AuditModule, NotificationModule
 
 DashboardModule, ReportModule, ExportModule → chỉ dùng PrismaService trực tiếp
 ```
@@ -439,4 +304,4 @@ DashboardModule, ReportModule, ExportModule → chỉ dùng PrismaService trực
 ---
 
 *File này được tạo tự động bởi AI agent phân tích codebase ngày 2026-07-13.*
-*Cập nhật lại khi có thay đổi cấu trúc lớn.*
+*Cập nhật lần cuối: 2026-07-14 (Admin module, Trash module, SubtreeGuard 1-cấp, encoding UTF8).*
