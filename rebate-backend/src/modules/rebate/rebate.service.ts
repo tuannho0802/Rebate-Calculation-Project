@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, UnprocessableEntityException, ForbiddenException, HttpException } from '@nestjs/common';
+import { Injectable, NotFoundException, UnprocessableEntityException, ForbiddenException, HttpException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateRebateConfigDto } from './dto/update-config.dto';
 import { BulkUpdateRebateConfigDto } from './dto/bulk-update-config.dto';
@@ -162,6 +162,13 @@ export class RebateService {
         const totalRequested = rebatePips + markupPips;
         const totalExisting = before ? (before.rebatePips + before.markupPips) : 0;
 
+        let limit: number;
+        if (parentConfig) {
+          limit = Number(parentConfig.markupPips);
+        } else {
+          limit = existing ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 0);
+        }
+
         if (parentConfig) {
           if (rebatePips < 0) {
             throw new UnprocessableEntityException({
@@ -177,18 +184,16 @@ export class RebateService {
             });
           }
         } else {
-          // No parent config: enforce global MAX_PIPS per asset as a safety cap
-          const rebateCap = MAX_PIPS[assetType] || 0;
-          if (rebatePips > rebateCap) {
+          if (rebatePips > limit) {
             throw new UnprocessableEntityException({
               code: 'REBATE_EXCEEDS_MAX',
-              message: `Số rebatePips vượt quá giới hạn tối đa (${rebateCap} pips)`,
+              message: `Số rebatePips vượt quá giới hạn tối đa (${limit} pips)`,
             });
           }
-          if (markupPips > rebateCap) {
+          if (markupPips > limit) {
             throw new UnprocessableEntityException({
               code: 'MARKUP_EXCEEDS_MAX',
-              message: `Số markupPips vượt quá giới hạn tối đa (${rebateCap} pips)`,
+              message: `Số markupPips vượt quá giới hạn tối đa (${limit} pips)`,
             });
           }
         }
@@ -201,7 +206,7 @@ export class RebateService {
             rebatePips,
             markupPips,
             markupPercent,
-            maxPips: targetMaxPips,
+            maxPips: limit,
           },
           create: {
             ibId: targetIbId,
@@ -210,7 +215,7 @@ export class RebateService {
             rebatePips,
             markupPips,
             markupPercent,
-            maxPips: targetMaxPips,
+            maxPips: limit,
           },
         });
 
@@ -322,6 +327,88 @@ export class RebateService {
     }
 
     return { results, successCount, failCount };
+  }
+
+  async setMibMaxOverride(
+    mibId: string,
+    overrides: { assetType: AssetType; rebateType: string; maxPips: number }[],
+  ) {
+    const mib = await this.prisma.ibNode.findUnique({ where: { id: mibId }, select: { level: true } });
+    if (!mib || mib.level !== 0) {
+      throw new BadRequestException({
+        code: 'NOT_A_MIB',
+        message: 'Chỉ được set trần tuỳ chỉnh cho MIB (level 0)',
+      });
+    }
+
+    for (const ov of overrides) {
+      const companyMax = MAX_PIPS[ov.assetType] || 0;
+      if (ov.maxPips > companyMax) {
+        throw new UnprocessableEntityException({
+          code: 'MAX_OVERRIDE_EXCEEDS_COMPANY_CAP',
+          message: `Trần công ty cho ${ov.assetType} là ${companyMax} pips, không thể set cao hơn`,
+        });
+      }
+      const effective = Math.min(companyMax, ov.maxPips);
+
+      await this.prisma.rebateConfig.upsert({
+        where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
+        update: { maxPips: effective },
+        create: {
+          ibId: mibId,
+          assetType: ov.assetType,
+          rebateType: ov.rebateType as any,
+          rebatePips: 0,
+          markupPips: 0,
+          markupPercent: 100,
+          maxPips: effective,
+        },
+      });
+
+      await this.cascadeMaxOverrideToSubtree(mibId, ov.assetType, ov.rebateType, effective);
+    }
+
+    return this.getConfig(mibId);
+  }
+
+  private async cascadeMaxOverrideToSubtree(
+    rootId: string,
+    assetType: AssetType,
+    rebateType: string,
+    ceiling: number,
+  ) {
+    const subtree: { id: string; parentId: string | null; level: number }[] = await this.prisma.$queryRaw`
+      WITH RECURSIVE subtree AS (
+        SELECT id, "parentId", level FROM ib_nodes WHERE id = ${rootId}
+        UNION ALL
+        SELECT n.id, n."parentId", n.level
+        FROM ib_nodes n
+        INNER JOIN subtree s ON n."parentId" = s.id
+      )
+      SELECT id, "parentId", level FROM subtree WHERE id != ${rootId} ORDER BY level ASC
+    `;
+
+    for (const node of subtree) {
+      const parentConfig = await this.prisma.rebateConfig.findUnique({
+        where: { ibId_assetType_rebateType: { ibId: node.parentId!, assetType, rebateType: rebateType as any } },
+      });
+      const parentMarkup = parentConfig ? Number(parentConfig.markupPips) : 0;
+      const newMaxPips = Math.min(parentMarkup, ceiling);
+
+      await this.prisma.rebateConfig.upsert({
+        where: { ibId_assetType_rebateType: { ibId: node.id, assetType, rebateType: rebateType as any } },
+        update: { maxPips: newMaxPips },
+        create: {
+          ibId: node.id,
+          assetType,
+          rebateType: rebateType as any,
+          rebatePips: 0,
+          markupPips: 0,
+          markupPercent: 100,
+          maxPips: newMaxPips,
+        },
+      });
+    }
   }
 
   async calculateCascadeDistribution(

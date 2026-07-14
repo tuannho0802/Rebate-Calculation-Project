@@ -610,3 +610,30 @@ oles.guard.ts — phân quyền theo role (ADMIN/IB), dùng @Roles('ADMIN') deco
 - [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
 - [x] Các type vẫn khớp với 02_DATA_MODELS.md
 ---
+
+---
+## [2026-07-14] — Phần: BACKEND
+
+### Phiên Làm Việc
+- Agent: Composer
+- Yêu cầu từ: Admin cấu hình MaxPips tuỳ chỉnh theo MIB + vá 2 bug maxPips; chạy scratch test
+
+### Đã Triển Khai
+- `rebate.service.ts`: fix 2.1 `maxPips: limit` trong upsert `update`; fix 2.2 giữ `existing.maxPips`
+  khi MIB không có parentConfig; `setMibMaxOverride` + `cascadeMaxOverrideToSubtree`
+- `rebate.controller.ts`: `PUT /rebate/config/mib/:mibId/max-override` (ADMIN, trước `:ibId`)
+- `dto/mib-max-override.dto.ts`: DTO overrides
+- `prisma/seed.ts`: mib2 D_FOREX maxPips=8 minh hoạ
+- `scratch/test-mib-max-override.js`: 11 test cases HTTP
+
+### Ghi Chú
+- `bulkUpdateConfig` loop gọi `updateConfig` — không cần sửa riêng
+- Scratch test: **11 passed, 0 failed** (`node scratch/test-mib-max-override.js`)
+- TEST 5 dùng rebatePips=2, markupPips=3 (trong trần 8) — orig seed markupPips=10 vượt trần sau override
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi
+- [x] Không có chức năng cũ nào bị hỏng — scratch test pass
+- [ ] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [ ] Các type vẫn khớp với 02_DATA_MODELS.md
+---

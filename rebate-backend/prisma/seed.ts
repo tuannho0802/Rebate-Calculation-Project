@@ -212,6 +212,27 @@ async function main() {
     });
   }
 
+  // Minh hoạ Admin custom max: mib2 D_FOREX thấp hơn trần công ty (12 -> 8)
+  await prisma.rebateConfig.upsert({
+    where: {
+      ibId_assetType_rebateType: {
+        ibId: mib2.id,
+        assetType: AssetType.D_FOREX,
+        rebateType: 'STP_REBATE',
+      },
+    },
+    update: { maxPips: 8 },
+    create: {
+      ibId: mib2.id,
+      assetType: AssetType.D_FOREX,
+      rebateType: 'STP_REBATE',
+      rebatePips: 0,
+      markupPips: 0,
+      markupPercent: 100,
+      maxPips: 8,
+    },
+  });
+
   console.log('Seeding rebate transactions (spread over 3 months)...');
   const now = new Date();
   const currentMonthDate = new Date(now.getFullYear(), now.getMonth(), 15);

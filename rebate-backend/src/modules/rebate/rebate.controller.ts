@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery }
 import { RebateService } from './rebate.service';
 import { UpdateRebateConfigDto } from './dto/update-config.dto';
 import { BulkUpdateRebateConfigDto } from './dto/bulk-update-config.dto';
+import { MibMaxOverrideDto } from './dto/mib-max-override.dto';
 import { SaveRebateTemplatesDto } from './dto/save-templates.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
@@ -52,6 +53,22 @@ export class RebateController {
     @Body() dto: BulkUpdateRebateConfigDto,
   ) {
     return this.rebateService.bulkUpdateConfig(user.sub, user.level, dto, user.role);
+  }
+
+  @Put('config/mib/:mibId/max-override')
+  @ApiBearerAuth('Bearer')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Admin set custom maxPips ceiling for a MIB (level 0)' })
+  @ApiParam({ name: 'mibId', description: 'UUID of MIB (level 0)' })
+  @ApiResponse({ status: 200, description: 'Override applied and cascaded to subtree' })
+  @ApiResponse({ status: 400, description: 'NOT_A_MIB — target is not level 0' })
+  @ApiResponse({ status: 422, description: 'MAX_OVERRIDE_EXCEEDS_COMPANY_CAP' })
+  async setMibMaxOverride(
+    @Param('mibId') mibId: string,
+    @Body() dto: MibMaxOverrideDto,
+  ) {
+    return this.rebateService.setMibMaxOverride(mibId, dto.overrides);
   }
 
   @Put('config/:ibId')

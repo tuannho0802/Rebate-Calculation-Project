@@ -14,6 +14,7 @@ Sample Image
 
 scratch/*
 !scratch/test-bulk-rebate.js
+!scratch/test-mib-max-override.js
 scratch/export-test-output
 scratch/check-prod.js
 scratch/check-neon.js
