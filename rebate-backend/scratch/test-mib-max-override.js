@@ -67,17 +67,25 @@ async function main() {
     assert(t1.status === 400, `HTTP 400 (thuc te: ${t1.status})`);
     assert(t1.json?.error?.code === 'NOT_A_MIB', `code NOT_A_MIB (thuc te: ${t1.json?.error?.code})`);
 
-    console.log('\n== TEST 2: MAX_OVERRIDE_EXCEEDS_COMPANY_CAP — FOREX max 999 ==');
+    console.log('\n== TEST 2: Cho phep vuot tran cong ty — FOREX max 999 => 200 ==');
     const t2 = await call('PUT', `/rebate/config/mib/${mib.id}/max-override`, token, {
       overrides: [{ assetType: 'FOREX', rebateType: 'STP_REBATE', maxPips: 999 }],
     });
-    assert(t2.status === 422, `HTTP 422 (thuc te: ${t2.status})`);
-    assert(
-      t2.json?.error?.code === 'MAX_OVERRIDE_EXCEEDS_COMPANY_CAP',
-      `code MAX_OVERRIDE_EXCEEDS_COMPANY_CAP (thuc te: ${t2.json?.error?.code})`,
+    assert(t2.status === 200, `HTTP 200 (thuc te: ${t2.status})`);
+    const cfg999 = t2.json?.data?.assets?.find(
+      (a) => a.assetType === 'FOREX' && a.rebateType === 'STP_REBATE',
     );
+    assert(cfg999?.maxPips === 999, `MIB maxPips=999 (thuc te: ${cfg999?.maxPips})`);
 
-    console.log('\n== TEST 3: Set override FOREX = 8 cho MIB ==');
+    console.log('\n== TEST 2b: History ghi nhan override ==');
+    const hist = await call('GET', `/rebate/config/${mib.id}/history?limit=5`, token);
+    const forexHist = (hist.json?.data || []).find(
+      (h) => h.rebateConfig?.assetType === 'FOREX' && h.after?.maxPips === 999,
+    );
+    assert(!!forexHist, 'Co record history after.maxPips=999');
+    assert(!!forexHist?.changedBy?.email, `changedBy co email (thuc te: ${forexHist?.changedBy?.email})`);
+
+    console.log('\n== TEST 3: Set override FOREX = 8 cho MIB (sau khi da 999, ghi de) ==');
     const t3 = await call('PUT', `/rebate/config/mib/${mib.id}/max-override`, token, {
       overrides: [{ assetType: 'FOREX', rebateType: 'STP_REBATE', maxPips: 8 }],
     });
@@ -93,6 +101,16 @@ async function main() {
       (a) => a.assetType === 'FOREX' && a.rebateType === 'STP_REBATE',
     );
     assert(lv1Forex?.maxPips <= 8, `lv1-a FOREX maxPips <= 8 (thuc te: ${lv1Forex?.maxPips})`);
+
+    console.log('\n== TEST 4b: MAX_OVERRIDE_INVALID — maxPips am => 422 ==');
+    const t4b = await call('PUT', `/rebate/config/mib/${mib.id}/max-override`, token, {
+      overrides: [{ assetType: 'GOLD', rebateType: 'STP_REBATE', maxPips: -1 }],
+    });
+    assert(t4b.status === 422, `HTTP 422 (thuc te: ${t4b.status})`);
+    assert(
+      t4b.json?.error?.code === 'MAX_OVERRIDE_INVALID' || t4b.json?.error?.code === 'VALIDATION_ERROR',
+      `code MAX_OVERRIDE_INVALID hoac VALIDATION_ERROR (thuc te: ${t4b.json?.error?.code})`,
+    );
 
     console.log('\n== TEST 5: updateConfig binh thuong — override KHONG mat ==');
     const t5 = await call('PUT', `/rebate/config/${mib.id}`, token, {

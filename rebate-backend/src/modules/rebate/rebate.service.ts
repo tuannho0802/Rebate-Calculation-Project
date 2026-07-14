@@ -332,6 +332,7 @@ export class RebateService {
   async setMibMaxOverride(
     mibId: string,
     overrides: { assetType: AssetType; rebateType: string; maxPips: number }[],
+    changedById: string,
   ) {
     const mib = await this.prisma.ibNode.findUnique({ where: { id: mibId }, select: { level: true } });
     if (!mib || mib.level !== 0) {
@@ -342,18 +343,20 @@ export class RebateService {
     }
 
     for (const ov of overrides) {
-      const companyMax = MAX_PIPS[ov.assetType] || 0;
-      if (ov.maxPips > companyMax) {
+      if (ov.maxPips < 0) {
         throw new UnprocessableEntityException({
-          code: 'MAX_OVERRIDE_EXCEEDS_COMPANY_CAP',
-          message: `Trần công ty cho ${ov.assetType} là ${companyMax} pips, không thể set cao hơn`,
+          code: 'MAX_OVERRIDE_INVALID',
+          message: 'Trần tuỳ chỉnh phải >= 0',
         });
       }
-      const effective = Math.min(companyMax, ov.maxPips);
 
-      await this.prisma.rebateConfig.upsert({
+      const before = await this.prisma.rebateConfig.findUnique({
         where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
-        update: { maxPips: effective },
+      });
+
+      const updated = await this.prisma.rebateConfig.upsert({
+        where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
+        update: { maxPips: ov.maxPips },
         create: {
           ibId: mibId,
           assetType: ov.assetType,
@@ -361,11 +364,20 @@ export class RebateService {
           rebatePips: 0,
           markupPips: 0,
           markupPercent: 100,
-          maxPips: effective,
+          maxPips: ov.maxPips,
         },
       });
 
-      await this.cascadeMaxOverrideToSubtree(mibId, ov.assetType, ov.rebateType, effective);
+      await this.prisma.rebateConfigHistory.create({
+        data: {
+          rebateConfigId: updated.id,
+          changedById,
+          before: { maxPips: before ? Number(before.maxPips) : null },
+          after: { maxPips: ov.maxPips },
+        },
+      });
+
+      await this.cascadeMaxOverrideToSubtree(mibId, ov.assetType, ov.rebateType, ov.maxPips);
     }
 
     return this.getConfig(mibId);

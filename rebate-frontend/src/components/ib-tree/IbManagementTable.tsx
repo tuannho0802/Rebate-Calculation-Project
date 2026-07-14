@@ -13,10 +13,12 @@ export function IbManagementTable() {
   const router = useRouter();
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
-  const { data, isFetching } = useQuery({
-    queryKey: ['ibSearch', q, page],
-    queryFn: () => ibApi.search(q, false, page, 20),
-    enabled: q.trim().length >= 2,
+  const trimmedQ = q.trim();
+  const canSearch = trimmedQ.length === 0 || trimmedQ.length >= 2;
+  const { data, isFetching, isLoading } = useQuery({
+    queryKey: ['ibSearch', trimmedQ, page],
+    queryFn: () => ibApi.search(trimmedQ, false, page, 20),
+    enabled: canSearch,
   });
 
   const updateMutation = useMutation({
@@ -56,7 +58,7 @@ export function IbManagementTable() {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Tìm theo email hoặc tên (ít nhất 2 ký tự)"
+            placeholder="Tìm theo email hoặc tên (để trống = xem tất cả)"
             className="w-full rounded-lg border border-gray-200 px-4 py-2 pr-10"
           />
           <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">
@@ -66,10 +68,12 @@ export function IbManagementTable() {
       </form>
 
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
-        {isFetching ? (
+        {isLoading || isFetching ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-[#0066ff]" />
           </div>
+        ) : !canSearch ? (
+          <div className="text-center py-12 text-gray-500">Nhập ít nhất 2 ký tự để tìm kiếm</div>
         ) : (
           (() => {
             const items = data?.data?.items || [];

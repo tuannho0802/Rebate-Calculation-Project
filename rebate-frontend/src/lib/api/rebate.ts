@@ -44,6 +44,16 @@ export const rebateApi = {
     return response.data;
   },
 
+  getConfigHistory: async (
+    ibId: string,
+    limit = 20,
+  ): Promise<ApiResponse<unknown[]>> => {
+    const response = await apiClient.get<ApiResponse<unknown[]>>(
+      `/rebate/config/${ibId}/history?limit=${limit}`,
+    );
+    return response.data;
+  },
+
   calculate: async (ibId: string, assetType: AssetType, lots: number, period?: string): Promise<ApiResponse<RebateCalculation>> => {
     const response = await apiClient.get<ApiResponse<RebateCalculation>>('/rebate/calculate', {
       params: { ibId, assetType, lots, period }

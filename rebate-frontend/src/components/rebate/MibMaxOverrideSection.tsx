@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/store/auth.store';
@@ -14,6 +14,15 @@ type OverrideRow = {
   customMax: string;
 };
 
+type HistoryEntry = {
+  id: string;
+  before: { maxPips?: number | null; rebatePips?: number; markupPips?: number };
+  after: { maxPips?: number | null; rebatePips?: number; markupPips?: number };
+  createdAt: string;
+  changedBy?: { email?: string; name?: string };
+  rebateConfig?: { assetType?: string; rebateType?: string };
+};
+
 const ASSET_TYPES = Object.values(AssetType);
 
 export function MibMaxOverrideSection() {
@@ -23,6 +32,9 @@ export function MibMaxOverrideSection() {
     ASSET_TYPES.map((assetType) => ({ assetType, customMax: '' })),
   );
   const [saving, setSaving] = useState(false);
+  const [historyAsset, setHistoryAsset] = useState<AssetType | null>(null);
+  const [historyItems, setHistoryItems] = useState<HistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const { data: treeRes } = useQuery({
     queryKey: ['ibTree', 'admin-mib-override'],
@@ -52,18 +64,48 @@ export function MibMaxOverrideSection() {
           );
           const companyMax = MAX_PIPS[assetType];
           const custom =
-            cfg && cfg.maxPips < companyMax ? String(cfg.maxPips) : '';
+            cfg && cfg.maxPips !== companyMax ? String(cfg.maxPips) : '';
           return { assetType, customMax: custom };
         }),
       );
     });
+    setHistoryAsset(null);
+    setHistoryItems([]);
   }, [selectedMibId]);
 
   const hasValidationError = rows.some((row) => {
     if (!row.customMax.trim()) return false;
     const val = Number(row.customMax);
-    return Number.isNaN(val) || val > MAX_PIPS[row.assetType];
+    return Number.isNaN(val) || val < 0;
   });
+
+  const loadHistory = async (assetType: AssetType) => {
+    if (!selectedMibId) return;
+    if (historyAsset === assetType) {
+      setHistoryAsset(null);
+      setHistoryItems([]);
+      return;
+    }
+    setHistoryLoading(true);
+    setHistoryAsset(assetType);
+    try {
+      const res = await rebateApi.getConfigHistory(selectedMibId, 20);
+      if (!res.success) {
+        toast.error('Không tải được lịch sử');
+        return;
+      }
+      const filtered = (res.data as HistoryEntry[]).filter(
+        (h) =>
+          h.rebateConfig?.assetType === assetType &&
+          (h.before?.maxPips !== undefined || h.after?.maxPips !== undefined),
+      );
+      setHistoryItems(filtered);
+    } catch {
+      toast.error('Không tải được lịch sử');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!selectedMibId || hasValidationError) return;
@@ -103,7 +145,7 @@ export function MibMaxOverrideSection() {
       <div className="p-4 border-b border-gray-100 bg-gray-50/50">
         <h2 className="text-lg font-bold text-gray-800">Trần hoa hồng theo MIB (chỉ Admin)</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Set trần tuỳ chỉnh thấp hơn trần công ty; để trống = dùng trần công ty.
+          Set trần tuỳ chỉnh cho MIB này (có thể cao hơn hoặc thấp hơn trần công ty tham chiếu).
         </p>
       </div>
       <div className="p-4 space-y-4">
@@ -128,43 +170,76 @@ export function MibMaxOverrideSection() {
                 <th className="p-3">Asset Type</th>
                 <th className="p-3">Trần công ty</th>
                 <th className="p-3">Trần tuỳ chỉnh cho MIB này</th>
+                <th className="p-3">Lịch sử</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {rows.map((row) => {
                 const companyMax = MAX_PIPS[row.assetType];
                 const val = row.customMax.trim();
-                const invalid = val !== '' && (Number.isNaN(Number(val)) || Number(val) > companyMax);
+                const invalid = val !== '' && (Number.isNaN(Number(val)) || Number(val) < 0);
+                const showHistory = historyAsset === row.assetType;
                 return (
-                  <tr key={row.assetType}>
-                    <td className="p-3 font-medium">{row.assetType}</td>
-                    <td className="p-3 text-gray-600">{companyMax}</td>
-                    <td className="p-3">
-                      <input
-                        type="number"
-                        min={0}
-                        max={companyMax}
-                        step="0.01"
-                        value={row.customMax}
-                        placeholder={`≤ ${companyMax}`}
-                        onChange={(e) =>
-                          setRows((prev) =>
-                            prev.map((r) =>
-                              r.assetType === row.assetType
-                                ? { ...r, customMax: e.target.value }
-                                : r,
-                            ),
-                          )
-                        }
-                        className={`w-full max-w-[140px] px-2 py-1.5 border rounded-lg ${invalid ? 'border-red-500' : 'border-gray-300'}`}
-                      />
-                      {invalid && (
-                        <p className="text-xs text-red-600 mt-1">
-                          Không được vượt trần công ty ({companyMax})
-                        </p>
-                      )}
-                    </td>
-                  </tr>
+                  <Fragment key={row.assetType}>
+                    <tr>
+                      <td className="p-3 font-medium">{row.assetType}</td>
+                      <td className="p-3 text-gray-600">{companyMax}</td>
+                      <td className="p-3">
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={row.customMax}
+                          placeholder="Tuỳ chỉnh (>= 0)"
+                          onChange={(e) =>
+                            setRows((prev) =>
+                              prev.map((r) =>
+                                r.assetType === row.assetType
+                                  ? { ...r, customMax: e.target.value }
+                                  : r,
+                              ),
+                            )
+                          }
+                          className={`w-full max-w-[140px] px-2 py-1.5 border rounded-lg ${invalid ? 'border-red-500' : 'border-gray-300'}`}
+                        />
+                        {invalid && (
+                          <p className="text-xs text-red-600 mt-1">Giá trị phải &gt;= 0</p>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        {val !== '' && (
+                          <button
+                            type="button"
+                            onClick={() => loadHistory(row.assetType)}
+                            className="text-xs text-[#0066ff] hover:underline"
+                          >
+                            {showHistory ? 'Ẩn lịch sử' : 'Xem lịch sử'}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                    {showHistory && (
+                      <tr key={`${row.assetType}-history`}>
+                        <td colSpan={4} className="p-3 bg-gray-50 text-sm">
+                          {historyLoading ? (
+                            <span className="text-gray-500">Đang tải...</span>
+                          ) : historyItems.length === 0 ? (
+                            <span className="text-gray-500">Chưa có lịch sử override cho asset này.</span>
+                          ) : (
+                            <ul className="space-y-1">
+                              {historyItems.map((h) => (
+                                <li key={h.id} className="text-gray-700">
+                                  {h.before?.maxPips ?? '—'} → {h.after?.maxPips ?? '—'} pips, bởi{' '}
+                                  {h.changedBy?.email ?? h.changedBy?.name ?? '—'},{' '}
+                                  lúc {new Date(h.createdAt).toLocaleString('vi-VN')}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>

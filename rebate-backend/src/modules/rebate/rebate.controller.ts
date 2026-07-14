@@ -63,12 +63,13 @@ export class RebateController {
   @ApiParam({ name: 'mibId', description: 'UUID of MIB (level 0)' })
   @ApiResponse({ status: 200, description: 'Override applied and cascaded to subtree' })
   @ApiResponse({ status: 400, description: 'NOT_A_MIB — target is not level 0' })
-  @ApiResponse({ status: 422, description: 'MAX_OVERRIDE_EXCEEDS_COMPANY_CAP' })
+  @ApiResponse({ status: 422, description: 'MAX_OVERRIDE_INVALID — trần tuỳ chỉnh phải >= 0' })
   async setMibMaxOverride(
+    @CurrentUser() user: any,
     @Param('mibId') mibId: string,
     @Body() dto: MibMaxOverrideDto,
   ) {
-    return this.rebateService.setMibMaxOverride(mibId, dto.overrides);
+    return this.rebateService.setMibMaxOverride(mibId, dto.overrides, user.sub);
   }
 
   @Put('config/:ibId')
