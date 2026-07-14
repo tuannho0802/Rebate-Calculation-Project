@@ -166,7 +166,7 @@ export class NotificationService {
     changes: Record<string, unknown>,
     adminId?: string,
   ) {
-    const body = `Cấu hình rebate của bạn vừa được Admin cập nhật. Thay đổi: ${JSON.stringify(changes)}`;
+    const body = `Cau hinh rebate cua ban vua duoc Admin cap nhat. Thay doi: ${JSON.stringify(changes)}`;
 
     const recipientIds: string[] = [targetIbId];
 
@@ -189,7 +189,7 @@ export class NotificationService {
       await this.createSystemNotification({
         recipientId,
         type: NotificationType.REBATE_UPDATED,
-        title: 'Cấu hình rebate đã bị Admin cập nhật',
+        title: 'Cau hinh rebate da bi Admin cap nhat',
         body,
         metadata: { adminId, targetIbId, changes, scope: notifyScope },
       });

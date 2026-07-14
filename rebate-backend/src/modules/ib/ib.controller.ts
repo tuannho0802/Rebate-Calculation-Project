@@ -177,25 +177,7 @@ export class IbController {
     return this.ibService.updateProfile(user.sub, user.level, id, dto, user.role);
   }
 
-  @Patch(':id/reset-password')
-  @ApiBearerAuth('Bearer')
-  @UseGuards(SubtreeGuard)
-  @ApiOperation({
-    summary: 'Cập nhật thông tin Sub-IB',
-    description: 'Cập nhật `name` hoặc `email` của một IB trong subtree của bạn.',
-  })
-  @ApiParam({ name: 'id', description: 'UUID của IB cần cập nhật', example: 'uuid-here' })
-  @ApiResponse({ status: 200, description: 'Cập nhật thành công' })
-  @ApiResponse({ status: 403, description: 'Bị từ chối — IB không thuộc subtree của bạn' })
-  @ApiResponse({ status: 404, description: 'Không tìm thấy IB' })
-  @ApiResponse({ status: 422, description: 'Email đã tồn tại hoặc dữ liệu không hợp lệ' })
-  updateIb(
-    @Param('id') id: string,
-    @Body() dto: UpdateIbDto,
-    @CurrentUser() user: any,
-  ) {
-    return this.ibService.updateIb(id, dto, user.sub);
-  }
+
 
   @Delete(':id')
   @ApiBearerAuth('Bearer')

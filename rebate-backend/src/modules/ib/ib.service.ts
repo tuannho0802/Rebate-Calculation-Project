@@ -100,6 +100,11 @@ export class IbService {
           if (parent) parent.children.push(map.get(node.id));
         }
       });
+      if (role === 'ADMIN') {
+        return allNodes
+          .filter((node: any) => node.parentId === null && node.role === 'IB')
+          .map((node: any) => map.get(node.id));
+      }
       return map.get(ibId);
     }
 
