@@ -4,6 +4,10 @@
 > Mọi thay đổi phải cập nhật file này trước khi code.
 
 ## Changelog
+- **2026-07-14 (validation authority + chain view API)**:
+  - **Thêm mới**: `GET /ib/:id/tree` cho Chain View, chỉ `ADMIN` được phép dùng để xem cây bắt đầu từ một IB bất kỳ.
+  - **Sửa** `POST /ib`: request có thêm field optional `accountTypeTemplateId`.
+  - Ghi rõ: `ib_nodes.accountType` giờ chỉ là nhãn hiển thị (tên template lúc tạo), **không** được đọc lại để tính `markupMax` hay validate runtime.
 - **2026-07-14 (phát hiện qua test scratch PUT /rebate/config/bulk)**:
   - Sửa `GET /ib/tree`: response shape phụ thuộc role, docs cũ chỉ ghi 1 dạng object, thiếu
     trường hợp ADMIN. Nguồn: `ib.service.ts:103-107`.
@@ -225,6 +229,50 @@ Rebate Management ở `13_PROMPT_REBATE_MANAGEMENT_AND_ROLE_UI.md`) cần kiểm
 
 ---
 
+### GET /ib/:id/tree
+Lấy subtree bắt đầu từ 1 IB cụ thể (không nhất thiết là người đang đăng nhập). Dùng cho
+"Chain View" — chọn từng cấp một để chỉnh sửa rebate config theo chuỗi.
+
+**Auth:** `JwtAuthGuard` + `@Roles('ADMIN')` — **chỉ ADMIN, vĩnh viễn**.
+Lý do nghiệp vụ đã chốt: chỉ Admin được phép nhìn xuyên cấp; MIB/IB thường theo đúng thiết kế
+chỉ được xem con trực tiếp của mình. Endpoint này **không** được mở rộng cho role `IB` trừ khi
+có quyết định nghiệp vụ mới rõ ràng từ chủ dự án.
+
+**Query params:**
+```
+?depth=1        // Chỉ lấy cấp con trực tiếp (default)
+?depth=all      // Lấy toàn bộ subtree
+```
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid-target",
+    "email": "lv1@example.com",
+    "level": 1,
+    "children": [
+      {
+        "id": "uuid-child",
+        "email": "lv2@example.com",
+        "level": 2,
+        "children": []
+      }
+    ]
+  }
+}
+```
+
+**Lưu ý:** shape response giống `GET /ib/tree` cho mode object, nhưng node gốc là `:id` thay vì
+người đang đăng nhập.
+
+**Error:**
+- `IB_NOT_FOUND` (404) nếu `:id` không tồn tại.
+- `FORBIDDEN_ROLES_ONLY` (403) nếu caller không phải `ADMIN`.
+
+---
+
 ### GET /ib/:id
 Lấy thông tin một IB cụ thể (chỉ được xem nếu là cấp dưới của mình).
 
@@ -252,9 +300,15 @@ Tạo IB mới ở cấp dưới của IB hiện tại.
 ```json
 {
   "email": "new-ib@example.com",
-  "password": "string"
+  "password": "string",
+  "accountTypeTemplateId": "uuid (optional) — nếu có, copy rows của template này thành rebate_configs khởi tạo cho IB mới"
 }
 ```
+
+**Lưu ý:**
+- `accountTypeTemplateId` dùng để khởi tạo `rebate_configs` cho IB mới từ template đã chọn.
+- `ib_nodes.accountType` chỉ còn là nhãn hiển thị lưu tên template lúc tạo, không tham gia
+  validate runtime hay tính `markupMax`.
 
 **Response 201:**
 ```json

@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID, MinLength, MaxLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateIbDto {
@@ -45,6 +45,13 @@ export class CreateIbDto {
   @IsOptional()
   @MaxLength(100)
   accountType?: string;
+
+  @ApiPropertyOptional({
+    description: 'UUID của account type template dùng để khởi tạo rebate_configs cho IB mới',
+  })
+  @IsUUID()
+  @IsOptional()
+  accountTypeTemplateId?: string;
 
   @ApiPropertyOptional({ description: 'Ghi chú nội bộ' })
   @IsString()

@@ -8,7 +8,7 @@ import { rebateTemplateApi } from '@/lib/api/rebateTemplates';
 import { ibApi } from '@/lib/api/ib';
 import { useAuthStore } from '@/store/auth.store';
 import { Loader2, Save, ArrowLeft } from 'lucide-react';
-import { AssetType, IbNode, RebateAssetConfig, RebateConfig, RebateType } from '@/types';
+import { AssetType, IbNode, RebateAssetConfig, RebateType } from '@/types';
 import { AccountTypeTable, MarkupLinkRow } from '@/components/rebate/AccountTypeBuilder';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
@@ -34,7 +34,6 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
   const [markupValues, setMarkupValues] = useState<Record<string, string>>({});
 
   const [profile, setProfile] = useState<IbNode | null>(null);
-  const [currentUserConfig, setCurrentUserConfig] = useState<RebateConfig | null>(null);
   const [subIbAccountType, setSubIbAccountType] = useState('Markup 0%');
   const [markupLinks, setMarkupLinks] = useState<MarkupLinkRow[]>([]);
 
@@ -47,16 +46,14 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
 
     const loadTemplates = async () => {
       try {
-        const [profileRes, configRes, templatesRes, targetRes, targetConfigRes] = await Promise.all([
+        const [profileRes, templatesRes, targetRes, targetConfigRes] = await Promise.all([
           ibApi.getMe().catch(() => null),
-          rebateApi.getConfig(user.id).catch(() => null),
           rebateTemplateApi.getTemplates(user.id).catch(() => null),
           ibApi.getById(id).catch(() => null),
           rebateApi.getConfig(id).catch(() => null),
         ]);
 
         if (profileRes?.data) setProfile(profileRes.data);
-        if (configRes?.data) setCurrentUserConfig(configRes.data);
         
         let loadedTables: AccountTypeTable[] = [];
         if (templatesRes?.data) {
@@ -162,97 +159,27 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
     setMarkupValues(prev => ({ ...prev, [`${tableId}_${assetType}_markup`]: value }));
   };
 
-  const getRebateMax = (assetType: string, originalMax: string) => {
-    if (!profile) return originalMax;
-    if (profile.parentId === null) {
-      return originalMax;
-    }
-
-    const normalizedAssetType = assetType.toUpperCase().trim();
-    const assetConfig = currentUserConfig?.assets?.find((a: RebateAssetConfig) => a.assetType.toUpperCase() === normalizedAssetType);
-    return assetConfig ? String(assetConfig.rebatePips ?? originalMax) : originalMax;
-  };
-
-  const getMarkupMax = (assetType: string) => {
-    if (!profile) return '0';
-
-    if (profile.parentId === null) {
-      const accountType = subIbAccountType || 'Markup 0%';
-      if (accountType === 'Markup 0%') return '0';
-      
-      const link = markupLinks.find((linkItem) => linkItem.name === accountType);
-      if (link && link.share !== undefined && link.share !== null) {
-        return String(link.share);
-      }
-      if (markupLinks.length > 0) {
-        return String(markupLinks[0].share ?? '0');
-      }
-      return '0';
-    }
-
-    const normalizedAssetType = assetType.toUpperCase().trim();
-    const assetConfig = currentUserConfig?.assets?.find((a: RebateAssetConfig) => a.assetType.toUpperCase() === normalizedAssetType);
-    return assetConfig ? String(assetConfig.markupPips ?? '0') : '0';
-  };
-
-  const getRowError = (tableId: string, row: AccountTypeTable['rows'][number]) => {
-    const rebateVal = rebateValues[`${tableId}_${row.assetType}_rebate`] || '0';
-    const markupVal = markupValues[`${tableId}_${row.assetType}_markup`] || '0';
-    const parsedRebate = parsePipsValue(rebateVal);
-    const parsedMarkup = parsePipsValue(markupVal);
-    const rebateMax = parsePipsValue(getRebateMax(row.assetType, row.maxCeiling));
-    const markupMax = parsePipsValue(getMarkupMax(row.assetType));
-    if (process.env.NODE_ENV === 'development') {
-      console.log('getRowError debug', { row: row.assetType, accountType: subIbAccountType, markupLinks, markupMax });
-    }
-
-    if (parsedRebate > rebateMax) {
-      return `Rebate không được vượt quá ${rebateMax}.`;
-    }
-    if (parsedMarkup > markupMax) {
-      return `Markup không được vượt quá ${markupMax}.`;
-    }
-
-    return '';
-  };
-
   const handleSave = (tableId: string) => {
     const table = tables.find(t => t.id === tableId);
     if (!table) return;
 
     const assetsToUpdate: RebateAssetConfig[] = [];
-    let hasError = false;
-
     for (const row of table.rows) {
       const rebateVal = rebateValues[`${tableId}_${row.assetType}_rebate`] || '0';
       const markupVal = markupValues[`${tableId}_${row.assetType}_markup`] || '0';
       const parsedRebate = parsePipsValue(rebateVal);
       const parsedMarkup = parsePipsValue(markupVal);
-      const rebateMax = parsePipsValue(getRebateMax(row.assetType, row.maxCeiling));
-      const markupMax = parsePipsValue(getMarkupMax(row.assetType));
-
-      if (parsedRebate > rebateMax) {
-        toast.error(`Rebate ${row.assetType} không được vượt quá ${rebateMax}.`);
-        hasError = true;
-        break;
-      }
-      if (parsedMarkup > markupMax) {
-        toast.error(`Markup ${row.assetType} không được vượt quá ${markupMax}.`);
-        hasError = true;
-        break;
-      }
-
       assetsToUpdate.push({
         assetType: row.assetType.toUpperCase().trim() as AssetType,
         rebateType: RebateType.STP_REBATE,
         rebatePips: parsedRebate,
         markupPips: parsedMarkup,
-        maxPips: rebateMax + markupMax,
+        maxPips: Number(row.maxCeiling),
         markupPercent: 100,
       });
     }
 
-    if (!hasError && assetsToUpdate.length > 0) {
+    if (assetsToUpdate.length > 0) {
       updateConfigMutation.mutate(assetsToUpdate);
     }
   };
@@ -350,10 +277,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
                           {row.assetType}
                         </td>
                         <td className="px-6 py-4 text-gray-500 font-medium">
-                          <div className="space-y-1">
-                            <div className="text-sm text-gray-700">Rebate Max: {getRebateMax(row.assetType, row.maxCeiling)}</div>
-                            <div className="text-sm text-gray-700">Markup Max: {getMarkupMax(row.assetType)}</div>
-                          </div>
+                          Giới hạn được kiểm tra khi lưu.
                         </td>
                         <td className="px-6 py-4">
                           <div className="grid gap-2">
@@ -362,34 +286,22 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
                               value={rebateValues[`${table.id}_${row.assetType}_rebate`] || ''}
                               onChange={(e) => handleRebateChange(table.id, row.assetType, e.target.value)}
                               placeholder="Rebate Pips"
-                              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#0066ff]/50 focus:border-[#0066ff] transition-all ${getRowError(table.id, row) ? 'border-red-400 bg-red-50' : 'border-gray-200 bg-white'}`}
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#0066ff]/50 focus:border-[#0066ff] transition-all bg-white"
                             />
                             <input
                               type="text"
                               value={markupValues[`${table.id}_${row.assetType}_markup`] || ''}
                               onChange={(e) => handleMarkupChange(table.id, row.assetType, e.target.value)}
                               placeholder="Markup Pips"
-                              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#0066ff]/50 focus:border-[#0066ff] transition-all ${getRowError(table.id, row) ? 'border-red-400 bg-red-50' : 'border-gray-200 bg-white'}`}
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#0066ff]/50 focus:border-[#0066ff] transition-all bg-white"
                             />
-                            {getRowError(table.id, row) ? (
-                              <p className="text-xs text-red-600 font-medium">{getRowError(table.id, row)}</p>
-                            ) : null}
                           </div>
                         </td>
                         <td className="px-6 py-4 text-gray-500">
                           {row.calcUnit}
                         </td>
                         <td className="px-6 py-4 text-right text-gray-700 font-semibold">
-                          {(() => {
-                            const rebateVal = rebateValues[`${table.id}_${row.assetType}_rebate`] || '0';
-                            const markupVal = markupValues[`${table.id}_${row.assetType}_markup`] || '0';
-                            const parsedRebate = parsePipsValue(rebateVal);
-                            const parsedMarkup = parsePipsValue(markupVal);
-                            const rebateMax = parsePipsValue(getRebateMax(row.assetType, row.maxCeiling));
-                            const markupMax = parsePipsValue(getMarkupMax(row.assetType));
-                            const remaining = rebateMax + markupMax - (parsedRebate + parsedMarkup);
-                            return remaining >= 0 ? remaining.toFixed(1) : '0.0';
-                          })()}
+                          —
                         </td>
                       </tr>
                     ))}

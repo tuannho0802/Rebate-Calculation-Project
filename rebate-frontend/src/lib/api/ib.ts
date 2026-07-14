@@ -12,6 +12,11 @@ export const ibApi = {
     return response.data;
   },
 
+  getTreeById: async (id: string, depth: 'all' | 1 = 1): Promise<ApiResponse<IbTreeNode>> => {
+    const response = await apiClient.get<ApiResponse<IbTreeNode>>(`/ib/${id}/tree?depth=${depth}`);
+    return response.data;
+  },
+
   getById: async (id: string): Promise<ApiResponse<IbNode>> => {
     try {
       console.log('ibApi.getById', { id });
@@ -22,8 +27,20 @@ export const ibApi = {
     return response.data;
   },
 
-  create: async (email: string, password?: string, name?: string, accountType?: string): Promise<ApiResponse<IbNode>> => {
-    const response = await apiClient.post<ApiResponse<IbNode>>('/ib', { email, password, name, accountType });
+  create: async (
+    email: string,
+    password?: string,
+    name?: string,
+    accountType?: string,
+    accountTypeTemplateId?: string,
+  ): Promise<ApiResponse<IbNode>> => {
+    const response = await apiClient.post<ApiResponse<IbNode>>('/ib', {
+      email,
+      password,
+      name,
+      accountType,
+      accountTypeTemplateId,
+    });
     return response.data;
   },
 

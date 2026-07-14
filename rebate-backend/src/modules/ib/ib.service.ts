@@ -64,8 +64,24 @@ export class IbService {
   }
 
   async getTree(ibId: string, depth: '1' | 'all', role?: string) {
+    // ADMIN: full tree (cho phép depth=all, load toàn bộ cây từ root)
+    // IB: luôn ép depth=1 — chỉ trả về chính mình + con trực tiếp
+    const effectiveDepth = role === 'ADMIN' ? depth : '1';
+
+    if (role === 'ADMIN' && effectiveDepth === 'all') {
+      return this.buildAdminForest();
+    }
+
+    return this.buildTreeFromRoot(ibId, effectiveDepth);
+  }
+
+  async getTreeById(id: string, depth: '1' | 'all') {
+    return this.buildTreeFromRoot(id, depth);
+  }
+
+  private async buildTreeFromRoot(rootId: string, depth: '1' | 'all') {
     const current = await this.prisma.ibNode.findUnique({
-      where: { id: ibId },
+      where: { id: rootId },
     });
 
     if (!current) {
@@ -75,42 +91,14 @@ export class IbService {
       });
     }
 
-    // ADMIN: full tree (cho phép depth=all, load toàn bộ cây từ root)
-    // IB: luôn ép depth=1 — chỉ trả về chính mình + con trực tiếp
-    const effectiveDepth = role === 'ADMIN' ? depth : '1';
-
-    if (effectiveDepth === 'all') {
-      // Full tree — dùng BFS in-memory
+    if (depth === 'all') {
       const allNodes = await this.prisma.ibNode.findMany();
-      const map = new Map<string, any>();
-      allNodes.forEach((node: any) => {
-        map.set(node.id, {
-          id: node.id,
-          name: node.name,
-          email: node.email,
-          level: node.level,
-          accountType: node.accountType,
-          isActive: node.isActive,
-          children: [],
-        });
-      });
-      allNodes.forEach((node: any) => {
-        if (node.parentId) {
-          const parent = map.get(node.parentId);
-          if (parent) parent.children.push(map.get(node.id));
-        }
-      });
-      if (role === 'ADMIN') {
-        return allNodes
-          .filter((node: any) => node.parentId === null && node.role === 'IB')
-          .map((node: any) => map.get(node.id));
-      }
-      return map.get(ibId);
+      const map = this.buildTreeNodeMap(allNodes);
+      return map.get(rootId);
     }
 
-    // IB (depth=1): chỉ trả chính mình + con trực tiếp, không đệ quy
     const children = await this.prisma.ibNode.findMany({
-      where: { parentId: ibId },
+      where: { parentId: rootId },
       select: { id: true, name: true, email: true, level: true, accountType: true, isActive: true },
     });
 
@@ -123,6 +111,37 @@ export class IbService {
       isActive: current.isActive,
       children: children.map((c) => ({ ...c, children: [] })),
     };
+  }
+
+  private buildTreeNodeMap(nodes: any[]) {
+    const map = new Map<string, any>();
+    nodes.forEach((node: any) => {
+      map.set(node.id, {
+        id: node.id,
+        name: node.name,
+        email: node.email,
+        level: node.level,
+        accountType: node.accountType,
+        isActive: node.isActive,
+        children: [],
+      });
+    });
+    nodes.forEach((node: any) => {
+      if (node.parentId) {
+        const parent = map.get(node.parentId);
+        if (parent) parent.children.push(map.get(node.id));
+      }
+    });
+    return map;
+  }
+
+  private async buildAdminForest() {
+    const allNodes = await this.prisma.ibNode.findMany();
+    const map = this.buildTreeNodeMap(allNodes);
+
+    return allNodes
+      .filter((node: any) => node.parentId === null && node.role === 'IB')
+      .map((node: any) => map.get(node.id));
   }
 
   async getById(id: string) {
@@ -187,11 +206,36 @@ export class IbService {
     const newLevel = currentUserLevel + 1;
 
     let parentAccountType = createIbDto.accountType || 'SEA STD';
+    let selectedTemplate: { id: string; name: string; rows: any[] } | null = null;
     if (currentUserLevel > 0) {
       const parentNode = await this.prisma.ibNode.findUnique({ where: { id: currentUserId }});
       if (parentNode?.accountType) {
         parentAccountType = parentNode.accountType;
       }
+    }
+
+    if (createIbDto.accountTypeTemplateId) {
+      const template = await this.prisma.accountTypeTemplate.findUnique({
+        where: { id: createIbDto.accountTypeTemplateId },
+        select: { id: true, name: true, rows: true },
+      });
+
+      if (!template) {
+        throw new UnprocessableEntityException({
+          code: 'VALIDATION_ERROR',
+          message: 'accountTypeTemplateId không hợp lệ',
+          details: {
+            fields: [{ field: 'accountTypeTemplateId', message: 'Template không tồn tại' }],
+          },
+        });
+      }
+
+      selectedTemplate = {
+        id: template.id,
+        name: template.name,
+        rows: Array.isArray(template.rows) ? (template.rows as any[]) : [],
+      };
+      parentAccountType = template.name;
     }
 
     const newIb = await this.prisma.$transaction(async (tx: any) => {
@@ -213,31 +257,48 @@ export class IbService {
         },
       });
 
-      // Get parent's configurations to set maxPips limit for the child
-      const parentConfigs = await tx.rebateConfig.findMany({
-        where: { ibId: currentUserId },
-      });
-
-      // Initialize child's config for each asset type
-      const defaultConfigs = Object.values(AssetType).map((assetType) => {
-        const parentConfig = parentConfigs.find((pc: any) => pc.assetType === assetType);
-        // Child's max allowed pips is the parent's allocated markupPips
-        const maxPips = parentConfig ? Number(parentConfig.markupPips) : 0;
-
-        return {
-          ibId: ib.id,
-          assetType,
-          rebatePips: 0,
-          markupPips: 0,
-          markupPercent: 100,
-          maxPips,
-        };
-      });
-
-      if (defaultConfigs.length > 0) {
+      if (selectedTemplate && selectedTemplate.rows.length > 0) {
         await tx.rebateConfig.createMany({
-          data: defaultConfigs,
+          data: selectedTemplate.rows.map((row: any) => {
+            const maxPips = Number(row.maxCeiling ?? 0);
+            return {
+              ibId: ib.id,
+              assetType: row.assetType as AssetType,
+              rebateType: 'STP_REBATE',
+              rebatePips: 0,
+              markupPips: maxPips,
+              markupPercent: 100,
+              maxPips,
+            };
+          }),
         });
+      } else {
+        // Get parent's configurations to set maxPips limit for the child
+        const parentConfigs = await tx.rebateConfig.findMany({
+          where: { ibId: currentUserId },
+        });
+
+        // Initialize child's config for each asset type
+        const defaultConfigs = Object.values(AssetType).map((assetType) => {
+          const parentConfig = parentConfigs.find((pc: any) => pc.assetType === assetType);
+          // Child's max allowed pips is the parent's allocated markupPips
+          const maxPips = parentConfig ? Number(parentConfig.markupPips) : 0;
+
+          return {
+            ibId: ib.id,
+            assetType,
+            rebatePips: 0,
+            markupPips: 0,
+            markupPercent: 100,
+            maxPips,
+          };
+        });
+
+        if (defaultConfigs.length > 0) {
+          await tx.rebateConfig.createMany({
+            data: defaultConfigs,
+          });
+        }
       }
 
       return ib;

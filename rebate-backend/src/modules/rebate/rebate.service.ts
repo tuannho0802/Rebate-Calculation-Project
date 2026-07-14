@@ -36,7 +36,7 @@ export class RebateService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly notificationService: NotificationService,
-  ) {}
+  ) { }
 
   async getConfig(ibId: string) {
     const configs = await this.prisma.rebateConfig.findMany({
@@ -70,7 +70,7 @@ export class RebateService {
       )
       SELECT id FROM ancestor_tree WHERE "parentId" IS NULL LIMIT 1
     `;
-    
+
     const ownerId = rootIb.length > 0 ? rootIb[0].id : ibId;
 
     const [accountTypeTemplates, markupLinkTemplates] = await Promise.all([
@@ -134,6 +134,8 @@ export class RebateService {
       }
     }
 
+    const pendingCascades: Array<{ assetType: AssetType; rebateType: string; targetMaxPips: number }> = [];
+
     await this.prisma.$transaction(async (tx: any) => {
       for (const assetConfig of updateDto.assets) {
         const { assetType, rebateType = 'STP_REBATE', rebatePips, markupPips, markupPercent } = assetConfig;
@@ -142,8 +144,8 @@ export class RebateService {
         const parentConfig = isSelfTarget
           ? null
           : await tx.rebateConfig.findUnique({
-              where: { ibId_assetType_rebateType: { ibId: currentUserId, assetType, rebateType: rebateType as any } },
-            });
+            where: { ibId_assetType_rebateType: { ibId: currentUserId, assetType, rebateType: rebateType as any } },
+          });
 
         // 1. Lấy config hiện tại -> before
         const existing = await tx.rebateConfig.findUnique({
@@ -156,9 +158,6 @@ export class RebateService {
           markupPercent: Number(existing.markupPercent),
         } : null;
 
-        // Validate against current input values. Front-end now manages markup allowance
-        // using account type / markup link share values, so backend should not reject
-        // valid markupPips updates just because the parent's remaining markup budget is zero.
         const totalRequested = rebatePips + markupPips;
         const totalExisting = before ? (before.rebatePips + before.markupPips) : 0;
 
@@ -181,6 +180,20 @@ export class RebateService {
             throw new UnprocessableEntityException({
               code: 'MARKUP_INVALID',
               message: 'markupPips phải lớn hơn hoặc bằng 0',
+            });
+          }
+
+          if (rebatePips > limit) {
+            throw new UnprocessableEntityException({
+              code: 'REBATE_EXCEEDS_MAX',
+              message: `Số rebatePips vượt quá giới hạn tối đa (${limit} pips)`,
+            });
+          }
+
+          if (rebatePips + markupPips > limit) {
+            throw new UnprocessableEntityException({
+              code: 'MARKUP_EXCEEDS_MAX',
+              message: `Tổng rebatePips + markupPips vượt quá giới hạn tối đa (${limit} pips)`,
             });
           }
         } else {
@@ -247,21 +260,26 @@ export class RebateService {
           });
         }
 
-        // 4. Cascading update child's children
+        // 4. Cascading update toàn subtree sau khi transaction commit
         if (hasChange && existing && totalRequested !== totalExisting) {
-          await tx.rebateConfig.updateMany({
-            where: {
-              ib: { parentId: targetIbId },
-              assetType,
-              rebateType: rebateType as any,
-            },
-            data: {
-              maxPips: targetMaxPips,
-            },
+          pendingCascades.push({
+            assetType,
+            rebateType,
+            targetMaxPips,
           });
         }
       }
     });
+
+    for (const cascade of pendingCascades) {
+      await this.cascadeMaxPipsToSubtree(
+        targetIbId,
+        cascade.assetType,
+        cascade.rebateType,
+        cascade.targetMaxPips,
+        currentUserId,
+      );
+    }
 
     // ADMIN sửa xong -> bắn notification theo notifyScope
     // (chạy non-blocking sau khi transaction đã commit)
@@ -361,6 +379,14 @@ export class RebateService {
         });
       }
 
+      const companyCeiling = MAX_PIPS[ov.assetType];
+      if (companyCeiling !== undefined && ov.maxPips > companyCeiling) {
+        throw new UnprocessableEntityException({
+          code: 'MAX_OVERRIDE_INVALID',
+          message: `Trần tuỳ chỉnh (${ov.maxPips}) vượt quá trần công ty (${companyCeiling} pips) cho ${ov.assetType}`,
+        });
+      }
+
       const before = await this.prisma.rebateConfig.findUnique({
         where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
       });
@@ -388,17 +414,18 @@ export class RebateService {
         },
       });
 
-      await this.cascadeMaxOverrideToSubtree(mibId, ov.assetType, ov.rebateType, ov.maxPips);
+      await this.cascadeMaxPipsToSubtree(mibId, ov.assetType, ov.rebateType, ov.maxPips, changedById);
     }
 
     return this.getConfig(mibId);
   }
 
-  private async cascadeMaxOverrideToSubtree(
+  private async cascadeMaxPipsToSubtree(
     rootId: string,
     assetType: AssetType,
     rebateType: string,
     ceiling: number,
+    changedById: string,
   ) {
     const subtree: { id: string; parentId: string | null; level: number }[] = await this.prisma.$queryRaw`
       WITH RECURSIVE subtree AS (
@@ -412,11 +439,22 @@ export class RebateService {
     `;
 
     for (const node of subtree) {
-      const parentConfig = await this.prisma.rebateConfig.findUnique({
-        where: { ibId_assetType_rebateType: { ibId: node.parentId!, assetType, rebateType: rebateType as any } },
+      let newMaxPips: number;
+      if (node.parentId === rootId) {
+        // Con trực tiếp của MIB: markupPips của MIB không mang ý nghĩa "đã phân bổ"
+        // (setMibMaxOverride luôn set markupPips=0 khi tạo mới), nên trần override
+        // (ceiling) áp dụng trực tiếp, không lấy min với markupPips của MIB.
+        newMaxPips = ceiling;
+      } else {
+        const parentConfig = await this.prisma.rebateConfig.findUnique({
+          where: { ibId_assetType_rebateType: { ibId: node.parentId!, assetType, rebateType: rebateType as any } },
+        });
+        const parentMarkup = parentConfig ? Number(parentConfig.markupPips) : 0;
+        newMaxPips = Math.min(parentMarkup, ceiling);
+      }
+      const existingConfig = await this.prisma.rebateConfig.findUnique({
+        where: { ibId_assetType_rebateType: { ibId: node.id, assetType, rebateType: rebateType as any } },
       });
-      const parentMarkup = parentConfig ? Number(parentConfig.markupPips) : 0;
-      const newMaxPips = Math.min(parentMarkup, ceiling);
 
       await this.prisma.rebateConfig.upsert({
         where: { ibId_assetType_rebateType: { ibId: node.id, assetType, rebateType: rebateType as any } },
@@ -431,6 +469,18 @@ export class RebateService {
           maxPips: newMaxPips,
         },
       });
+
+      const existingRebate = existingConfig ? Number(existingConfig.rebatePips) : 0;
+      const existingMarkup = existingConfig ? Number(existingConfig.markupPips) : 0;
+      if (existingRebate + existingMarkup > newMaxPips) {
+        await this.auditService.log({
+          actorId: changedById,
+          action: AUDIT_ACTIONS.REBATE_CONFIG_OVER_CEILING_DETECTED,
+          targetType: 'REBATE_CONFIG',
+          targetId: node.id,
+          after: { rebatePips: existingRebate, markupPips: existingMarkup, newMaxPips },
+        });
+      }
     }
   }
 

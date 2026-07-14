@@ -93,6 +93,31 @@ export class IbController {
     return this.ibService.getTree(user.sub, depth, user.role);
   }
 
+  @ApiOperation({
+    summary: 'Xem cây bắt đầu từ một IB bất kỳ (Admin only)',
+    description:
+      'Dùng cho Chain View. Chỉ ADMIN được phép xem cây bắt đầu từ node `:id`, với `depth=1` hoặc `depth=all`.',
+  })
+  @ApiParam({ name: 'id', description: 'UUID của IB gốc cần xem cây', example: 'clxyz123' })
+  @ApiQuery({
+    name: 'depth',
+    required: false,
+    enum: ['1', 'all'],
+    description: '`1` = chỉ con trực tiếp | `all` = toàn bộ cây bắt đầu từ IB này',
+  })
+  @ApiResponse({ status: 200, description: 'Cây IB trả về thành công' })
+  @ApiResponse({ status: 403, description: 'Forbidden — ADMIN only (FORBIDDEN_ROLES_ONLY)' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy IB với ID đã cung cấp' })
+  @Get(':id/tree')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  getTreeById(
+    @Param('id') id: string,
+    @Query('depth') depth: '1' | 'all' = '1',
+  ) {
+    return this.ibService.getTreeById(id, depth);
+  }
+
   // ─── LEADERBOARD — phải đặt TRƯỜC GET :id ─────────────────────────────────────
   @Get('leaderboard')
   @ApiOperation({ summary: 'Top IB trong subtree theo lots tháng này' })
