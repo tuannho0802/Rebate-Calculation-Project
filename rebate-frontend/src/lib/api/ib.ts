@@ -7,8 +7,8 @@ export const ibApi = {
     return response.data;
   },
 
-  getTree: async (depth: 'all' | 1 = 1): Promise<ApiResponse<IbTreeNode>> => {
-    const response = await apiClient.get<ApiResponse<IbTreeNode>>(`/ib/tree?depth=${depth}`);
+  getTree: async (depth: 'all' | 1 = 1): Promise<ApiResponse<IbTreeNode | IbTreeNode[]>> => {
+    const response = await apiClient.get<ApiResponse<IbTreeNode | IbTreeNode[]>>(`/ib/tree?depth=${depth}`);
     return response.data;
   },
 

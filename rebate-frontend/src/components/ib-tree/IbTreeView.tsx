@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
+import { normalizeTreeRoots } from '@/lib/tree-utils';
 import { TreeNode } from './TreeNode';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { IbDetailsDrawer } from './IbDetailsDrawer';
@@ -52,7 +53,18 @@ export function IbTreeView() {
     );
   }
 
-  const rootNode = response.data;
+  const roots = normalizeTreeRoots(response.data);
+
+  if (roots.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 bg-white rounded-xl border border-gray-200 shadow-sm text-gray-500">
+        <p className="font-semibold">Chưa có Sub-IB nào</p>
+        <p className="text-sm mt-1">Hãy tạo Sub-IB đầu tiên để bắt đầu xây dựng mạng lưới.</p>
+      </div>
+    );
+  }
+
+  const totalNodes = roots.reduce((sum, root) => sum + (root.totalChildren || 0) + 1, 0);
 
   return (
     <div className="bg-white p-6 md:p-8 rounded-xl border border-gray-200 shadow-sm overflow-x-auto min-h-[500px]">
@@ -61,12 +73,21 @@ export function IbTreeView() {
           Cấu Trúc Cây Tuyến Dưới
         </h2>
         <div className="text-sm font-medium text-gray-500 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
-          Tổng Node: <span className="text-[#0066ff] font-bold">{(rootNode.totalChildren || 0) + 1}</span>
+          Tổng Node: <span className="text-[#0066ff] font-bold">{totalNodes}</span>
         </div>
       </div>
       
-      <div className="pl-2">
-        <TreeNode node={rootNode} onNodeClick={handleNodeClick} isLazy={!isAdmin} />
+      <div className="space-y-10 pl-2">
+        {roots.map((root) => (
+          <div key={root.id}>
+            {roots.length > 1 && (
+              <h3 className="text-sm font-semibold text-gray-600 mb-3 px-2">
+                {root.name || root.email} <span className="text-gray-400 font-normal">(MIB)</span>
+              </h3>
+            )}
+            <TreeNode node={root} onNodeClick={handleNodeClick} isLazy={!isAdmin} />
+          </div>
+        ))}
       </div>
 
       <IbDetailsDrawer 

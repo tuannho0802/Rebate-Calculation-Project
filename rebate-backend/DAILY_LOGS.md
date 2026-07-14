@@ -580,3 +580,33 @@ oles.guard.ts — phân quyền theo role (ADMIN/IB), dùng @Roles('ADMIN') deco
 - [ ] Các type vẫn khớp với 02_DATA_MODELS.md
 ---
 
+---
+## [2026-07-14] — Phần: BACKEND
+
+### Phiên Làm Việc
+- Agent: Composer
+- Yêu cầu từ: Mở rộng seed data đầy đủ tất cả bảng (Wallet, Payout, Notification,
+  AuditLog, RebateConfigHistory, Templates) + thêm MIB thứ hai
+
+### Đã Triển Khai
+- `prisma/seed.ts`: thêm nhánh `mib2@test.com` → `lv1-c@test.com` → `lv2-c2@test.com`
+  (email `lv2-c@test.com` đã tồn tại dưới `lv1-a`, không thể trùng)
+- Seed Wallet (11 IB, không Admin), Payout (8, đủ 4 status), Notification (12),
+  AuditLog (10), RebateConfigHistory (200 — mỗi rebate_config 1 dòng),
+  AccountTypeTemplate + MarkupLinkTemplate (2 mỗi loại, 1 per MIB)
+- Chạy `npx prisma migrate reset --force` thành công
+
+### Ghi Chú
+- Verify COUNT: ib_nodes=12, wallets=11, payouts=8, notifications=12, audit_logs=10,
+  rebate_config_history=200, account_type_templates=2, markup_link_templates=2
+- Login OK: `mib2@test.com`, `lv1-c@test.com`, `lv2-c2@test.com`, `lv2-c@test.com`
+  (cũ), `admin_test@azrebate.com`
+- `GET /ib/tree?depth=all` (ADMIN): `data` là mảng **2 phần tử**
+  `[mib@test.com, mib2@test.com]`
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi
+- [x] Không có chức năng cũ nào bị hỏng (email/mật khẩu seed cũ giữ nguyên)
+- [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [x] Các type vẫn khớp với 02_DATA_MODELS.md
+---

@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { useAuthStore } from '@/store/auth.store';
+import { flattenAllRoots, normalizeTreeRoots } from '@/lib/tree-utils';
 import { Loader2, UserPlus, Eye, Edit, Trash2 } from 'lucide-react';
 import { CreateIbModal } from './CreateIbModal';
 import { ViewRebateModal } from './ViewRebateModal';
@@ -29,12 +30,22 @@ export function NetworkIbTable() {
     }
   };
 
+  const isAdmin = user?.role === 'ADMIN';
+  const treeDepth = isAdmin ? 'all' : 1;
+
   const { data: treeData, isLoading } = useQuery({
-    queryKey: ['ibTree', user?.id],
-    queryFn: () => ibApi.getTree(1),
+    queryKey: ['ibTree', treeDepth, user?.id],
+    queryFn: () => ibApi.getTree(treeDepth),
   });
 
-  const subIbs = (treeData?.data?.children || []).filter((ib: any) => ib.isActive !== false);
+  const subIbs = useMemo(() => {
+    if (!treeData?.data) return [];
+    if (isAdmin) {
+      return flattenAllRoots(treeData.data).filter((ib) => ib.level > 0 && ib.isActive !== false);
+    }
+    const roots = normalizeTreeRoots(treeData.data);
+    return (roots[0]?.children || []).filter((ib) => ib.isActive !== false);
+  }, [treeData?.data, isAdmin]);
   const getAccountType = (ib: any) => ib.accountType || 'Markup 0%';
 
   return (

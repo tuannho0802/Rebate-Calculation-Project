@@ -5,22 +5,11 @@ import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
-import { AssetType, IbTreeNode, RebateConfig, MAX_PIPS } from '@/types';
+import { AssetType, RebateConfig, MAX_PIPS } from '@/types';
 import { Loader2, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import { getErrorMessage } from '@/lib/error-messages';
-
-const flattenTree = (node: IbTreeNode): IbTreeNode[] => {
-  let result: IbTreeNode[] = [node];
-  if (node.children && node.children.length > 0) {
-    node.children.forEach(child => {
-      if (child.isActive) {
-        result = result.concat(flattenTree(child));
-      }
-    });
-  }
-  return result;
-};
+import { flattenAllRoots } from '@/lib/tree-utils';
 
 export default function RebateManagementPage() {
   const t = useTranslations('RebateManagement');
@@ -41,7 +30,7 @@ export default function RebateManagementPage() {
 
   const flatIbs = useMemo(() => {
     if (!treeRes?.data) return [];
-    return flattenTree(treeRes.data).filter(ib => ib.level > 0);
+    return flattenAllRoots(treeRes.data).filter(ib => ib.level > 0);
   }, [treeRes?.data]);
 
   useEffect(() => {
