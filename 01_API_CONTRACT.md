@@ -276,6 +276,13 @@ Tạo IB mới ở cấp dưới của IB hiện tại.
 ### GET /rebate/config/:ibId
 Lấy cấu hình rebate của một IB.
 
+**Dùng ở đâu:**
+- Là endpoint GET dùng chung để load cả:
+  - cấu hình Rebate Management của 1 IB, và
+  - bảng "Trần hoa hồng theo MIB" ở FE Admin.
+- Không có endpoint GET riêng cho màn "Trần hoa hồng theo MIB"; FE đọc `assets[].maxPips` từ
+  chính response của endpoint này.
+
 **Response 200 (ĐÃ SỬA — có `rebateType` và `updatedAt` per-asset, docs cũ thiếu 2 field này):**
 ```json
 {
@@ -306,6 +313,62 @@ Lấy cấu hình rebate của một IB.
   }
 }
 ```
+
+---
+
+### PUT /rebate/config/mib/:mibId/max-override
+Set trần hoa hồng tuỳ chỉnh cho 1 MIB cụ thể theo từng `assetType` (chỉ ADMIN).
+
+**Phân quyền và ràng buộc:**
+- Chỉ role `ADMIN` mới gọi được endpoint này.
+- `mibId` phải là node `level = 0`; nếu không sẽ lỗi `NOT_A_MIB`.
+- `maxPips` phải `>= 0`; nếu không sẽ lỗi `MAX_OVERRIDE_INVALID`.
+- `rebateType` là field **bắt buộc** trong từng phần tử `overrides[]`.
+
+**Request:**
+```json
+{
+  "overrides": [
+    {
+      "assetType": "D_FOREX",
+      "rebateType": "STP_REBATE",
+      "maxPips": 15
+    }
+  ]
+}
+```
+
+**Response 200:**
+- Service trả về lại `getConfig(mibId)` sau khi upsert MIB và cascade `maxPips` xuống subtree.
+- Vì dùng response envelope chuẩn, shape thật là:
+
+```json
+{
+  "success": true,
+  "data": {
+    "ibId": "uuid-mib",
+    "assets": [
+      {
+        "assetType": "D_FOREX",
+        "rebateType": "STP_REBATE",
+        "rebatePips": 0,
+        "markupPips": 0,
+        "markupPercent": 100,
+        "maxPips": 15,
+        "updatedAt": "2024-01-01T00:00:00Z"
+      }
+    ],
+    "updatedAt": "2024-01-01T00:00:00Z"
+  }
+}
+```
+
+**HTTP status / error codes đã xác nhận từ code:**
+- `200`: áp dụng override thành công.
+- `400`: `NOT_A_MIB` — target không phải MIB `level 0`.
+- `403`: caller không phải ADMIN (`FORBIDDEN_ROLES_ONLY` từ `RolesGuard`).
+- `422`: `MAX_OVERRIDE_INVALID` — `maxPips < 0`.
+- `422`: validation error nếu `overrides` không hợp lệ theo DTO.
 
 ---
 

@@ -290,7 +290,18 @@ export class RebateService {
     let successCount = 0;
     let failCount = 0;
 
-    for (const item of dto.items) {
+    const ibs = await this.prisma.ibNode.findMany({
+      where: { id: { in: dto.items.map(i => i.ibId) } },
+      select: { id: true, level: true },
+    });
+    const levelById = new Map(ibs.map(i => [i.id, i.level]));
+    const sortedItems = [...dto.items].sort((a, b) => {
+      const la = levelById.get(a.ibId) ?? Number.MAX_SAFE_INTEGER;
+      const lb = levelById.get(b.ibId) ?? Number.MAX_SAFE_INTEGER;
+      return la - lb;
+    });
+
+    for (const item of sortedItems) {
       try {
         const config = await this.updateConfig(
           currentUserId,

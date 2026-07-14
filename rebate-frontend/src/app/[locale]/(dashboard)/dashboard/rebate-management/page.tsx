@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
@@ -13,16 +13,16 @@ import { normalizeTreeRoots, flattenIbTree } from '@/lib/tree-utils';
 
 export default function RebateManagementPage() {
   const t = useTranslations('RebateManagement');
-  const [mounted, setMounted] = useState(false);
   const [viewMode, setViewMode] = useState<'flat' | 'pivot'>('flat');
   const [configs, setConfigs] = useState<Record<string, RebateConfig>>({});
   const [dirtyIbs, setDirtyIbs] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [saveResults, setSaveResults] = useState<Record<string, { success: boolean; message: string }>>({});
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
 
   const { data: treeRes, isLoading: isLoadingTree } = useQuery({
     queryKey: ['ibTree', 'all', 'rebate-management'],
@@ -30,6 +30,23 @@ export default function RebateManagementPage() {
   });
 
   const roots = useMemo(() => normalizeTreeRoots(treeRes?.data), [treeRes?.data]);
+
+  const parentById = useMemo(() => {
+    const map: Record<string, string | null> = {};
+
+    const walk = (node: IbTreeNode, parentId: string | null) => {
+      map[node.id] = parentId;
+      for (const child of node.children ?? []) {
+        if (child.isActive) walk(child, node.id);
+      }
+    };
+
+    for (const root of roots) {
+      walk(root, null);
+    }
+
+    return map;
+  }, [roots]);
 
   // Mỗi MIB (root) là 1 nhóm riêng — giữ nguyên dạng bảng cũ (dòng=IB, cột=Asset)
   // bên trong từng nhóm, chỉ tách khối hiển thị theo từng MIB thay vì gộp chung 1 bảng.
@@ -40,19 +57,19 @@ export default function RebateManagementPage() {
     }));
   }, [roots]);
 
-  const flatIbs = useMemo(() => groups.flatMap(g => g.ibs), [groups]);
+  const allNodes = useMemo(() => groups.flatMap(group => [group.root, ...group.ibs]), [groups]);
 
   useEffect(() => {
-    if (flatIbs.length > 0) {
+    if (allNodes.length > 0) {
       const loadConfigs = async () => {
         const results = await Promise.allSettled(
-          flatIbs.map(ib => rebateApi.getConfig(ib.id))
+          allNodes.map(ib => rebateApi.getConfig(ib.id))
         );
 
         const newConfigs: Record<string, RebateConfig> = {};
         results.forEach((res, idx) => {
           if (res.status === 'fulfilled' && res.value.success) {
-            newConfigs[flatIbs[idx].id] = res.value.data;
+            newConfigs[allNodes[idx].id] = res.value.data;
           }
         });
         setConfigs(newConfigs);
@@ -61,7 +78,7 @@ export default function RebateManagementPage() {
       };
       loadConfigs();
     }
-  }, [flatIbs]);
+  }, [allNodes]);
 
   if (!mounted) return null;
 
@@ -99,7 +116,14 @@ export default function RebateManagementPage() {
 
     const items = Array.from(dirtyIbs).map((ibId) => {
       const ibConfig = configs[ibId];
-      const cleanAssets = ibConfig.assets.map(({ rawInput, ...rest }: RebateConfig['assets'][number] & { rawInput?: string }) => rest);
+      const cleanAssets = ibConfig.assets.map((asset) => ({
+        assetType: asset.assetType,
+        rebateType: asset.rebateType,
+        rebatePips: asset.rebatePips,
+        markupPips: asset.markupPips,
+        markupPercent: asset.markupPercent,
+        maxPips: asset.maxPips,
+      }));
       return { ibId, assets: cleanAssets };
     });
 
@@ -143,6 +167,31 @@ export default function RebateManagementPage() {
   };
 
   const assetTypes = Object.values(AssetType);
+
+  const getAssetConfig = (ibId: string | null | undefined, assetType: AssetType) => {
+    if (!ibId) return undefined;
+    return configs[ibId]?.assets.find(a => a.assetType === assetType);
+  };
+
+  const getMibMaxDisplay = (mibId: string, assetType: AssetType) => {
+    const mibAssetConfig = getAssetConfig(mibId, assetType);
+    return mibAssetConfig ? mibAssetConfig.maxPips : null;
+  };
+
+  const getChildMaxLabel = (ib: IbTreeNode, assetType: AssetType) => {
+    const parentId = parentById[ib.id];
+    const parentAssetConfig = getAssetConfig(parentId, assetType);
+
+    if (!parentAssetConfig) {
+      return t('parentMissingConfig');
+    }
+
+    if (parentAssetConfig.markupPips === 0) {
+      return t('parentNotAllocated');
+    }
+
+    return t('maxLabel', { max: parentAssetConfig.markupPips });
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -190,11 +239,13 @@ export default function RebateManagementPage() {
               <div className="p-8 text-center text-gray-500 text-sm">{t('noIbs')}</div>
             ) : viewMode === 'pivot' ? (
               <PivotTable
+                rootId={root.id}
                 ibs={ibs}
                 assetTypes={assetTypes}
                 configs={configs}
                 dirtyIbs={dirtyIbs}
                 handleCellChange={handleCellChange}
+                getMibMaxDisplay={getMibMaxDisplay}
               />
             ) : (
               <div className="overflow-auto relative">
@@ -203,12 +254,30 @@ export default function RebateManagementPage() {
                     <tr>
                       <th className="px-4 py-3 border-b border-r border-gray-200 sticky left-0 bg-slate-50 z-30 w-64 shadow-[1px_0_0_0_#e5e7eb]">{t('colIb')}</th>
                       <th className="px-4 py-3 border-b border-gray-200 w-32 text-center">{t('colStatus')}</th>
-                      {assetTypes.map(asset => (
-                        <th key={asset} className="px-4 py-3 border-b border-gray-200 min-w-[140px] text-center">
-                          {asset}
-                          <div className="text-[10px] text-gray-400 font-normal mt-0.5">{t('systemMax', { max: MAX_PIPS[asset] })}</div>
-                        </th>
-                      ))}
+                      {assetTypes.map(asset => {
+                        const companyMax = MAX_PIPS[asset];
+                        const mibMax = getMibMaxDisplay(root.id, asset);
+                        const isOverride = mibMax !== null && mibMax !== companyMax;
+
+                        return (
+                          <th key={asset} className="px-4 py-3 border-b border-gray-200 min-w-[170px] text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <span>{asset}</span>
+                              {isOverride ? (
+                                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+                                  {t('overrideBadge')}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="mt-1 space-y-0.5 text-[10px] font-normal">
+                              <div className="text-gray-400">{t('companyCap', { max: companyMax })}</div>
+                              <div className={isOverride ? 'text-amber-700 font-semibold' : 'text-gray-500'}>
+                                {t('mibCap', { max: mibMax ?? '—' })}
+                              </div>
+                            </div>
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -265,7 +334,7 @@ export default function RebateManagementPage() {
                                       }`}
                                   />
                                   <div className={`text-[10px] mt-1 ${isExceeding ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
-                                    {t('maxLabel', { max: assetConfig.maxPips })}
+                                    {getChildMaxLabel(ib, asset)}
                                   </div>
                                 </div>
                               </td>
@@ -292,18 +361,23 @@ export default function RebateManagementPage() {
  * để phân biệt — không gộp/ghi đè lẫn nhau.
  */
 function PivotTable({
+  rootId,
   ibs,
   assetTypes,
   configs,
   dirtyIbs,
   handleCellChange,
+  getMibMaxDisplay,
 }: {
+  rootId: string;
   ibs: IbTreeNode[];
   assetTypes: AssetType[];
   configs: Record<string, RebateConfig>;
   dirtyIbs: Set<string>;
   handleCellChange: (ibId: string, assetType: AssetType, value: string) => void;
+  getMibMaxDisplay: (mibId: string, assetType: AssetType) => number | null;
 }) {
+  const t = useTranslations('RebateManagement');
   const maxLevel = ibs.reduce((max, ib) => Math.max(max, ib.level), 0);
   const levels = Array.from({ length: maxLevel }, (_, i) => i + 1);
   const ibsByLevel = (lvl: number) => ibs.filter(ib => ib.level === lvl);
@@ -321,57 +395,73 @@ function PivotTable({
                 Level {lvl}
               </th>
             ))}
-            <th className="px-4 py-3 border-b border-gray-200 min-w-[110px] text-center bg-emerald-50 text-emerald-700">
-              Hệ thống Max
+            <th className="px-4 py-3 border-b border-gray-200 min-w-[160px] text-center bg-emerald-50 text-emerald-700">
+              {t('capColumn')}
             </th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
-          {assetTypes.map(asset => (
-            <tr key={asset} className="hover:bg-blue-50/30 transition-colors">
-              <td className="px-4 py-2 border-r border-gray-100 sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10 font-medium text-gray-900">
-                {asset}
-              </td>
-              {levels.map(lvl => (
-                <td key={lvl} className="px-2 py-2">
-                  <div className="flex flex-col gap-2">
-                    {ibsByLevel(lvl).map(ib => {
-                      const ibConfig = configs[ib.id];
-                      if (!ibConfig) {
-                        return <Loader2 key={ib.id} className="h-4 w-4 animate-spin mx-auto text-gray-300" />;
-                      }
-                      const assetConfig = ibConfig.assets.find(a => a.assetType === asset);
-                      if (!assetConfig) {
-                        return <div key={ib.id} className="text-center text-gray-300 text-xs">—</div>;
-                      }
-                      const rawValue = (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput !== undefined
-                        ? (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput
-                        : assetConfig.rebatePips;
-                      const isExceeding = assetConfig.rebatePips > assetConfig.maxPips;
-                      const isDirty = dirtyIbs.has(ib.id);
-                      return (
-                        <div key={ib.id} className="flex flex-col items-center">
-                          <input
-                            type="text"
-                            value={rawValue}
-                            onChange={(e) => handleCellChange(ib.id, asset, e.target.value)}
-                            className={`w-full max-w-[80px] text-center px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors ${isExceeding ? 'border-red-400 bg-red-50 text-red-700' : isDirty ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'
-                              }`}
-                          />
-                          <span className="text-[9px] text-gray-400 truncate max-w-[90px]" title={ib.email}>
-                            {ib.name || ib.email}
-                          </span>
-                        </div>
-                      );
-                    })}
+          {assetTypes.map(asset => {
+            const companyMax = MAX_PIPS[asset];
+            const mibMax = getMibMaxDisplay(rootId, asset);
+            const isOverride = mibMax !== null && mibMax !== companyMax;
+
+            return (
+              <tr key={asset} className="hover:bg-blue-50/30 transition-colors">
+                <td className="px-4 py-2 border-r border-gray-100 sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10 font-medium text-gray-900">
+                  {asset}
+                </td>
+                {levels.map(lvl => (
+                  <td key={lvl} className="px-2 py-2">
+                    <div className="flex flex-col gap-2">
+                      {ibsByLevel(lvl).map(ib => {
+                        const ibConfig = configs[ib.id];
+                        if (!ibConfig) {
+                          return <Loader2 key={ib.id} className="h-4 w-4 animate-spin mx-auto text-gray-300" />;
+                        }
+                        const assetConfig = ibConfig.assets.find(a => a.assetType === asset);
+                        if (!assetConfig) {
+                          return <div key={ib.id} className="text-center text-gray-300 text-xs">—</div>;
+                        }
+                        const rawValue = (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput !== undefined
+                          ? (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput
+                          : assetConfig.rebatePips;
+                        const isExceeding = assetConfig.rebatePips > assetConfig.maxPips;
+                        const isDirty = dirtyIbs.has(ib.id);
+                        return (
+                          <div key={ib.id} className="flex flex-col items-center">
+                            <input
+                              type="text"
+                              value={rawValue}
+                              onChange={(e) => handleCellChange(ib.id, asset, e.target.value)}
+                              className={`w-full max-w-[80px] text-center px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors ${isExceeding ? 'border-red-400 bg-red-50 text-red-700' : isDirty ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'
+                                }`}
+                            />
+                            <span className="text-[9px] text-gray-400 truncate max-w-[90px]" title={ib.email}>
+                              {ib.name || ib.email}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </td>
+                ))}
+                <td className="px-4 py-2 text-center bg-emerald-50/40">
+                  <div className="space-y-0.5">
+                    <div className="text-[10px] font-medium text-emerald-700">{t('companyCap', { max: companyMax })}</div>
+                    <div className={`text-[10px] ${isOverride ? 'font-semibold text-amber-700' : 'text-emerald-700'}`}>
+                      {t('mibCap', { max: mibMax ?? '—' })}
+                    </div>
+                    {isOverride ? (
+                      <div className="inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700">
+                        {t('overrideBadge')}
+                      </div>
+                    ) : null}
                   </div>
                 </td>
-              ))}
-              <td className="px-4 py-2 text-center font-semibold text-emerald-700 bg-emerald-50/40">
-                {MAX_PIPS[asset]}
-              </td>
-            </tr>
-          ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
