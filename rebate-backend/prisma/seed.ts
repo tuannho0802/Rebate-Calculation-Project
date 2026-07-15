@@ -87,6 +87,11 @@ async function main() {
       name: 'Level 2 B',
       level: 2,
       parentId: lv1A.id,
+      // ⚠️ CASE CỐ Ý (test rủi ro FK-less đã ghi nhận trong docs 12/R6 & 09/B.5):
+      // accountType trỏ tới template KHÔNG tồn tại trong account_type_templates.
+      // IbNode.accountType là String, KHÔNG có FK — nên giá trị "mồ côi" này được
+      // lưu mà DB không báo lỗi. KHÔNG phải lỗi seed, dùng để test rủi ro đã biết.
+      accountType: 'ORPHAN_TEMPLATE_DELETED_V1',
     },
   });
 
@@ -97,6 +102,9 @@ async function main() {
       name: 'Level 2 C',
       level: 2,
       parentId: lv1A.id,
+      // ⚠️ CASE CỐ Ý (test rủi ro FK-less — xem ghi chú ở lv2B):
+      // accountType trỏ tới template KHÔNG tồn tại (khác với lv2B để có 2 case).
+      accountType: 'NONEXISTENT_ACCOUNT_TYPE_XYZ',
     },
   });
 
@@ -155,37 +163,126 @@ async function main() {
   const allIbs = [mib, lv1A, lv1B, lv2A, lv2B, lv2C, lv3A, lv3B, mib2, lv1C, lv2C_mib2];
 
   console.log('Seeding rebate configurations...');
-  // Configure FOREX & GOLD configs for each IB
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // CÔNG THỨC CASCADE DUY NHẤT (mirror rebate.service.ts cascadeMaxPipsToSubtree):
+  //   maxPips(con) = max(0, parent.maxPips - parent.rebatePips)
+  // Mọi config dưới đây tuân thủ công thức này NGAY TỪ LÚC SEED (không cần chạy
+  // cascade riêng sau seed). Với mỗi node, markupPips = maxPips - rebatePips
+  // (= phần "ngân sách" node cha truyền xuống con) để đồng nhất với cả:
+  //   • updateConfig():  con.rebatePips + con.markupPips (= maxPips) <= cha.markupPips
+  //   • cascadeMaxPipsToSubtree(): con.maxPips = cha.maxPips - cha.rebatePips (= cha.markupPips)
+  // MIB (level 0) đặt maxPips = override, PHẢI <= MAX_PIPS[asset] của rebate.service.ts
+  // (FOREX=12, GOLD=20, COMMODITIES=3, D_FOREX=12, ...).
+  // ───────────────────────────────────────────────────────────────────────────
+  const childMaxPips = (parentMaxPips: number, parentRebatePips: number): number =>
+    Math.max(0, parentMaxPips - parentRebatePips);
+
+  const STP = 'STP_REBATE' as any;
+  const COMM = 'COMMISSION_PERCENT' as any;
+
+  const cfg = (
+    ibId: string,
+    assetType: AssetType,
+    rebateType: any,
+    maxPips: number,
+    rebatePips: number,
+  ) => ({
+    ibId,
+    assetType,
+    rebateType,
+    rebatePips,
+    markupPips: maxPips - rebatePips, // budget truyền xuống con = cha.maxPips - cha.rebatePips
+    markupPercent: 100,
+    maxPips,
+  });
+
+  // ===== Nhánh MIB1 — FOREX =====
+  const mibForexMax = 12; // <= MAX_PIPS.FOREX (12)
+  const mibForexRebate = 2;
+  const lv1ForexMax = childMaxPips(mibForexMax, mibForexRebate); // 12 - 2 = 10
+  const lv1AForexRebate = 3;
+  const lv1BForexRebate = 2;
+  const lv2ForexMax = childMaxPips(lv1ForexMax, lv1AForexRebate); // 10 - 3 = 7
+  const lv2AForexRebate = 2;
+  const lv2BForexRebate = 1;
+  const lv2CForexRebate = 4;
+  const lv3ForexMax = childMaxPips(lv2ForexMax, lv2AForexRebate); // 7 - 2 = 5 (cascade trừ dần nhiều tầng)
+  const lv3AForexRebate = 5;
+  const lv3BForexRebate = 3;
+
+  // ===== Nhánh MIB1 — GOLD =====
+  const mibGoldMax = 20; // <= MAX_PIPS.GOLD (20)
+  const mibGoldRebate = 4;
+  const lv1GoldMax = childMaxPips(mibGoldMax, mibGoldRebate); // 20 - 4 = 16
+  const lv1AGoldRebate = 4;
+  const lv1BGoldRebate = 5;
+  const lv2GoldMax = childMaxPips(lv1GoldMax, lv1AGoldRebate); // 16 - 4 = 12
+  const lv2AGoldRebate = 4;
+  const lv2BGoldRebate = 3;
+  const lv2CGoldRebate = 6;
+  const lv3GoldMax = childMaxPips(lv2GoldMax, lv2AGoldRebate); // 12 - 4 = 8
+  const lv3AGoldRebate = 8;
+  const lv3BGoldRebate = 5;
+
+  // ===== Nhánh MIB1 — COMMODITIES (trần MAX_PIPS.COMMODITIES = 3) =====
+  const mibCommMax = 3; // <= MAX_PIPS.COMMODITIES (3)
+  const mibCommRebate = 1;
+  const lv1CommMax = childMaxPips(mibCommMax, mibCommRebate); // 3 - 1 = 2
+  const lv1ACommRebate = 1;
+  const lv2CommMax = childMaxPips(lv1CommMax, lv1ACommRebate); // 2 - 1 = 1
+  const lv2ACommRebate = 1;
+  const lv3CommMax = childMaxPips(lv2CommMax, lv2ACommRebate); // 1 - 1 = 0
+  const lv3ACommRebate = 0;
+
+  // ===== Nhánh MIB2 — FOREX =====
+  const mib2ForexMax = 12; // <= MAX_PIPS.FOREX (12)
+  const mib2ForexRebate = 2;
+  const lv1C2ForexMax = childMaxPips(mib2ForexMax, mib2ForexRebate); // 10
+  const lv1C2ForexRebate = 2;
+  const lv2C2ForexMax = childMaxPips(lv1C2ForexMax, lv1C2ForexRebate); // 8
+  const lv2C2ForexRebate = 2;
+
+  // ===== Nhánh MIB2 — GOLD =====
+  const mib2GoldMax = 20; // <= MAX_PIPS.GOLD (20)
+  const mib2GoldRebate = 4;
+  const lv1C2GoldMax = childMaxPips(mib2GoldMax, mib2GoldRebate); // 16
+  const lv1C2GoldRebate = 4;
+  const lv2C2GoldMax = childMaxPips(lv1C2GoldMax, lv1C2GoldRebate); // 12
+  const lv2C2GoldRebate = 4;
+
   const configs = [
-    // MIB (Lv0) config
-    { ibId: mib.id, assetType: AssetType.FOREX, rebateType: 'STP_REBATE' as any, rebatePips: 2, markupPips: 10, maxPips: 12 },
-    { ibId: mib.id, assetType: AssetType.GOLD, rebateType: 'STP_REBATE' as any, rebatePips: 4, markupPips: 16, maxPips: 20 },
-    { ibId: mib.id, assetType: AssetType.FOREX, rebateType: 'CENT_REBATE' as any, rebatePips: 0.05, markupPips: 0.1, maxPips: 0.15 },
-    { ibId: mib.id, assetType: AssetType.COMMODITIES, rebateType: 'COMMISSION_PERCENT' as any, rebatePips: 50, markupPips: 50, maxPips: 100 },
-    // Lv1 configs (maxPips = MIB's markupPips)
-    { ibId: lv1A.id, assetType: AssetType.FOREX, rebatePips: 2, markupPips: 8, maxPips: 10 },
-    { ibId: lv1A.id, assetType: AssetType.GOLD, rebatePips: 4, markupPips: 12, maxPips: 16 },
-    { ibId: lv1B.id, assetType: AssetType.FOREX, rebatePips: 2, markupPips: 8, maxPips: 10 },
-    { ibId: lv1B.id, assetType: AssetType.GOLD, rebatePips: 4, markupPips: 12, maxPips: 16 },
-    // Lv2 configs (maxPips = Lv1's markupPips)
-    { ibId: lv2A.id, assetType: AssetType.FOREX, rebatePips: 2, markupPips: 6, maxPips: 8 },
-    { ibId: lv2A.id, assetType: AssetType.GOLD, rebatePips: 4, markupPips: 8, maxPips: 12 },
-    { ibId: lv2B.id, assetType: AssetType.FOREX, rebatePips: 2, markupPips: 6, maxPips: 8 },
-    { ibId: lv2B.id, assetType: AssetType.GOLD, rebatePips: 4, markupPips: 8, maxPips: 12 },
-    { ibId: lv2C.id, assetType: AssetType.FOREX, rebatePips: 2, markupPips: 6, maxPips: 8 },
-    { ibId: lv2C.id, assetType: AssetType.GOLD, rebatePips: 4, markupPips: 8, maxPips: 12 },
-    // Lv3 configs (maxPips = Lv2's markupPips)
-    { ibId: lv3A.id, assetType: AssetType.FOREX, rebatePips: 6, markupPips: 0, maxPips: 6 },
-    { ibId: lv3A.id, assetType: AssetType.GOLD, rebatePips: 8, markupPips: 0, maxPips: 8 },
-    { ibId: lv3B.id, assetType: AssetType.FOREX, rebatePips: 6, markupPips: 0, maxPips: 6 },
-    { ibId: lv3B.id, assetType: AssetType.GOLD, rebatePips: 8, markupPips: 0, maxPips: 8 },
-    // MIB2 branch
-    { ibId: mib2.id, assetType: AssetType.FOREX, rebateType: 'STP_REBATE' as any, rebatePips: 2, markupPips: 10, maxPips: 12 },
-    { ibId: mib2.id, assetType: AssetType.GOLD, rebateType: 'STP_REBATE' as any, rebatePips: 4, markupPips: 16, maxPips: 20 },
-    { ibId: lv1C.id, assetType: AssetType.FOREX, rebatePips: 2, markupPips: 8, maxPips: 10 },
-    { ibId: lv1C.id, assetType: AssetType.GOLD, rebatePips: 4, markupPips: 12, maxPips: 16 },
-    { ibId: lv2C_mib2.id, assetType: AssetType.FOREX, rebatePips: 2, markupPips: 6, maxPips: 8 },
-    { ibId: lv2C_mib2.id, assetType: AssetType.GOLD, rebatePips: 4, markupPips: 8, maxPips: 12 },
+    // Nhánh MIB1 — FOREX
+    cfg(mib.id, AssetType.FOREX, STP, mibForexMax, mibForexRebate),
+    cfg(lv1A.id, AssetType.FOREX, STP, lv1ForexMax, lv1AForexRebate),
+    cfg(lv1B.id, AssetType.FOREX, STP, lv1ForexMax, lv1BForexRebate),
+    cfg(lv2A.id, AssetType.FOREX, STP, lv2ForexMax, lv2AForexRebate),
+    cfg(lv2B.id, AssetType.FOREX, STP, lv2ForexMax, lv2BForexRebate),
+    cfg(lv2C.id, AssetType.FOREX, STP, lv2ForexMax, lv2CForexRebate),
+    cfg(lv3A.id, AssetType.FOREX, STP, lv3ForexMax, lv3AForexRebate),
+    cfg(lv3B.id, AssetType.FOREX, STP, lv3ForexMax, lv3BForexRebate),
+    // Nhánh MIB1 — GOLD
+    cfg(mib.id, AssetType.GOLD, STP, mibGoldMax, mibGoldRebate),
+    cfg(lv1A.id, AssetType.GOLD, STP, lv1GoldMax, lv1AGoldRebate),
+    cfg(lv1B.id, AssetType.GOLD, STP, lv1GoldMax, lv1BGoldRebate),
+    cfg(lv2A.id, AssetType.GOLD, STP, lv2GoldMax, lv2AGoldRebate),
+    cfg(lv2B.id, AssetType.GOLD, STP, lv2GoldMax, lv2BGoldRebate),
+    cfg(lv2C.id, AssetType.GOLD, STP, lv2GoldMax, lv2CGoldRebate),
+    cfg(lv3A.id, AssetType.GOLD, STP, lv3GoldMax, lv3AGoldRebate),
+    cfg(lv3B.id, AssetType.GOLD, STP, lv3GoldMax, lv3BGoldRebate),
+    // Nhánh MIB1 — COMMODITIES (rebateType COMMISSION_PERCENT)
+    cfg(mib.id, AssetType.COMMODITIES, COMM, mibCommMax, mibCommRebate),
+    cfg(lv1A.id, AssetType.COMMODITIES, COMM, lv1CommMax, lv1ACommRebate),
+    cfg(lv2A.id, AssetType.COMMODITIES, COMM, lv2CommMax, lv2ACommRebate),
+    cfg(lv3A.id, AssetType.COMMODITIES, COMM, lv3CommMax, lv3ACommRebate),
+    // Nhánh MIB2 — FOREX
+    cfg(mib2.id, AssetType.FOREX, STP, mib2ForexMax, mib2ForexRebate),
+    cfg(lv1C.id, AssetType.FOREX, STP, lv1C2ForexMax, lv1C2ForexRebate),
+    cfg(lv2C_mib2.id, AssetType.FOREX, STP, lv2C2ForexMax, lv2C2ForexRebate),
+    // Nhánh MIB2 — GOLD
+    cfg(mib2.id, AssetType.GOLD, STP, mib2GoldMax, mib2GoldRebate),
+    cfg(lv1C.id, AssetType.GOLD, STP, lv1C2GoldMax, lv1C2GoldRebate),
+    cfg(lv2C_mib2.id, AssetType.GOLD, STP, lv2C2GoldMax, lv2C2GoldRebate),
   ];
 
   for (const config of configs) {
