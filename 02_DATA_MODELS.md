@@ -4,6 +4,9 @@
 > FE copy vào `src/types/`, BE dùng làm Prisma schema reference.
 
 ## Changelog
+- **2026-07-15**:
+  - Schema không thay đổi kể từ 2026-07-14.
+  - **Bổ sung ghi chú rủi ro đã biết:** `IbNode.accountType` là `String @default("Markup 0%")` — không có FK tới `AccountTypeTemplate` hay `MarkupLinkTemplate`. Giá trị này chỉ là nhãn hiển thị lưu tên template tại thời điểm tạo IB. Nếu MIB đổi tên template sau đó, `accountType` của sub-IB không tự cập nhật. **Đây là rủi ro đã biết, chưa có quyết định thiết kế lại.** Không dùng `accountType` để tính `markupMax` hay validate runtime.
 - **2026-07-14 (cập nhật lần 2 — đối chiếu trực tiếp `schema.prisma` thật)**:
   - Doc trước đây bị THIẾU rất nhiều so với schema thật. Đã bổ sung đầy đủ:
     `name`, `accountType`, `isActive`, `phone`, `country`, `bankAccount`, `paymentInfo`,

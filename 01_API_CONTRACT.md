@@ -4,6 +4,10 @@
 > Mọi thay đổi phải cập nhật file này trước khi code.
 
 ## Changelog
+- **2026-07-15 (cascade formula mới — rebate.service.ts)**:
+  - Ghi rõ ràng vào docs: `PUT /rebate/config/mib/:mibId/max-override` giờ validate `maxPips <= MAX_PIPS[assetType]` (trần công ty). Trước đây không có giới hạn này. `MAX_OVERRIDE_INVALID` (422) nếu vượt.
+  - Ghi rõ: `maxPips` trong response `GET /rebate/config/:ibId` hiện phản ánh công thức cascade mới: `maxPips(con) = max(0, parent.maxPips - parent.rebatePips)`. Con trực tiếp của MIB nhận `maxPips = mibMaxPips - mibRebatePips` (không còn bị giữ nguyên 0 như trước).
+  - Xoá ghi chú cũ "markupPips=0 của MIB gây label sai" — đã fix ở FE layer, không liên quan BE API.
 - **2026-07-14 (validation authority + chain view API)**:
   - **Thêm mới**: `GET /ib/:id/tree` cho Chain View, chỉ `ADMIN` được phép dùng để xem cây bắt đầu từ một IB bất kỳ.
   - **Sửa** `POST /ib`: request có thêm field optional `accountTypeTemplateId`.
@@ -377,6 +381,7 @@ Set trần hoa hồng tuỳ chỉnh cho 1 MIB cụ thể theo từng `assetType`
 - Chỉ role `ADMIN` mới gọi được endpoint này.
 - `mibId` phải là node `level = 0`; nếu không sẽ lỗi `NOT_A_MIB`.
 - `maxPips` phải `>= 0`; nếu không sẽ lỗi `MAX_OVERRIDE_INVALID`.
+- **MỚI 2026-07-15:** `maxPips` phải `<= MAX_PIPS[assetType]` (trần công ty). Ví dụ D_FOREX không thể đặt maxPips > 12. Lỗi `MAX_OVERRIDE_INVALID` (422) nếu vượt.
 - `rebateType` là field **bắt buộc** trong từng phần tử `overrides[]`.
 
 **Request:**

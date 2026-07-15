@@ -311,5 +311,5 @@ return this.prisma.ibNode.findUnique({ where: { id } }); // có password field
 | Sửa data model | `02_DATA_MODELS.md` + `01_API_CONTRACT.md` |
 | Sửa auth/phân quyền | `03_AUTH_FLOW.md` + `09_CODE_STANDARDS.md` |
 | Thêm FE page/component | `05_FRONTEND_GUIDE.md` + `01_API_CONTRACT.md` + `09_CODE_STANDARDS.md` |
-| Fix bug | `06_ERROR_CODES.md` + file liên quan + update `DAILY_WORKFLOW.md` |
+| Fix bug | `06_ERROR_CODES.md` + file liên quan + update `DAILY_LOGS.md` |
 | Deploy | `07_ENVIRONMENTS.md` |

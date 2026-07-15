@@ -637,3 +637,70 @@ oles.guard.ts — phân quyền theo role (ADMIN/IB), dùng @Roles('ADMIN') deco
 - [ ] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
 - [ ] Các type vẫn khớp với 02_DATA_MODELS.md
 ---
+
+---
+## [2026-07-14] — Phần: BACKEND
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Kiểm tra tích hợp Frontend và lỗi kết nối Database; debug EADDRINUSE và DATABASE_URL
+
+### Đã Cập Nhật
+- Không có thay đổi nào về mã nguồn (Source Code) trong Backend vào hôm nay.
+- Tiến hành gỡ lỗi (debug) sự cố sập server do kẹt cổng (EADDRINUSE) và thay đổi DATABASE_URL sang môi trường Neon DB nhưng chưa push schema. Vấn đề đã được khắc phục hoàn toàn bằng cách restart server và clear cache port.
+- Xác nhận lại toàn bộ Router Explorer và Prisma Client (v5.22.0) chạy ổn định ở môi trường localhost.
+
+### Trạng Thái
+- [x] Backend hoàn toàn sẵn sàng cho quá trình Deploy (Ví dụ: render, railway, v.v.)
+---
+
+---
+## [2026-07-14] — Phần: BACKEND (scratch test follow-up)
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Validation fix and Chain API audit/test follow-up
+
+### Đã Thực Hiện
+- Audit lại toàn bộ implementation theo prompts 17 và 18.
+- Xoá các logic validate phía FE (client-side markupMax/rebate limit calculations và submit blocking); server errors nay flow through getErrorMessage().
+- Tạo scratch/test-validation-and-chain.js theo đặc tả; reset/seed local DB sau test.
+
+### Ghi Chú
+- Backend scratch test chưa hoàn thành: 3 assertions passed, 1 failed, script crash do GET /ib/tree?depth=all với MIB token — đây là hành vi đúng theo thiết kế (MIB/IB chỉ thấy con trực tiếp).
+- Chain View multi-column UI chưa tồn tại nên không chạy được checklist thủ công.
+
+### Trạng Thái
+- [!] Scratch test: 3 passed, 1 failed — script crash (chưa đủ test cases)
+- [ ] Chain View UI chưa triển khai
+---
+
+---
+## [2026-07-15] — Phần: BACKEND
+
+### Phiên Làm Việc
+- Agent: Kiro (Claude Sonnet 4.5)
+- Yêu cầu từ: Chuỗi audit + fix cascade formula; docs overhaul toàn dự án
+
+### Đã Triển Khai
+- Không có module mới
+
+### Đã Sửa Lỗi
+- `src/modules/rebate/rebate.service.ts` — `cascadeMaxPipsToSubtree()`: thay công thức cũ (ceiling/markupPips) bằng công thức mới duy nhất: `maxPips(con) = Math.max(0, maxPips(cha) - rebatePips(cha))`. Bỏ tham số `ceiling`, tự đọc từ DB. Cả `setMibMaxOverride()` và `updateConfig()` gọi chung một cascade này.
+- `src/modules/rebate/rebate.service.ts` — `setMibMaxOverride()`: validate `maxPips <= MAX_PIPS[assetType]` (trước đây không kiểm tra trần công ty).
+
+### Đã Cập Nhật
+- `src/modules/rebate/rebate.service.spec.ts`: viết mới 8 unit test (Jest) cho `cascadeMaxPipsToSubtree()` và `setMibMaxOverride()` — 8/8 PASS. Test các case: MIB root, cascade 2-3 tầng, rebatePips > maxPips (dữ liệu cũ sai) → con nhận maxPips=0 không throw.
+- DB migration (backfill thủ công qua script `scratch/cascade-apply.mjs`): re-cascade toàn bộ 2 MIB × N asset types → 7 rows updated, 14 rows created, 155 unchanged. Float safety: round8(). Convergence verify: 0 rows changed sau apply.
+- `scratch/cascade-apply.mjs`: giữ lại trong scratch/ theo yêu cầu.
+
+### Ghi Chú
+- **RỦI RO ĐÃ BIẾT (CHƯA XỬ LÝ):** `ib_nodes.accountType` là string tự do, không có FK tới `account_type_templates` hay `markup_link_templates`. Đây là disconnect cố ý theo thiết kế hiện tại nhưng tiềm ẩn rủi ro: nếu MIB đổi tên template, accountType của sub-IB không tự cập nhật. Cần quyết định thiết kế lại trước khi xử lý.
+- 4 try-catch vi phạm quy tắc trong `09_CODE_STANDARDS.md` vẫn còn tồn tại (jwt-auth.guard.ts, subtree.guard.ts, auth.service.ts, rebate.controller.ts) — chưa sửa trong phiên này.
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi (`npx nest build` 0 errors)
+- [x] Không có chức năng cũ nào bị hỏng (8/8 unit tests pass)
+- [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [x] Các type vẫn khớp với 02_DATA_MODELS.md
+---

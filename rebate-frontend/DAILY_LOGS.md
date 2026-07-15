@@ -484,3 +484,91 @@
 ### Trang Thai
 - Build thanh cong 17 routes TypeScript clean
 ---
+
+---
+## [2026-07-13] — Phần: FRONTEND
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Cải thiện UX chọn Asset Type, bảo mật hiển thị ID giao dịch, điều chỉnh luồng redirect trang chủ
+
+### Đã Triển Khai
+- src/components/rebate/AccountTypeBuilder.tsx: Đổi trường nhập liệu Asset Type / Symbol từ text tự do (input) sang danh sách chọn thả xuống (select dropdown) chứa danh mục chuẩn (D_FOREX, FOREX, GOLD, SILVER_5000, SILVER_1000, OIL, NATURE_GAS, COMMODITIES, HKG50, A50, JPN225, US_INDEX, SHARES, ETHEREUM, PRECIOUS_METAL, BITCOIN, CRYPTO, GAUCNH) nhằm tránh lỗi gõ sai tên sản phẩm của MIB.
+- src/app/[locale]/(dashboard)/dashboard/report/page.tsx: Cập nhật logic ẩn giấu (obfuscate) Mã giao dịch và Mã IB. Chỉ hiển thị 8 ký tự cuối cùng của chuỗi UUID (ví dụ: #8237936e) để tăng cường tính bảo mật dữ liệu.
+- src/app/[locale]/(dashboard)/dashboard/transaction/page.tsx: Áp dụng chung logic ẩn giấu (obfuscate) 8 ký tự cuối cho các ID hiển thị trong bảng giao dịch.
+- src/app/[locale]/page.tsx: Thay đổi luồng điều hướng (routing) mặc định ở trang chủ (/). Loại bỏ bước kiểm tra token trong localStorage, thay vào đó luôn luôn điều hướng (redirect) người dùng về trang đăng nhập (/login) trước, thay vì cho phép vào thẳng trang Dashboard của MIB.
+
+### Ghi Chú
+- Đã push code lên kho chứa github project_Rebate sẵn sàng cho việc deploy lên Vercel.
+
+### Trạng Thái
+- [x] Code biên dịch thành công, giao diện hoạt động ổn định
+- [x] Không làm hỏng chức năng cũ
+---
+
+---
+## [2026-07-14] — Phần: FRONTEND
+
+### Phiên Làm Việc
+- Agent: Composer
+- Yêu cầu từ: Đổi tên Bulk Operation → Rebate Management; dùng bulk API thay vòng lặp PUT; role-based nav (ADMIN vs IB)
+
+### Đã Triển Khai
+- src/lib/api/rebate.ts: thêm bulkUpdateConfig() gọi PUT /rebate/config/bulk
+- src/types/index.ts: thêm BulkUpdateResult, BulkUpdateResponse
+- src/lib/nav-config.ts: config nav tập trung + filterNavItemsByRole, isAdminOnlyRoute
+- src/app/[locale]/(dashboard)/dashboard/rebate-management/page.tsx: đổi tên component RebateManagementPage, gọi bulk API 1 lần, bỏ validate chặn submit rebatePips > maxPips
+- messages/vi.json, messages/en.json: keys Layout.* nav mới + namespace RebateManagement
+
+### Đã Sửa Lỗi
+- rebate-management/page.tsx: logic bulk N-request Promise.allSettled + validate FE trùng BE → thay bằng 1 lệnh bulkUpdateConfig, lỗi REBATE_EXCEEDS_MAX từ BE
+
+### Đã Cập Nhật
+- src/app/[locale]/(dashboard)/layout.tsx: dùng nav-config.ts, route-guard ADMIN-only + toast AUTH_FORBIDDEN khi IB gõ thẳng URL admin
+
+### Ghi Chú
+- isExceeding vẫn tô đỏ ô input (cảnh báo UX), không chặn submit
+- Trang Rebate Management vẫn load N× GET /rebate/config/:ibId — chỉ phần save chuyển sang bulk
+- Menu Admin/Trash/Rebate Management ẩn với IB qua roles: ['ADMIN'] trong nav-config
+
+### Trạng Thái
+- [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [ ] Tất cả nội dung triển khai biên dịch không có lỗi — chưa xác nhận build sạch
+- [ ] Các type vẫn khớp với 02_DATA_MODELS.md
+---
+
+---
+## [2026-07-15] — Phần: FRONTEND
+
+### Phiên Làm Việc
+- Agent: Kiro (Claude Sonnet 4.5)
+- Yêu cầu từ: Fix cascade formula FE sync + implement 3 view rebate management + arrow overlay + docs overhaul
+
+### Đã Triển Khai
+- `src/components/rebate/CompactPivotTable.tsx` (MỚI): View thứ 3 "Bảng gọn" — hàng=AssetType, cột=Level với **cascading dependent select**: cột Level N+1 chỉ liệt kê con trực tiếp của node đang chọn ở Level N; cột tự ẩn khi node không có con. State `CompactSelection = Record<string, Record<number, string>>` lift-up sang page. Dùng chung `configs/dirtyIbs/handleCellChange` — không có fetch riêng. `buildColumns()` là pure function có thể test độc lập.
+- `src/components/rebate/PivotArrowOverlay.tsx` (MỚI): SVG overlay vẽ đường thẳng nối input cha-con trong Pivot view. Toggle bật/tắt (`showArrows` state). Khi tắt: return null, không listener. Khi bật: SVG kích thước = `scrollWidth × scrollHeight` (cuộn cùng bảng, không trễ), tọa độ tính bằng `rect - containerRect + scrollLeft/scrollTop` (hệ nội dung), không scroll listener. `data-arrow-id="${ibId}__${assetType}"` trên `<input>` (không phải div bọc). Hover: `hoveredArrowKey = "${ibId}__${assetType}"` — chỉ highlight đúng hàng đang hover.
+- `src/app/[locale]/(dashboard)/dashboard/rebate-management/page.tsx`: viewMode mở rộng `'flat' | 'pivot' | 'compact'`; 3 nút switch view (Table2/Sheet/LayoutGrid); toggle "Hiện quan hệ cha-con" (GitBranch) chỉ hiện ở pivot view; `ibNodesById` map mới; indent theo level trong flat view + tên cha.
+
+### Đã Sửa Lỗi
+- `getChildMaxLabel()` trong `rebate-management/page.tsx`: đổi điều kiện từ `markupPips === 0` sang `maxPips === 0` — fix label "Cấp trên chưa phân bổ" hiện sai cho mọi Lv1 con của MIB (MIB luôn có markupPips=0 dù maxPips đúng).
+- `PivotArrowOverlay`: fix bug mũi tên dồn về 1 vị trí — đổi `data-arrow-id` từ `ibId` sang composite `${ibId}__${assetType}`, querySelector theo từng hàng.
+- `PivotArrowOverlay`: fix hover lan sang hàng khác — đổi `hoveredIbId` sang `hoveredArrowKey` composite.
+- `PivotArrowOverlay`: fix lệch khi scroll — SVG dùng hệ tọa độ nội dung (cộng scrollLeft/scrollTop), bỏ scroll listener.
+- `CompactPivotTable`: cascading select đúng (independent → dependent) — `buildColumns()` lọc con trực tiếp của node đang chọn, không phải toàn bộ cùng level.
+
+### Đã Cập Nhật
+- `src/__tests__/getChildMaxLabel.test.ts`: 5 unit test Vitest — 5/5 PASS (bao gồm regression case MIB maxPips=12 markupPips=0 → "Tối đa 12").
+- Dead code `src/components/rebate/RebateConfigTable.tsx` đã xoá (0 import trong codebase).
+
+### Ghi Chú
+- **RỦI RO ĐÃ BIẾT (CHƯA XỬ LÝ):** `ib_nodes.accountType` không có FK — xem ghi chú tương ứng ở BACKEND log cùng ngày.
+- Cascading acceptance test (`scratch/cascading-acceptance.mjs`): 11/11 PASS (đã xoá script sau test).
+- PivotArrowOverlay test thủ công cần browser — không thể auto hoá getBoundingClientRect.
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi (`npx tsc --noEmit` 0 lỗi, `npm run build` clean)
+- [x] Không có chức năng cũ nào bị hỏng
+- [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [x] Các type vẫn khớp với 02_DATA_MODELS.md
+- [x] FE tests: 5/5 PASS (Vitest)
+---
