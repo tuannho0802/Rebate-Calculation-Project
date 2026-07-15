@@ -6,18 +6,21 @@ import { useQuery } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
 import { AssetType, RebateConfig, MAX_PIPS, IbTreeNode } from '@/types';
-import { Loader2, Save, Table2, Sheet } from 'lucide-react';
+import { Loader2, Save, Table2, Sheet, LayoutGrid } from 'lucide-react';
 import { toast } from 'sonner';
 import { getErrorMessage } from '@/lib/error-messages';
 import { normalizeTreeRoots, flattenIbTree } from '@/lib/tree-utils';
+import { CompactPivotTable, CompactSelection } from '@/components/rebate/CompactPivotTable';
 
 export default function RebateManagementPage() {
   const t = useTranslations('RebateManagement');
-  const [viewMode, setViewMode] = useState<'flat' | 'pivot'>('flat');
+  const [viewMode, setViewMode] = useState<'flat' | 'pivot' | 'compact'>('flat');
   const [configs, setConfigs] = useState<Record<string, RebateConfig>>({});
   const [dirtyIbs, setDirtyIbs] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [saveResults, setSaveResults] = useState<Record<string, { success: boolean; message: string }>>({});
+  // Lifted-up selection cho CompactPivotTable: [rootId][level] = ibId
+  const [compactSelection, setCompactSelection] = useState<CompactSelection>({});
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -175,6 +178,13 @@ export default function RebateManagementPage() {
 
   const assetTypes = Object.values(AssetType);
 
+  const handleCompactSelectionChange = (rootId: string, level: number, ibId: string) => {
+    setCompactSelection(prev => ({
+      ...prev,
+      [rootId]: { ...(prev[rootId] ?? {}), [level]: ibId },
+    }));
+  };
+
   const getAssetConfig = (ibId: string | null | undefined, assetType: AssetType) => {
     if (!ibId) return undefined;
     return configs[ibId]?.assets.find(a => a.assetType === assetType);
@@ -208,13 +218,29 @@ export default function RebateManagementPage() {
           <p className="text-gray-500">{t('description')}</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setViewMode(v => (v === 'flat' ? 'pivot' : 'flat'))}
-            className="flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
-          >
-            {viewMode === 'flat' ? <Sheet className="h-4 w-4" /> : <Table2 className="h-4 w-4" />}
-            {viewMode === 'flat' ? 'Xem dạng Google Sheet' : 'Xem dạng bảng'}
-          </button>
+          <div className="flex items-center rounded-xl border border-gray-300 bg-white overflow-hidden divide-x divide-gray-300">
+            <button
+              onClick={() => setViewMode('flat')}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition ${viewMode === 'flat' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              <Table2 className="h-4 w-4" />
+              Dạng bảng
+            </button>
+            <button
+              onClick={() => setViewMode('pivot')}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition ${viewMode === 'pivot' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              <Sheet className="h-4 w-4" />
+              Google Sheet
+            </button>
+            <button
+              onClick={() => setViewMode('compact')}
+              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition ${viewMode === 'compact' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+              Bảng gọn
+            </button>
+          </div>
           <button
             onClick={handleSaveAll}
             disabled={isSaving || dirtyIbs.size === 0}
@@ -253,6 +279,20 @@ export default function RebateManagementPage() {
                 dirtyIbs={dirtyIbs}
                 handleCellChange={handleCellChange}
                 getMibMaxDisplay={getMibMaxDisplay}
+              />
+            ) : viewMode === 'compact' ? (
+              <CompactPivotTable
+                rootId={root.id}
+                ibs={ibs}
+                assetTypes={assetTypes}
+                configs={configs}
+                dirtyIbs={dirtyIbs}
+                handleCellChange={handleCellChange}
+                getMibMaxDisplay={getMibMaxDisplay}
+                parentById={parentById}
+                ibNodesById={ibNodesById}
+                selection={compactSelection}
+                onSelectionChange={handleCompactSelectionChange}
               />
             ) : (
               <div className="overflow-auto relative">
