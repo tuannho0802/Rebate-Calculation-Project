@@ -5,8 +5,9 @@
 
 ## Changelog
 - **2026-07-15**:
-  - Schema không thay đổi kể từ 2026-07-14.
-  - **Bổ sung ghi chú rủi ro đã biết:** `IbNode.accountType` là `String @default("Markup 0%")` — không có FK tới `AccountTypeTemplate` hay `MarkupLinkTemplate`. Giá trị này chỉ là nhãn hiển thị lưu tên template tại thời điểm tạo IB. Nếu MIB đổi tên template sau đó, `accountType` của sub-IB không tự cập nhật. **Đây là rủi ro đã biết, chưa có quyết định thiết kế lại.** Không dùng `accountType` để tính `markupMax` hay validate runtime.
+  - Schema Prisma **không thay đổi** kể từ 2026-07-14 (không migration mới).
+  - **Bổ sung ghi chú rủi ro dữ liệu** tại định nghĩa `IbNode.accountType` (xem block `⚠️` ngay dưới field trong model `IbNode` bên dưới).
+  - Backlink: mục Technical Debt tương ứng trong `09_CODE_STANDARDS.md` § Technical Debt Backlog.
 - **2026-07-14 (cập nhật lần 2 — đối chiếu trực tiếp `schema.prisma` thật)**:
   - Doc trước đây bị THIẾU rất nhiều so với schema thật. Đã bổ sung đầy đủ:
     `name`, `accountType`, `isActive`, `phone`, `country`, `bankAccount`, `paymentInfo`,
@@ -52,6 +53,10 @@ model IbNode {
   parent      IbNode?  @relation("IbTree", fields: [parentId], references: [id])
   children    IbNode[] @relation("IbTree")
   accountType String   @default("Markup 0%")
+  // ⚠️ accountType: string — KHÔNG có foreign key tới account_type_templates
+  //    hoặc markup_link_templates. Đây là rủi ro dữ liệu đã biết (data integrity
+  //    risk), CHƯA xử lý, đang chờ quyết định thiết kế lại.
+  //    Xem thêm: 09_CODE_STANDARDS.md § Technical Debt Backlog.
 
   rebateConfig         RebateConfig[]
   transactions         RebateTransaction[]   @relation("TransactionOwner")
@@ -405,6 +410,8 @@ export interface IbNode {
   isRootAdmin: boolean;
   isActive: boolean;
   parentId: string | null;
+  /** ⚠️ accountType: string — KHÔNG có FK tới account_type_templates hoặc markup_link_templates.
+   *  Rủi ro data integrity đã biết, CHƯA xử lý. Xem 09_CODE_STANDARDS.md § Technical Debt Backlog. */
   accountType: string;
   phone?: string | null;
   country?: string | null;

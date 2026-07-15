@@ -1,6 +1,9 @@
 # Backend Development Guide (NestJS + Prisma + Neon)
 
 ## Changelog
+- **2026-07-15**:
+  - Cập nhật mục **Rebate Calculation Logic** — công thức cascade `maxPips` thống nhất
+    (`cascadeMaxPipsToSubtree()`), thay thế code mẫu cũ dùng `markupPips` làm cap.
 - **2026-07-14**:
   - Thêm module `admin` và `trash`.
   - Cập nhật SubtreeGuard (chỉ check 1 cấp trực tiếp).
@@ -74,8 +77,12 @@ src/
 │   │   ├── rebate.module.ts
 │   │   ├── rebate.controller.ts
 │   │   ├── rebate.service.ts
+│   │   ├── rebate.service.spec.ts
 │   │   └── dto/
-│   │       └── update-config.dto.ts
+│   │       ├── update-config.dto.ts
+│   │       ├── bulk-update-config.dto.ts
+│   │       ├── mib-max-override.dto.ts
+│   │       └── save-templates.dto.ts
 │   │
 │   ├── report/
 │   │   ├── report.module.ts
