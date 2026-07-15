@@ -3,13 +3,13 @@
 /**
  * CompactPivotTable — View thứ 3 "Bảng gọn"
  *
- * Cấu trúc: HÀNG = Asset Type, CỘT = Level (MIB, Level 1, Level 2, ...).
- * Mỗi cột Level có <select> ở header để chọn IB hiển thị trong cột đó.
- * Dùng chung configs / dirtyIbs / handleCellChange với 2 view còn lại —
- * KHÔNG có fetch riêng, KHÔNG có luồng save riêng.
+ * Cấu trúc: HÀNG = Asset Type, CỘT = Level (MIB | Level 1 | Level 2 | ...).
+ * CÁC CỘT LÀ DYNAMIC — số cột hiển thị phụ thuộc vào selection hiện tại:
+ *   - Cột Level N+1 CHỈ hiển thị khi node đang chọn ở Level N CÓ con trực tiếp.
+ *   - Options trong cột Level N+1 chỉ là CON TRỰC TIẾP của node đang chọn ở Level N.
+ *   - Khi đổi select ở Level N → cascade reset selection các cột N+1, N+2, ...
  *
- * Selection state (Record<rootId, Record<level, ibId>>) được lift up sang
- * RebateManagementPage để persist khi switch view.
+ * Không có fetch riêng — dùng chung configs/dirtyIbs/handleCellChange.
  */
 
 import { useTranslations } from 'next-intl';
@@ -19,47 +19,99 @@ import { AssetType, IbTreeNode, RebateConfig, MAX_PIPS } from '@/types';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 /**
- * compactSelection[rootId][level] = ibId hiện đang được chọn ở cột level đó.
- * Nested object thay vì flat key để truy xuất rõ ràng hơn.
+ * compactSelection[rootId][level] = ibId đang được chọn ở cột level đó.
+ * Nested Record (không dùng flat key) để truy xuất rõ ràng.
  */
 export type CompactSelection = Record<string, Record<number, string>>;
 
 export interface CompactPivotTableProps {
   rootId: string;
+  rootIb: IbTreeNode;                                  // MIB node (level=0)
   ibs: IbTreeNode[];                                   // flattenIbTree(root).filter(lv>0)
   assetTypes: AssetType[];
-  configs: Record<string, RebateConfig>;               // shared state
+  configs: Record<string, RebateConfig>;
   dirtyIbs: Set<string>;
   handleCellChange: (ibId: string, assetType: AssetType, value: string) => void;
   getMibMaxDisplay: (mibId: string, assetType: AssetType) => number | null;
   parentById: Record<string, string | null>;
   ibNodesById: Record<string, IbTreeNode>;
-  selection: CompactSelection;                         // lifted-up selection state
+  selection: CompactSelection;
   onSelectionChange: (rootId: string, level: number, ibId: string) => void;
+  // Cascade reset: khi đổi level N, page xoá level N+1, N+2, ...
+  onCascadeReset: (rootId: string, fromLevel: number) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Danh sách IB thuộc (rootId, level) — lọc từ ibs prop đã có sẵn. */
-function ibsAtLevel(ibs: IbTreeNode[], level: number): IbTreeNode[] {
-  return ibs.filter(ib => ib.level === level);
+/**
+ * Trả về con TRỰC TIẾP của parentId trong danh sách ibs.
+ * Với level=1, parentId = rootId (MIB).
+ */
+function directChildren(
+  parentId: string,
+  ibs: IbTreeNode[],
+  parentById: Record<string, string | null>,
+): IbTreeNode[] {
+  return ibs.filter(ib => parentById[ib.id] === parentId);
 }
 
-/** Label cho option trong <select>: "IB Name (↑ Parent Name)" */
-function selectLabel(ib: IbTreeNode, parentById: Record<string, string | null>, ibNodesById: Record<string, IbTreeNode>): string {
+/** Label cho option: "IB Name (↑ Parent)" */
+function optionLabel(
+  ib: IbTreeNode,
+  parentById: Record<string, string | null>,
+  ibNodesById: Record<string, IbTreeNode>,
+): string {
   const name = ib.name ?? ib.email;
   const parentId = parentById[ib.id];
   if (!parentId) return name;
   const parent = ibNodesById[parentId];
   if (!parent) return name;
-  const parentName = parent.name ?? parent.email;
-  return `${name} (↑ ${parentName})`;
+  return `${name} (↑ ${parent.name ?? parent.email})`;
+}
+
+/**
+ * Tính chuỗi cột hiển thị (dynamic) dựa trên selection hiện tại.
+ * Mỗi phần tử = { level, selectedIbId, options[] }
+ * Dừng khi node đang chọn không có con.
+ */
+function buildColumns(
+  rootId: string,
+  rootIb: IbTreeNode,
+  ibs: IbTreeNode[],
+  parentById: Record<string, string | null>,
+  selection: CompactSelection,
+): Array<{ level: number; selectedIbId: string; options: IbTreeNode[] }> {
+  const cols: Array<{ level: number; selectedIbId: string; options: IbTreeNode[] }> = [];
+
+  // Level 1: con trực tiếp của MIB root
+  let parentId = rootId;
+  let level = 1;
+
+  while (true) {
+    const children = directChildren(parentId, ibs, parentById);
+    if (children.length === 0) break; // Không có con → dừng, không thêm cột
+
+    // IB đang chọn ở level này (fallback về con đầu tiên)
+    const stored = selection[rootId]?.[level];
+    const selectedIbId = stored && children.some(c => c.id === stored)
+      ? stored
+      : children[0].id;
+
+    cols.push({ level, selectedIbId, options: children });
+
+    // Đi xuống: xem node đang chọn có con không
+    parentId = selectedIbId;
+    level += 1;
+  }
+
+  return cols;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function CompactPivotTable({
   rootId,
+  rootIb,
   ibs,
   assetTypes,
   configs,
@@ -70,18 +122,18 @@ export function CompactPivotTable({
   ibNodesById,
   selection,
   onSelectionChange,
+  onCascadeReset,
 }: CompactPivotTableProps) {
   const t = useTranslations('RebateManagement');
 
-  // Tập hợp các level có ít nhất 1 IB
-  const maxLevel = ibs.reduce((acc, ib) => Math.max(acc, ib.level), 0);
-  const levels = Array.from({ length: maxLevel }, (_, i) => i + 1);
+  // Dynamic columns — recomputed setiap render (dựa trên selection)
+  const columns = buildColumns(rootId, rootIb, ibs, parentById, selection);
 
-  // Lấy IB đang được chọn ở (rootId, level) — fallback về IB đầu tiên nếu chưa có
-  const selectedIbId = (level: number): string | undefined => {
-    const stored = selection[rootId]?.[level];
-    if (stored) return stored;
-    return ibsAtLevel(ibs, level)[0]?.id;
+  const handleSelect = (level: number, ibId: string) => {
+    // 1. Ghi selection mới
+    onSelectionChange(rootId, level, ibId);
+    // 2. Cascade reset các cột con (level+1, level+2, ...)
+    onCascadeReset(rootId, level + 1);
   };
 
   return (
@@ -91,52 +143,49 @@ export function CompactPivotTable({
         {/* ── Header ── */}
         <thead className="bg-slate-50 text-slate-700 font-semibold sticky top-0 z-20 shadow-sm">
           <tr>
-            {/* Col 0: Asset Type label */}
+            {/* Col 0: Asset Type */}
             <th className="px-4 py-3 border-b border-r border-gray-200 sticky left-0 bg-slate-50 z-30 w-40 shadow-[1px_0_0_0_#e5e7eb]">
               Asset Type
             </th>
 
-            {/* Col 1: MIB (read-only ceiling) */}
+            {/* Col MIB */}
             <th className="px-4 py-3 border-b border-gray-200 min-w-[120px] text-center">
               <div className="text-[11px] font-bold text-indigo-700 uppercase tracking-wide">MIB</div>
-              <div className="text-[10px] font-normal text-gray-400 mt-0.5">trần override</div>
+              <div className="text-[10px] font-normal text-gray-500 mt-0.5 truncate max-w-[110px] mx-auto" title={rootIb.email}>
+                {rootIb.name ?? rootIb.email}
+              </div>
             </th>
 
-            {/* Col 2..N: Level với <select> chọn IB */}
-            {levels.map(lvl => {
-              const candidates = ibsAtLevel(ibs, lvl);
-              const current = selectedIbId(lvl);
-              return (
-                <th key={lvl} className="px-3 py-2 border-b border-gray-200 min-w-[160px] text-center">
-                  <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wide mb-1">
-                    Level {lvl}
-                  </div>
-                  {candidates.length === 0 ? (
-                    <span className="text-[10px] text-gray-400">—</span>
-                  ) : candidates.length === 1 ? (
-                    /* Chỉ 1 IB → không cần select, hiện tên luôn */
-                    <span className="text-[10px] font-medium text-gray-600 block truncate max-w-[140px] mx-auto" title={candidates[0].email}>
-                      {candidates[0].name ?? candidates[0].email}
-                    </span>
-                  ) : (
-                    /* Nhiều IB → select có grouping theo cha */
-                    <select
-                      value={current ?? ''}
-                      onChange={e => onSelectionChange(rootId, lvl, e.target.value)}
-                      className="w-full max-w-[150px] px-2 py-1 text-[11px] border border-gray-300 rounded-lg bg-white font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    >
-                      {candidates.map(ib => (
-                        <option key={ib.id} value={ib.id}>
-                          {selectLabel(ib, parentById, ibNodesById)}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </th>
-              );
-            })}
+            {/* Col Level N — chỉ hiển thị khi có options */}
+            {columns.map(({ level, selectedIbId, options }) => (
+              <th key={level} className="px-3 py-2 border-b border-gray-200 min-w-[160px] text-center">
+                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wide mb-1">
+                  Level {level}
+                </div>
+                {options.length === 1 ? (
+                  <span
+                    className="text-[10px] font-medium text-gray-600 block truncate max-w-[140px] mx-auto"
+                    title={options[0].email}
+                  >
+                    {options[0].name ?? options[0].email}
+                  </span>
+                ) : (
+                  <select
+                    value={selectedIbId}
+                    onChange={e => handleSelect(level, e.target.value)}
+                    className="w-full max-w-[150px] px-2 py-1 text-[11px] border border-gray-300 rounded-lg bg-white font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  >
+                    {options.map(ib => (
+                      <option key={ib.id} value={ib.id}>
+                        {optionLabel(ib, parentById, ibNodesById)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </th>
+            ))}
 
-            {/* Col cuối: Company cap tham chiếu */}
+            {/* Col cuối: company / MIB cap */}
             <th className="px-4 py-3 border-b border-gray-200 min-w-[120px] text-center bg-emerald-50 text-emerald-700">
               {t('capColumn')}
             </th>
@@ -158,7 +207,7 @@ export function CompactPivotTable({
                   {asset}
                 </td>
 
-                {/* Col 1: MIB ceiling — read-only */}
+                {/* Col MIB: read-only ceiling */}
                 <td className="px-4 py-3 text-center">
                   <div className="flex flex-col items-center gap-0.5">
                     <span className={`text-sm font-bold ${isOverride ? 'text-amber-700' : 'text-indigo-600'}`}>
@@ -175,20 +224,12 @@ export function CompactPivotTable({
                   </div>
                 </td>
 
-                {/* Col 2..N: 1 ô input per level (IB đang được chọn) */}
-                {levels.map(lvl => {
-                  const ibId = selectedIbId(lvl);
-
-                  if (!ibId) {
-                    return (
-                      <td key={lvl} className="px-4 py-3 text-center text-gray-300 text-xs">—</td>
-                    );
-                  }
-
-                  const ibConfig = configs[ibId];
+                {/* Col Level N — chỉ hiển thị ô input của selectedIbId */}
+                {columns.map(({ level, selectedIbId }) => {
+                  const ibConfig = configs[selectedIbId];
                   if (!ibConfig) {
                     return (
-                      <td key={lvl} className="px-4 py-3 text-center">
+                      <td key={level} className="px-4 py-3 text-center">
                         <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300" />
                       </td>
                     );
@@ -197,27 +238,26 @@ export function CompactPivotTable({
                   const assetConfig = ibConfig.assets.find(a => a.assetType === asset);
                   if (!assetConfig) {
                     return (
-                      <td key={lvl} className="px-4 py-3 text-center text-gray-300 text-xs">—</td>
+                      <td key={level} className="px-4 py-3 text-center text-gray-300 text-xs">—</td>
                     );
                   }
 
-                  // rawInput: giá trị đang nhập chưa lưu (nếu có), fallback về rebatePips
                   const rawValue =
                     (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput !== undefined
                       ? (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput!
                       : String(assetConfig.rebatePips);
 
                   const isExceeding = assetConfig.rebatePips > assetConfig.maxPips;
-                  const isDirty = dirtyIbs.has(ibId);
+                  const isDirty = dirtyIbs.has(selectedIbId);
 
                   return (
-                    <td key={lvl} className="px-3 py-2 text-center">
+                    <td key={level} className="px-3 py-2 text-center">
                       <div className="flex flex-col items-center gap-0.5">
                         <input
                           type="text"
                           value={rawValue}
-                          onChange={e => handleCellChange(ibId, asset, e.target.value)}
-                          title={ibNodesById[ibId]?.name ?? ibNodesById[ibId]?.email ?? ibId}
+                          onChange={e => handleCellChange(selectedIbId, asset, e.target.value)}
+                          title={ibNodesById[selectedIbId]?.name ?? ibNodesById[selectedIbId]?.email ?? selectedIbId}
                           className={[
                             'w-full max-w-[80px] text-center px-2 py-1 text-sm border rounded',
                             'focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors',
@@ -228,7 +268,6 @@ export function CompactPivotTable({
                                 : 'border-gray-200',
                           ].join(' ')}
                         />
-                        {/* Label: max theo công thức mới = assetConfig.maxPips */}
                         <span className={`text-[10px] ${isExceeding ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
                           {assetConfig.maxPips === 0
                             ? t('parentNotAllocated')
@@ -239,7 +278,7 @@ export function CompactPivotTable({
                   );
                 })}
 
-                {/* Col cuối: company cap */}
+                {/* Col cuối: company / MIB cap */}
                 <td className="px-4 py-3 text-center bg-emerald-50/40">
                   <div className="space-y-0.5">
                     <div className="text-[10px] font-medium text-emerald-700">

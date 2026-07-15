@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { useTranslations } from 'next-intl';
 import { useQuery } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
@@ -11,6 +11,8 @@ import { toast } from 'sonner';
 import { getErrorMessage } from '@/lib/error-messages';
 import { normalizeTreeRoots, flattenIbTree } from '@/lib/tree-utils';
 import { CompactPivotTable, CompactSelection } from '@/components/rebate/CompactPivotTable';
+import { PivotArrowOverlay } from '@/components/rebate/PivotArrowOverlay';
+import { GitBranch } from 'lucide-react';
 
 export default function RebateManagementPage() {
   const t = useTranslations('RebateManagement');
@@ -21,6 +23,8 @@ export default function RebateManagementPage() {
   const [saveResults, setSaveResults] = useState<Record<string, { success: boolean; message: string }>>({});
   // Lifted-up selection cho CompactPivotTable: [rootId][level] = ibId
   const [compactSelection, setCompactSelection] = useState<CompactSelection>({});
+  // Toggle hiển thị mũi tên cha-con trong Pivot view
+  const [showArrows, setShowArrows] = useState(false);
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -185,6 +189,19 @@ export default function RebateManagementPage() {
     }));
   };
 
+  // Cascade reset: khi đổi select ở level N, xoá selection từ level N trở xuống
+  const handleCascadeReset = (rootId: string, fromLevel: number) => {
+    setCompactSelection(prev => {
+      const rootSel = prev[rootId];
+      if (!rootSel) return prev;
+      const next: Record<number, string> = {};
+      for (const [lvl, ibId] of Object.entries(rootSel)) {
+        if (Number(lvl) < fromLevel) next[Number(lvl)] = ibId;
+      }
+      return { ...prev, [rootId]: next };
+    });
+  };
+
   const getAssetConfig = (ibId: string | null | undefined, assetType: AssetType) => {
     if (!ibId) return undefined;
     return configs[ibId]?.assets.find(a => a.assetType === assetType);
@@ -241,6 +258,20 @@ export default function RebateManagementPage() {
               Bảng gọn
             </button>
           </div>
+          {/* Nút toggle mũi tên — chỉ hiện khi đang ở Pivot view */}
+          {viewMode === 'pivot' && (
+            <button
+              onClick={() => setShowArrows(v => !v)}
+              className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
+                showArrows
+                  ? 'border-indigo-400 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                  : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <GitBranch className="h-4 w-4" />
+              {showArrows ? 'Ẩn quan hệ cha-con' : 'Hiện quan hệ cha-con'}
+            </button>
+          )}
           <button
             onClick={handleSaveAll}
             disabled={isSaving || dirtyIbs.size === 0}
@@ -279,10 +310,13 @@ export default function RebateManagementPage() {
                 dirtyIbs={dirtyIbs}
                 handleCellChange={handleCellChange}
                 getMibMaxDisplay={getMibMaxDisplay}
+                parentById={parentById}
+                showArrows={showArrows}
               />
             ) : viewMode === 'compact' ? (
               <CompactPivotTable
                 rootId={root.id}
+                rootIb={root}
                 ibs={ibs}
                 assetTypes={assetTypes}
                 configs={configs}
@@ -293,6 +327,7 @@ export default function RebateManagementPage() {
                 ibNodesById={ibNodesById}
                 selection={compactSelection}
                 onSelectionChange={handleCompactSelectionChange}
+                onCascadeReset={handleCascadeReset}
               />
             ) : (
               <div className="overflow-auto relative">
@@ -419,10 +454,8 @@ export default function RebateManagementPage() {
 }
 
 /**
- * Bảng dạng Google Sheet mẫu: dòng = Asset Type, cột = từng Level trong nhánh MIB,
- * cột cuối = Hệ thống Max (MAX_PIPS, hằng số công ty). Nếu 1 level có nhiều IB cùng
- * cấp (rẽ nhánh), mỗi IB hiện thành 1 ô input nhỏ xếp chồng trong cùng 1 cột, kèm tên
- * để phân biệt — không gộp/ghi đè lẫn nhau.
+ * Bảng dạng Google Sheet mẫu: dòng = Asset Type, cột = từng Level trong nhánh MIB.
+ * Hỗ trợ SVG overlay mũi tên cha-con khi showArrows=true.
  */
 function PivotTable({
   rootId,
@@ -432,6 +465,8 @@ function PivotTable({
   dirtyIbs,
   handleCellChange,
   getMibMaxDisplay,
+  parentById,
+  showArrows,
 }: {
   rootId: string;
   ibs: IbTreeNode[];
@@ -440,14 +475,35 @@ function PivotTable({
   dirtyIbs: Set<string>;
   handleCellChange: (ibId: string, assetType: AssetType, value: string) => void;
   getMibMaxDisplay: (mibId: string, assetType: AssetType) => number | null;
+  parentById: Record<string, string | null>;
+  showArrows: boolean;
 }) {
   const t = useTranslations('RebateManagement');
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [hoveredIbId, setHoveredIbId] = useState<string | null>(null);
+
   const maxLevel = ibs.reduce((max, ib) => Math.max(max, ib.level), 0);
   const levels = Array.from({ length: maxLevel }, (_, i) => i + 1);
   const ibsByLevel = (lvl: number) => ibs.filter(ib => ib.level === lvl);
 
+  // Tập hợp cặp cha-con trực tiếp để vẽ arrow
+  const parentChildPairs = useMemo(() => {
+    return ibs
+      .filter(ib => parentById[ib.id] !== null && parentById[ib.id] !== undefined)
+      .map(ib => ({ parentId: parentById[ib.id]!, childId: ib.id }))
+      // Chỉ vẽ quan hệ cha-con nội bộ trong subtree này (cha cũng phải trong ibs hoặc là root)
+      .filter(({ parentId }) => ibs.some(n => n.id === parentId) || parentId === rootId);
+  }, [ibs, parentById, rootId]);
+
   return (
-    <div className="overflow-auto relative">
+    <div ref={containerRef} className="overflow-auto relative">
+      {/* SVG Arrow Overlay — chỉ render khi showArrows=true */}
+      <PivotArrowOverlay
+        enabled={showArrows}
+        parentChildPairs={parentChildPairs}
+        containerRef={containerRef}
+        hoveredIbId={hoveredIbId}
+      />
       <table className="w-full text-sm text-left border-collapse">
         <thead className="bg-slate-50 text-slate-700 font-semibold sticky top-0 z-20 shadow-sm">
           <tr>
@@ -493,7 +549,14 @@ function PivotTable({
                         const isExceeding = assetConfig.rebatePips > assetConfig.maxPips;
                         const isDirty = dirtyIbs.has(ib.id);
                         return (
-                          <div key={ib.id} className="flex flex-col items-center">
+                          <div
+                            key={ib.id}
+                            className="flex flex-col items-center"
+                            // data-arrow-id: dùng bởi PivotArrowOverlay để tìm DOM element
+                            data-arrow-id={ib.id}
+                            onMouseEnter={() => setHoveredIbId(ib.id)}
+                            onMouseLeave={() => setHoveredIbId(null)}
+                          >
                             <input
                               type="text"
                               value={rawValue}
