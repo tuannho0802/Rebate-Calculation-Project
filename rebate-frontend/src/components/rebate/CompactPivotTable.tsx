@@ -207,21 +207,48 @@ export function CompactPivotTable({
                   {asset}
                 </td>
 
-                {/* Col MIB: read-only ceiling */}
-                <td className="px-4 py-3 text-center">
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span className={`text-sm font-bold ${isOverride ? 'text-amber-700' : 'text-indigo-600'}`}>
-                      {mibMax ?? '—'}
-                    </span>
-                    {isOverride && (
-                      <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700">
-                        {t('overrideBadge')}
-                      </span>
-                    )}
-                    {!isOverride && (
-                      <span className="text-[10px] text-gray-400">company max</span>
-                    )}
-                  </div>
+                {/* Col MIB: editable rebatePips + Max label — cùng pattern cột IB */}
+                <td className="px-3 py-2 text-center">
+                  {(() => {
+                    const mibConfig = configs[rootId];
+                    if (!mibConfig) {
+                      return <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300" />;
+                    }
+                    const mibAssetConfig = mibConfig.assets.find(a => a.assetType === asset);
+                    if (!mibAssetConfig) {
+                      return <span className="text-gray-300 text-xs">—</span>;
+                    }
+                    const mibRaw =
+                      (mibAssetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput !== undefined
+                        ? (mibAssetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput!
+                        : String(mibAssetConfig.rebatePips);
+                    const mibExceeding = mibAssetConfig.rebatePips > mibAssetConfig.maxPips;
+                    const mibIsDirty = dirtyIbs.has(rootId);
+                    return (
+                      <div className="flex flex-col items-center gap-0.5">
+                        <input
+                          type="text"
+                          value={mibRaw}
+                          onChange={e => handleCellChange(rootId, asset, e.target.value)}
+                          title={rootIb.name ?? rootIb.email ?? rootId}
+                          className={[
+                            'w-full max-w-[80px] text-center px-2 py-1 text-sm border rounded',
+                            'focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors',
+                            mibExceeding
+                              ? 'border-red-400 bg-red-50 text-red-700'
+                              : mibIsDirty
+                                ? 'border-amber-300 bg-amber-50/40'
+                                : 'border-gray-200',
+                          ].join(' ')}
+                        />
+                        <span className={`text-[10px] ${mibExceeding ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
+                          {mibAssetConfig.maxPips === 0
+                            ? t('parentNotAllocated')
+                            : t('maxLabel', { max: mibAssetConfig.maxPips })}
+                        </span>
+                      </div>
+                    );
+                  })()}
                 </td>
 
                 {/* Col Level N — chỉ hiển thị ô input của selectedIbId */}

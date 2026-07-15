@@ -260,6 +260,88 @@ describe('RebateService — cascadeMaxPipsToSubtree (công thức mới)', () =>
       })
     );
   });
+
+  // ─── (e) MIB làm root cascade: MIB maxPips=12 rebatePips=3 → L1 maxPips=9 ──
+  it('(e) MIB làm root: MIB maxPips=12 rebatePips=3 → Level 1 maxPips=9', async () => {
+    const MIB_ID = 'mib-1';
+    const LV1_ID = 'lv1-1';
+    const ASSET = AssetType.D_FOREX;
+    const REBATE_TYPE = 'STP_REBATE';
+
+    const configDB: Record<string, { maxPips: number; rebatePips: number }> = {
+      [MIB_ID]: { maxPips: 12, rebatePips: 3 }, // admin sửa MIB rebatePips 2→3
+      [LV1_ID]: { maxPips: 0, rebatePips: 2 },
+    };
+
+    prisma.$queryRaw.mockResolvedValue([node(LV1_ID, MIB_ID, 1)]);
+
+    const upsertCalls: any[] = [];
+    prisma.rebateConfig.upsert.mockImplementation((args) => {
+      upsertCalls.push(args);
+      const ibId = args.where.ibId_assetType_rebateType?.ibId;
+      if (ibId && args.update?.maxPips !== undefined) {
+        configDB[ibId] = { ...configDB[ibId], maxPips: args.update.maxPips };
+      }
+      return Promise.resolve({ ibId, ...args.update });
+    });
+
+    prisma.rebateConfig.findUnique.mockImplementation(({ where }) => {
+      const ibId = where.ibId_assetType_rebateType?.ibId;
+      const data = configDB[ibId];
+      return Promise.resolve(data ? cfg(ibId, data.maxPips, data.rebatePips) : null);
+    });
+
+    await (service as any).cascadeMaxPipsToSubtree(MIB_ID, ASSET, REBATE_TYPE, 'admin-id');
+
+    const lv1Upsert = upsertCalls.find(c => c.where.ibId_assetType_rebateType?.ibId === LV1_ID);
+    expect(lv1Upsert).toBeDefined();
+    expect(lv1Upsert.update.maxPips).toBe(9); // 12 - 3 = 9
+  });
+
+  // ─── (f) 1 MIB, 2 nhánh Lv1 độc lập: rebatePips=3 → cả 2 Lv1 maxPips=9 ──
+  it('(f) 1 MIB 2 nhánh Lv1 độc lập: rebatePips(MIB)=3 → cả 2 con maxPips=9, không phụ thuộc rebatePips nhau', async () => {
+    const MIB_ID = 'mib-1';
+    const LV1_A = 'lv1-a';
+    const LV1_B = 'lv1-b';
+    const ASSET = AssetType.D_FOREX;
+    const REBATE_TYPE = 'STP_REBATE';
+
+    const configDB: Record<string, { maxPips: number; rebatePips: number }> = {
+      [MIB_ID]: { maxPips: 12, rebatePips: 3 }, // MIB giữ 3
+      [LV1_A]: { maxPips: 0, rebatePips: 2 },   // nhánh A: cha giữ khác nhánh B
+      [LV1_B]: { maxPips: 0, rebatePips: 5 },   // nhánh B: rebatePips riêng biệt
+    };
+
+    prisma.$queryRaw.mockResolvedValue([
+      node(LV1_A, MIB_ID, 1),
+      node(LV1_B, MIB_ID, 1),
+    ]);
+
+    const upsertCalls: any[] = [];
+    prisma.rebateConfig.upsert.mockImplementation((args) => {
+      upsertCalls.push(args);
+      const ibId = args.where.ibId_assetType_rebateType?.ibId;
+      if (ibId && args.update?.maxPips !== undefined) {
+        configDB[ibId] = { ...configDB[ibId], maxPips: args.update.maxPips };
+      }
+      return Promise.resolve({ ibId, ...args.update });
+    });
+
+    prisma.rebateConfig.findUnique.mockImplementation(({ where }) => {
+      const ibId = where.ibId_assetType_rebateType?.ibId;
+      const data = configDB[ibId];
+      return Promise.resolve(data ? cfg(ibId, data.maxPips, data.rebatePips) : null);
+    });
+
+    await (service as any).cascadeMaxPipsToSubtree(MIB_ID, ASSET, REBATE_TYPE, 'admin-id');
+
+    const lv1aUpsert = upsertCalls.find(c => c.where.ibId_assetType_rebateType?.ibId === LV1_A);
+    const lv1bUpsert = upsertCalls.find(c => c.where.ibId_assetType_rebateType?.ibId === LV1_B);
+
+    // Cả 2 nhánh nhận remaining của MIB (12 - 3 = 9), bất kể rebatePips riêng
+    expect(lv1aUpsert.update.maxPips).toBe(9);
+    expect(lv1bUpsert.update.maxPips).toBe(9);
+  });
 });
 
 // ─── setMibMaxOverride integration (mock DB) ──────────────────────────────────
