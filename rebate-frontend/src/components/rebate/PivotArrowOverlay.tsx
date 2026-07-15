@@ -1,46 +1,48 @@
 'use client';
 
 /**
- * PivotArrowOverlay — SVG overlay vẽ đường bezier nối ô cha-con trong PivotTable.
+ * PivotArrowOverlay — SVG overlay vẽ đường thẳng nối input cha-con trong PivotTable.
  *
- * Cách hoạt động:
- *   - Nhận data-arrow-id attribute từ các input cell trong PivotTable.
- *   - Khi toggle BẬT: đọc getBoundingClientRect() của từng cặp cha-con,
- *     vẽ cubic bezier nối cạnh phải ô cha → cạnh trái ô con.
- *   - Khi toggle TẮT: return null — không tính toán gì cả.
- *   - Vẽ lại qua ResizeObserver + scroll listener trên containerRef.
- *   - Hover: đường nối liên quan tới node đang hover tăng opacity + stroke-width.
+ * THIẾT KẾ KHÔNG TRỄ KHI SCROLL:
+ *   - SVG có kích thước = scrollWidth × scrollHeight của container (toàn bộ nội dung).
+ *   - Tọa độ tính theo hệ tọa độ NỘI DUNG (cộng scrollLeft/scrollTop) — cố định, không
+ *     phụ thuộc scroll offset tại thời điểm tính.
+ *   - SVG cuộn cùng bảng như 1 DOM element bình thường → không cần JS can thiệp scroll.
+ *   - KHÔNG có scroll listener → không có độ trễ 1 frame khi cuộn.
+ *   - GIỮ ResizeObserver: tính lại khi resize cửa sổ hoặc bảng đổi kích thước.
+ *   - data-arrow-id gắn trên <input> (không phải div bọc ngoài) → điểm neo đúng giữa input.
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { IbTreeNode } from '@/types';
 
 interface Arrow {
+  key: string;
   parentId: string;
   childId: string;
-  // Coordinates relative to container
-  x1: number; y1: number; // exit point cha (right-center)
-  x2: number; y2: number; // entry point con (left-center)
+  assetType: string;
+  // Tọa độ trong hệ tọa độ NỘI DUNG ĐẦY ĐỦ (không đổi khi scroll)
+  x1: number; y1: number;
+  x2: number; y2: number;
 }
 
 interface PivotArrowOverlayProps {
-  /** Có đang hiển thị overlay không */
   enabled: boolean;
-  /** Danh sách cặp cha-con cần vẽ (parentId, childId) */
   parentChildPairs: Array<{ parentId: string; childId: string }>;
-  /** containerRef của div bọc ngoài PivotTable */
+  assetTypes: string[];
   containerRef: React.RefObject<HTMLDivElement | null>;
-  /** ibId đang hover (từ PivotTable truyền xuống) */
-  hoveredIbId: string | null;
+  hoveredArrowKey: string | null;
 }
 
 export function PivotArrowOverlay({
   enabled,
   parentChildPairs,
+  assetTypes,
   containerRef,
-  hoveredIbId,
+  hoveredArrowKey,
 }: PivotArrowOverlayProps) {
-  const [arrows, setArrows] = useState<Arrow[]>([]);
+  const [arrows, setArrows]   = useState<Arrow[]>([]);
+  // Kích thước toàn bộ nội dung có thể cuộn — để SVG trải rộng đủ
+  const [svgSize, setSvgSize] = useState({ w: 0, h: 0 });
   const rafRef = useRef<number | null>(null);
 
   const recompute = useCallback(() => {
@@ -48,43 +50,48 @@ export function PivotArrowOverlay({
       setArrows([]);
       return;
     }
-    const containerRect = containerRef.current.getBoundingClientRect();
+
+    const container = containerRef.current;
+    const contRect  = container.getBoundingClientRect();
+
+    // Cập nhật kích thước SVG = toàn bộ nội dung scrollable
+    setSvgSize({ w: container.scrollWidth, h: container.scrollHeight });
 
     const computed: Arrow[] = [];
 
-    for (const { parentId, childId } of parentChildPairs) {
-      // Tìm DOM element cho cha và con — dùng data-arrow-id attribute
-      const parentEl = containerRef.current.querySelector<HTMLElement>(
-        `[data-arrow-id="${parentId}"]`,
-      );
-      const childEl = containerRef.current.querySelector<HTMLElement>(
-        `[data-arrow-id="${childId}"]`,
-      );
-      if (!parentEl || !childEl) continue;
+    for (const assetType of assetTypes) {
+      for (const { parentId, childId } of parentChildPairs) {
+        // data-arrow-id gắn trên <input> → querySelector trả về chính input element
+        const parentInput = container.querySelector<HTMLElement>(
+          `[data-arrow-id="${parentId}__${assetType}"]`,
+        );
+        const childInput = container.querySelector<HTMLElement>(
+          `[data-arrow-id="${childId}__${assetType}"]`,
+        );
+        if (!parentInput || !childInput) continue;
 
-      const pr = parentEl.getBoundingClientRect();
-      const cr = childEl.getBoundingClientRect();
+        const pr = parentInput.getBoundingClientRect();
+        const cr = childInput.getBoundingClientRect();
 
-      // Exit point: right-center của cha
-      const x1 = pr.right - containerRect.left;
-      const y1 = pr.top + pr.height / 2 - containerRect.top;
-      // Entry point: left-center của con
-      const x2 = cr.left - containerRect.left;
-      const y2 = cr.top + cr.height / 2 - containerRect.top;
+        // Chuyển từ tọa độ viewport → tọa độ nội dung (cộng scroll offset)
+        // Công thức: cellRect.left - contRect.left + container.scrollLeft
+        // → "hoàn tác" scroll hiện tại, ra tọa độ cố định trong hệ nội dung
+        const x1 = pr.right  - contRect.left + container.scrollLeft;
+        const y1 = pr.top    - contRect.top  + container.scrollTop + pr.height / 2;
+        const x2 = cr.left   - contRect.left + container.scrollLeft;
+        const y2 = cr.top    - contRect.top  + container.scrollTop + cr.height / 2;
 
-      // Chỉ vẽ nếu cả 2 ô đang visible trong viewport (không bị scroll ra ngoài)
-      if (
-        pr.bottom < containerRect.top || pr.top > containerRect.bottom ||
-        cr.bottom < containerRect.top || cr.top > containerRect.bottom
-      ) continue;
-
-      computed.push({ parentId, childId, x1, y1, x2, y2 });
+        computed.push({
+          key: `${parentId}--${childId}--${assetType}`,
+          parentId, childId, assetType,
+          x1, y1, x2, y2,
+        });
+      }
     }
 
     setArrows(computed);
-  }, [enabled, parentChildPairs, containerRef]);
+  }, [enabled, parentChildPairs, assetTypes, containerRef]);
 
-  // Schedule recompute via rAF to batch with layout
   const scheduleRecompute = useCallback(() => {
     if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
@@ -96,86 +103,72 @@ export function PivotArrowOverlay({
   useEffect(() => {
     if (!enabled) {
       setArrows([]);
+      setSvgSize({ w: 0, h: 0 });
       return;
     }
 
-    // Initial compute
     scheduleRecompute();
 
     const container = containerRef.current;
     if (!container) return;
 
-    // ResizeObserver: vẽ lại khi container thay đổi kích thước
+    // ResizeObserver: tính lại khi bảng hoặc cửa sổ thay đổi kích thước
     const ro = new ResizeObserver(scheduleRecompute);
     ro.observe(container);
-
-    // Scroll listener: vẽ lại khi scroll trong container hoặc window
-    container.addEventListener('scroll', scheduleRecompute, { passive: true });
-    window.addEventListener('scroll', scheduleRecompute, { passive: true });
     window.addEventListener('resize', scheduleRecompute, { passive: true });
+
+    // KHÔNG có scroll listener — SVG cuộn cùng nội dung, không cần recompute khi scroll
 
     return () => {
       ro.disconnect();
-      container.removeEventListener('scroll', scheduleRecompute);
-      window.removeEventListener('scroll', scheduleRecompute);
       window.removeEventListener('resize', scheduleRecompute);
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
   }, [enabled, scheduleRecompute, containerRef]);
 
-  // Khi toggle TẮT → không render gì
   if (!enabled) return null;
 
   return (
     <svg
-      className="absolute inset-0 pointer-events-none overflow-visible"
-      style={{ zIndex: 5 }}
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        // Trải rộng đủ toàn bộ nội dung — cuộn cùng bảng, không cố định viewport
+        width:  svgSize.w || '100%',
+        height: svgSize.h || '100%',
+        pointerEvents: 'none',
+        zIndex: 5,
+        overflow: 'visible',
+      }}
       aria-hidden="true"
     >
       <defs>
-        {/* Arrow marker — filled indigo */}
-        <marker
-          id="arrow-default"
-          markerWidth="6"
-          markerHeight="6"
-          refX="5"
-          refY="3"
-          orient="auto"
-        >
-          <polygon points="0 0, 6 3, 0 6" fill="#6366f1" fillOpacity={0.3} />
+        <marker id="pivot-arrow-dim" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+          <polygon points="0 0, 6 3, 0 6" fill="#6366f1" fillOpacity={0.35} />
         </marker>
-        <marker
-          id="arrow-hover"
-          markerWidth="6"
-          markerHeight="6"
-          refX="5"
-          refY="3"
-          orient="auto"
-        >
+        <marker id="pivot-arrow-bright" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
           <polygon points="0 0, 6 3, 0 6" fill="#6366f1" />
         </marker>
       </defs>
 
-      {arrows.map(({ parentId, childId, x1, y1, x2, y2 }) => {
+      {arrows.map(({ key, parentId, childId, assetType, x1, y1, x2, y2 }) => {
+        // Highlight chỉ đường trong đúng hàng asset đang hover (không lan hàng khác)
         const isHighlighted =
-          hoveredIbId !== null &&
-          (hoveredIbId === parentId || hoveredIbId === childId);
-
-        // Cubic bezier control points: horizontal tension proportional to distance
-        const dx = Math.abs(x2 - x1);
-        const tension = Math.max(40, dx * 0.4);
-        const cx1 = x1 + tension;
-        const cx2 = x2 - tension;
+          hoveredArrowKey !== null && (
+            hoveredArrowKey === `${parentId}__${assetType}` ||
+            hoveredArrowKey === `${childId}__${assetType}`
+          );
 
         return (
           <path
-            key={`${parentId}--${childId}`}
-            d={`M ${x1},${y1} C ${cx1},${y1} ${cx2},${y2} ${x2},${y2}`}
+            key={key}
+            d={`M ${x1},${y1} L ${x2},${y2}`}
             fill="none"
             stroke="#6366f1"
             strokeWidth={isHighlighted ? 2.5 : 1.5}
             strokeOpacity={isHighlighted ? 1 : 0.2}
-            markerEnd={isHighlighted ? 'url(#arrow-hover)' : 'url(#arrow-default)'}
+            markerEnd={isHighlighted ? 'url(#pivot-arrow-bright)' : 'url(#pivot-arrow-dim)'}
             style={{ transition: 'stroke-opacity 0.15s, stroke-width 0.15s' }}
           />
         );

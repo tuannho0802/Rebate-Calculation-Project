@@ -480,7 +480,8 @@ function PivotTable({
 }) {
   const t = useTranslations('RebateManagement');
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [hoveredIbId, setHoveredIbId] = useState<string | null>(null);
+  // Composite key hoveredArrowKey = "${ib.id}__${assetType}" — chỉ highlight đúng hàng đang hover
+  const [hoveredArrowKey, setHoveredArrowKey] = useState<string | null>(null);
 
   const maxLevel = ibs.reduce((max, ib) => Math.max(max, ib.level), 0);
   const levels = Array.from({ length: maxLevel }, (_, i) => i + 1);
@@ -501,8 +502,9 @@ function PivotTable({
       <PivotArrowOverlay
         enabled={showArrows}
         parentChildPairs={parentChildPairs}
+        assetTypes={assetTypes}
         containerRef={containerRef}
-        hoveredIbId={hoveredIbId}
+        hoveredArrowKey={hoveredArrowKey}
       />
       <table className="w-full text-sm text-left border-collapse">
         <thead className="bg-slate-50 text-slate-700 font-semibold sticky top-0 z-20 shadow-sm">
@@ -552,15 +554,16 @@ function PivotTable({
                           <div
                             key={ib.id}
                             className="flex flex-col items-center"
-                            // data-arrow-id: dùng bởi PivotArrowOverlay để tìm DOM element
-                            data-arrow-id={ib.id}
-                            onMouseEnter={() => setHoveredIbId(ib.id)}
-                            onMouseLeave={() => setHoveredIbId(null)}
+                            onMouseEnter={() => setHoveredArrowKey(`${ib.id}__${asset}`)}
+                            onMouseLeave={() => setHoveredArrowKey(null)}
                           >
                             <input
                               type="text"
                               value={rawValue}
                               onChange={(e) => handleCellChange(ib.id, asset, e.target.value)}
+                              // data-arrow-id trực tiếp trên <input> → getBoundingClientRect()
+                              // trả về đúng kích thước input, điểm neo y nằm giữa input thật
+                              data-arrow-id={`${ib.id}__${asset}`}
                               className={`w-full max-w-[80px] text-center px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors ${isExceeding ? 'border-red-400 bg-red-50 text-red-700' : isDirty ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'
                                 }`}
                             />
