@@ -4,6 +4,8 @@
 > Frontend dựa vào mã code này để map ra câu thông báo tiếng Việt tương ứng.
 
 ## Changelog
+- **2026-07-15 (setMibMaxOverride — đối chiếu `rebate.service.ts` thật)**:
+  - Bổ sung 2 mã lỗi mới từ `setMibMaxOverride()`: `NOT_A_MIB` (400) và `MAX_OVERRIDE_INVALID` (422). Cả hai đã có trong code từ 2026-07-14 nhưng chưa ghi vào docs.
 - **2026-07-14 (cập nhật lần 2 — đối chiếu trực tiếp source code BE)**:
   - Bổ sung ~30 mã lỗi thực tế có trong code nhưng chưa từng được ghi vào docs (grep toàn bộ
     `rebate-backend/src`, xem bảng nguồn `file:dòng` bên dưới).
@@ -96,6 +98,8 @@
 | `MARKUP_INVALID` | 422 | Giá trị markup không hợp lệ | "Giá trị markup không hợp lệ" | `rebate.service.ts:174` |
 | `MARKUP_EXCEEDS_MAX` | 422 | Markup vượt quá giới hạn | "Markup vượt quá giới hạn cho phép" | `rebate.service.ts:189` |
 | `CONFIG_NOT_FOUND` | 404 | Không tìm thấy cấu hình (context khác `REBATE_CONFIG_NOT_FOUND`, kiểm tra lại vị trí gọi) | "Không tìm thấy cấu hình" | `rebate.service.ts:366` |
+| `NOT_A_MIB` | 400 | `mibId` truyền vào không phải MIB (level ≠ 0) — chỉ MIB được set trần tuỳ chỉnh | "Chỉ MIB (level 0) mới được set trần tuỳ chỉnh" | `rebate.service.ts:365` |
+| `MAX_OVERRIDE_INVALID` | 422 | Trần tuỳ chỉnh (`maxPips`) không hợp lệ: `< 0` hoặc `> MAX_PIPS[assetType]` (trần công ty) | "Trần tuỳ chỉnh không hợp lệ (phải ≥ 0 và ≤ trần công ty)" | `rebate.service.ts:373,381` |
 
 > ⚠️ **`REBATE_ASSET_INVALID` đã bị loại bỏ khỏi docs** — không có trong code.
 > `assetType` sai được chặn bởi `@IsEnum(AssetType)` → trả `VALIDATION_ERROR` (422).
@@ -214,6 +218,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   MARKUP_INVALID:               "Giá trị markup không hợp lệ",
   MARKUP_EXCEEDS_MAX:           "Markup vượt quá giới hạn cho phép",
   CONFIG_NOT_FOUND:             "Không tìm thấy cấu hình",
+  NOT_A_MIB:                    "Chỉ MIB (level 0) mới được set trần tuỳ chỉnh",
+  MAX_OVERRIDE_INVALID:         "Trần tuỳ chỉnh không hợp lệ (phải >= 0 và <= trần công ty)",
 
   // Transaction
   TRANSACTION_NOT_FOUND:        "Không tìm thấy giao dịch",

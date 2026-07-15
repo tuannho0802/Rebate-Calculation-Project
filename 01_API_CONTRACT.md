@@ -8,6 +8,9 @@
   - Ghi rõ ràng vào docs: `PUT /rebate/config/mib/:mibId/max-override` giờ validate `maxPips <= MAX_PIPS[assetType]` (trần công ty). Trước đây không có giới hạn này. `MAX_OVERRIDE_INVALID` (422) nếu vượt.
   - Ghi rõ: `maxPips` trong response `GET /rebate/config/:ibId` hiện phản ánh công thức cascade mới: `maxPips(con) = max(0, parent.maxPips - parent.rebatePips)`. Con trực tiếp của MIB nhận `maxPips = mibMaxPips - mibRebatePips` (không còn bị giữ nguyên 0 như trước).
   - Xoá ghi chú cũ "markupPips=0 của MIB gây label sai" — đã fix ở FE layer, không liên quan BE API.
+- **2026-07-15 (bulkUpdateConfig — race condition fix)**:
+  - `PUT /rebate/config/bulk` giờ **SORT items theo `level ASC`** (parent trước child) trước khi loop qua `updateConfig()`. Đảm bảo khi nhiều item cùng 1 subtree, cascade đọc `maxPips`/`rebatePips` mới nhất của parent (không còn stale-read). Mỗi item vẫn độc lập (partial success) như cũ.
+  - Mã lỗi mới từ `setMibMaxOverride()`: `NOT_A_MIB` (400), `MAX_OVERRIDE_INVALID` (422) — xem `06_ERROR_CODES.md`.
 - **2026-07-14 (validation authority + chain view API)**:
   - **Thêm mới**: `GET /ib/:id/tree` cho Chain View, chỉ `ADMIN` được phép dùng để xem cây bắt đầu từ một IB bất kỳ.
   - **Sửa** `POST /ib`: request có thêm field optional `accountTypeTemplateId`.
@@ -228,8 +231,8 @@ Lấy toàn bộ subtree của IB đang đăng nhập (chỉ thấy cấp dướ
 ```
 
 ⚠️ FE nào đang gọi `GET /ib/tree` với ADMIN mà xử lý `data` như 1 object đơn (ví dụ trang
-Rebate Management ở `13_PROMPT_REBATE_MANAGEMENT_AND_ROLE_UI.md`) cần kiểm tra lại và xử lý
-`Array.isArray(data)` trước khi flatten cây.
+Rebate Management ở `rebate-frontend/src/app/[locale]/(dashboard)/dashboard/rebate-management/page.tsx`)
+cần kiểm tra lại và xử lý `Array.isArray(data)` trước khi flatten cây.
 
 ---
 
@@ -387,11 +390,11 @@ Set trần hoa hồng tuỳ chỉnh cho 1 MIB cụ thể theo từng `assetType`
 **Request:**
 ```json
 {
-  "overrides": [
+   "overrides": [
     {
       "assetType": "D_FOREX",
       "rebateType": "STP_REBATE",
-      "maxPips": 15
+      "maxPips": 10
     }
   ]
 }
@@ -511,6 +514,10 @@ IB thường gọi nhận `FORBIDDEN_ROLES_ONLY` (403).
 - Mỗi phần tử tái sử dụng nguyên vẹn logic validate + upsert + ghi `RebateConfigHistory` +
   `AuditLog` + `Notification` đã có trong `rebate.service.ts` cho `updateConfig()` — không viết
   lại logic mới, không nới lỏng validate so với PUT đơn lẻ.
+- **Thứ tự xử lý:** `items[]` được **SORT theo `level ASC`** (parent trước child) trước khi loop
+  (fix race condition 2026-07-15). Điều này đảm bảo khi nhiều item cùng một subtree, cascade
+  `cascadeMaxPipsToSubtree()` đọc `maxPips`/`rebatePips` mới nhất của parent (đã ghi xong ở
+  vòng lặp trước) thay vì giá trị cũ — tránh cấp `maxPips` sai cho con.
 - Không thêm mã lỗi mới — tái sử dụng: `REBATE_INVALID`, `REBATE_EXCEEDS_MAX`, `MARKUP_INVALID`,
   `MARKUP_EXCEEDS_MAX`, `REBATE_TARGET_NOT_DIRECT_CHILD`, `IB_NOT_IN_SUBTREE`, `IB_NOT_FOUND`.
 

@@ -1,7 +1,7 @@
-# Nhật Ký Daily Workflows — BACKEND
+# Nhật Ký Daily — BACKEND
 
 > Chỉ được thêm vào. Không được sửa hay xóa bất kỳ entry nào.
-> Định dạng được quy định trong docs/10_DAILY_WORKFLOWS_GUIDE.md.
+> Định dạng được quy định trong 10_DAILY_LOG_AGENT.md.
 > Một entry cho mỗi phiên làm việc của agent. Thêm entry mới xuống cuối.
 
 ---
@@ -703,4 +703,26 @@ oles.guard.ts — phân quyền theo role (ADMIN/IB), dùng @Roles('ADMIN') deco
 - [x] Không có chức năng cũ nào bị hỏng (8/8 unit tests pass)
 - [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
 - [x] Các type vẫn khớp với 02_DATA_MODELS.md
+---
+
+---
+## [2026-07-15] — Phần: BACKEND (Documentation Overhaul — cross-cutting)
+
+### Phiên Làm Việc
+- Agent: Kilo (docs audit)
+- Yêu cầu từ: Rà soát & cập nhật TOÀN BỘ tài liệu .md theo code thật — cascade formula mới, race condition bulkUpdateConfig, CompactPivotTable, PivotArrowOverlay, phát hiện accountType/template disconnect.
+
+### Đã Cập Nhật (docs)
+- `10_DAILY_LOG_AGENT.md` + `rebate-backend/DAILY_LOGS.md` + `rebate-frontend/DAILY_LOGS.md`: gộp khái niệm "Daily Workflows" → "Daily Log". File `10_DAILY_WORKFLOWS_GUIDE.md` / `11_DAILY_LOG_AGENT.MD` / `DAILY_WORKFLOWS.md` **KHÔNG tồn tại** trong repo hiện tại — cấu trúc log đã đúng: rules ở `10_DAILY_LOG_AGENT.md`, entries ở `DAILY_LOGS.md` backend/frontend.
+- `01_API_CONTRACT.md`, `02_DATA_MODELS.md`, `04_BACKEND_GUIDE.md`, `05_FRONTEND_GUIDE.md`, `06_ERROR_CODES.md`, `09_CODE_STANDARDS.md`, `12_PROJECT_STRUCTURE_ANALYSIS.md`: cập nhật theo code thật.
+
+### Ghi Chú — Tóm tắt trạng thái hệ thống 2026-07-15
+- Cascade formula mới (đã deploy): `maxPips(con) = max(0, parent.maxPips - parent.rebatePips)` — **DUY NHẤT**, cả `setMibMaxOverride()` và `updateConfig()` gọi chung `cascadeMaxPipsToSubtree()`. (Chi tiết entry 2026-07-15 của Kiro.)
+- Race condition `bulkUpdateConfig`: items được **SORT theo `level ASC`** (parent trước child) trước khi loop → cascade đọc `maxPips`/`rebatePips` mới nhất của parent, không còn stale-read khi nhiều item cùng 1 subtree.
+- `PUT /rebate/config/mib/:mibId/max-override` giờ validate `maxPips <= MAX_PIPS[assetType]` (MAX_OVERRIDE_INVALID 422).
+- Mã lỗi mới: `NOT_A_MIB` (400), `MAX_OVERRIDE_INVALID` (422) — đã bổ sung vào `06_ERROR_CODES.md`.
+
+### Trạng Thái
+- [x] Tài liệu đã đồng bộ với code thật (append-only, không xóa entry cũ)
+- [x] Không có code nào bị thay đổi trong phiên docs này
 ---

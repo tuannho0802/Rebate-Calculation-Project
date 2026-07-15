@@ -6,6 +6,9 @@
 > Tập hợp các quy ước code chung cho dự án, rút ra từ quá trình review và fix lỗi.
 
 ## Changelog
+- **2026-07-15**:
+  - Xác nhận lại **4 try-catch vi phạm** (jwt-auth.guard, subtree.guard, auth.service, rebate.controller) **vẫn còn tồn tại** (chưa sửa) — chuyển sang mục Technical Debt A.
+  - Thêm mục nợ kỹ thuật mới **B.5**: `ib_nodes.accountType` **không có FK** tới `account_type_templates`/`markup_link_templates` — rủi ro data integrity, CHƯA xử lý (chờ thiết kế lại).
 - **2026-07-14**:
   - Thêm quy tắc xử lý lỗi trong `try-catch` (không nuốt lỗi âm thầm).
   - Cập nhật danh sách nợ kỹ thuật (Technical Debt Backlog).
@@ -159,12 +162,24 @@ return ib; // leak password hash!
 - Nếu lỗi là **critical** (vd: DB write fail), **phải** rethrow hoặc throw `HttpException` chuẩn.
 - Không dùng `try {}` chỉ để bọc 1 dòng `console.log` rồi `catch { }` rỗng — bỏ hẳn try-catch đó đi là sạch hơn.
 
-### Technical Debt Backlog — Try-Catch cần dọn dẹp
-Các vị trí hiện tại đang vi phạm quy tắc (cần sửa trong sprint sau):
+### Technical Debt Backlog
+
+#### A. Try-Catch cần dọn dẹp (vi phạm quy tắc §4)
+> **Trạng thái 2026-07-15:** CẢ 4 vị trí **vẫn còn tồn tại** (xác nhận qua code thật + backend `DAILY_LOGS.md` entry 2026-07-15), chưa sửa.
+
 1. `src/common/guards/jwt-auth.guard.ts` dòng 13 — catch lỗi của chính `console.warn`
 2. `src/common/guards/subtree.guard.ts` dòng 27, 53, 76 — catch bọc quanh logging
 3. `src/modules/auth/auth.service.ts` dòng 93 — nuốt lỗi khi logout (deleteMany RT)
 4. `src/modules/rebate/rebate.controller.ts` dòng 30, 53 — catch bọc quanh `console.log`
+
+> Pattern tương tự cũng có ở FE: `lib/api/rebate.ts` (try/catch bọc `console.log`). Nên dọn dẹp chung.
+
+#### B. Data Integrity / Thiết kế (rủi ro đã biết, CHƯA xử lý)
+5. **`ib_nodes.accountType` KHÔNG có Foreign Key** tới `account_type_templates` hay
+   `markup_link_templates` (chỉ là `String @default("Markup 0%")`). Nếu MIB đổi tên template,
+   `accountType` của sub-IB không tự cập nhật → dữ liệu lệch. **Cần quyết định thiết kế lại**
+   (vd: thêm FK, hoặc bỏ hẳn field này và đọc template từ relation) trước khi xử lý.
+   Backlink: `02_DATA_MODELS.md` (model `IbNode`) và `12_PROJECT_STRUCTURE_ANALYSIS.md` (bảng Rủi ro R6).
 
 ---
 

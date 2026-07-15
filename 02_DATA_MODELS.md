@@ -4,8 +4,10 @@
 > FE copy vào `src/types/`, BE dùng làm Prisma schema reference.
 
 ## Changelog
-- **2026-07-15**:
-  - Schema Prisma **không thay đổi** kể từ 2026-07-14 (không migration mới).
+- **2026-07-15 (bổ sung — cross-reference)**:
+  - Schema Prisma **vẫn không đổi** (xác nhận qua `prisma/schema.prisma` thật — không migration mới kể từ `20260714031045_add_root_admin_flag`).
+  - Shared FE types dùng cho `PUT /rebate/config/bulk` (định nghĩa tại `rebate-frontend/src/types/index.ts`, chưa liệt kê ở block types bên dưới): `BulkUpdateResult { ibId, success, config?, error? }` và `BulkUpdateResponse { results: BulkUpdateResult[], successCount, failCount }`. FE gửi `items: { ibId, assets }[]` (shape khớp `BulkUpdateRebateItemDto` ở BE).
+  - `IbNode.accountType` vẫn là `String` **không FK** (rủi ro đã ghi chú tại model + `09_CODE_STANDARDS.md` § Technical Debt Backlog).
   - **Bổ sung ghi chú rủi ro dữ liệu** tại định nghĩa `IbNode.accountType` (xem block `⚠️` ngay dưới field trong model `IbNode` bên dưới).
   - Backlink: mục Technical Debt tương ứng trong `09_CODE_STANDARDS.md` § Technical Debt Backlog.
 - **2026-07-14 (cập nhật lần 2 — đối chiếu trực tiếp `schema.prisma` thật)**:

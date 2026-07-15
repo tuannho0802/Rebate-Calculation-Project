@@ -1,7 +1,7 @@
-# Nhật Ký Daily Workflows — FRONTEND
+# Nhật Ký Daily — FRONTEND
 
 > Chỉ được thêm vào. Không được sửa hay xóa bất kỳ entry nào.
-> Định dạng được quy định trong docs/10_DAILY_WORKFLOWS_GUIDE.md.
+> Định dạng được quy định trong 10_DAILY_LOG_AGENT.md.
 > Một entry cho mỗi phiên làm việc của agent. Thêm entry mới xuống cuối.
 
 ---
@@ -571,4 +571,26 @@
 - [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
 - [x] Các type vẫn khớp với 02_DATA_MODELS.md
 - [x] FE tests: 5/5 PASS (Vitest)
+---
+
+---
+## [2026-07-15] — Phần: FRONTEND (Documentation Overhaul — cross-cutting)
+
+### Phiên Làm Việc
+- Agent: Kilo (docs audit)
+- Yêu cầu từ: Cập nhật docs theo code thật — 3 views rebate-management, CompactPivotTable, PivotArrowOverlay, rủi ro accountType FK.
+
+### Đã Cập Nhật (docs)
+- `05_FRONTEND_GUIDE.md`: cập nhật cấu trúc thư mục thực tế (`[locale]/(dashboard)/dashboard/...`, `lib/nav-config.ts`, `CompactPivotTable.tsx`, `PivotArrowOverlay.tsx`), mô tả 3 view (Flat/Pivot/Compact) + bulk API.
+- `12_PROJECT_STRUCTURE_ANALYSIS.md`: rewrite BACKEND MODULES (thêm `PUT /rebate/config/bulk`, `PUT /rebate/config/mib/:mibId/max-override`), FRONTEND PAGES (thêm `/rebate-management`, `/admin`, `/trash`, `/account`), bảng RỦI RO (thêm accountType FK risk, đánh dấu bulk race-condition đã fix + cascade formula đã fix).
+
+### Ghi Chú — Tóm tắt trạng thái hệ thống 2026-07-15
+- Trang `rebate-management` có 3 view: **Flat** (table), **Pivot** (Google-Sheet, hàng=Asset, cột=Level), **Compact** (Bảng gọn, cascading dependent select). Toggle "Hiện quan hệ cha-con" (GitBranch) chỉ ở Pivot view.
+- `CompactPivotTable.tsx`: `buildColumns()` pure function, `CompactSelection = Record<rootId, Record<level, ibId>>`, cột Level N+1 chỉ liệt kê **con trực tiếp** của node đang chọn ở Level N.
+- `PivotArrowOverlay.tsx`: SVG overlay, toggle bật/tắt, hệ tọa độ nội dung (cộng `scrollLeft/scrollTop`, **KHÔNG** scroll listener), `data-arrow-id="${ibId}__${assetType}"`, hover key composite (không lan sang hàng khác).
+- **RỦI RO ĐÃ BIẾT (CHƯA XỬ LÝ):** `ib_nodes.accountType` là string tự do, **KHÔNG có FK** tới `account_type_templates`/`markup_link_templates`. (Chi tiết entry 2026-07-15 của Kiro.)
+
+### Trạng Thái
+- [x] Tài liệu đã đồng bộ với code thật
+- [x] Không có code nào bị thay đổi trong phiên docs này
 ---

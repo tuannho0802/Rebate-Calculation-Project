@@ -1,11 +1,16 @@
 # 12 — PHÂN TÍCH CẤU TRÚC TOÀN DỰ ÁN (Project Structure Analysis)
 
-> **Stack:** NestJS (Backend) · NextJS 15 App Router (Frontend) · Prisma ORM · PostgreSQL  
+> **Stack:** NestJS (Backend) · NextJS 16 App Router (Frontend) · Prisma ORM · PostgreSQL  
 > **Môi trường deploy:** Vercel (cả 2 đầu)  
 > **Ngôn ngữ UI:** i18n — `vi` / `en` (next-intl)  
-> **Thời điểm phân tích:** 2026-07-14 (cập nhật)
+> **Thời điểm phân tích:** 2026-07-15 (cập nhật)
 
 ## Changelog
+- **2026-07-15**:
+  - Rewrite **BACKEND MODULES**: bổ sung `PUT /api/rebate/config/bulk` (ADMIN) và `PUT /api/rebate/config/mib/:mibId/max-override` (ADMIN); sửa route templates thành `/api/rebate/ib/:ibId/templates`; thêm `GET /api/ib/:id/tree` (Chain View, ADMIN). Gỡ `PATCH /api/ib/:id/restore` (đã gỡ khỏi BE 2026-07-14).
+  - Rewrite **FRONTEND PAGES**: thêm `/rebate-management` (3 view Flat/Pivot/Compact), `/admin`, `/trash`, `/account`.
+  - Rewrite **RỦI RO**: thêm R6 (`accountType` không FK → templates, CRITICAL data integrity, CHƯA xử lý); đánh dấu R5 cascade đã fix (công thức duy nhất `maxPips(con)=max(0, parent.maxPips-parent.rebatePips)`); bulk race condition đã fix (sort theo level ASC).
+  - FILE TREE: sửa `10_DAILY_WORKFLOWS_GUIDE.md`/`11_DAILY_LOG_AGENT.MD` → `10_DAILY_LOG_AGENT.md` + `DAILY_LOGS.md` (backend/frontend).
 - **2026-07-14**:
   - Thêm module `admin`, `trash` vào FILE TREE và DEPENDENCY MAP.
   - Cập nhật guards mới: `roles.guard.ts`, `self-finance.guard.ts`, `protect-root-admin.guard.ts`.
@@ -28,9 +33,13 @@ Rebate project/                          ← Root workspace
 ├── 07_ENVIRONMENTS.md
 ├── 08_LOCAL_MIGRATION_SEED.md
 ├── 09_CODE_STANDARDS.md
-├── 10_DAILY_WORKFLOWS_GUIDE.md
-├── 11_DAILY_LOG_AGENT.MD
+├── 10_DAILY_LOG_AGENT.md              ← Quy tắc/định dạng cho Nhật Ký Daily (BE + FE)
 ├── 12_PROJECT_STRUCTURE_ANALYSIS.md    ← File này
+│
+├── rebate-backend/
+│   └── DAILY_LOGS.md                   ← Nhật ký Daily BACKEND (chỉ append)
+└── rebate-frontend/
+    └── DAILY_LOGS.md                   ← Nhật ký Daily FRONTEND (chỉ append)
 │
 ├── rebate-backend/                      ★ NestJS Backend
 │   ├── prisma/                          ★ Prisma ORM
@@ -144,8 +153,8 @@ Rebate project/                          ← Root workspace
 | Module | Chức năng nghiệp vụ | Endpoints chính | Bảng DB liên quan |
 |--------|--------------------|-----------------|--------------------|
 | **auth** | Xác thực người dùng, phát hành JWT | `POST /api/auth/login`<br>`POST /api/auth/refresh`<br>`POST /api/auth/logout`<br>`POST /api/auth/change-password` | `ib_nodes`, `refresh_tokens` |
-| **ib** | Quản lý cây phân cấp IB (CRUD + tree) | `GET /api/ib/me`<br>`GET /api/ib/tree`<br>`GET /api/ib/search`<br>`GET /api/ib/leaderboard`<br>`GET /api/ib/:id`<br>`POST /api/ib`<br>`PUT /api/ib/:id`<br>`DELETE /api/ib/:id`<br>`PATCH /api/ib/:id/restore`<br>`GET /api/ib/:id/children`<br>`GET /api/ib/:id/performance`<br>`PATCH /api/ib/:id/reset-password`<br>`GET /api/ib/:id/profile`<br>`PATCH /api/ib/:id/profile` | `ib_nodes`, `rebate_configs`, `rebate_transactions`, `audit_logs`, `notifications` |
-| **rebate** | Cấu hình rebate theo asset, tính toán phân phối cascade | `GET /api/rebate/config/:ibId`<br>`PUT /api/rebate/config/:ibId`<br>`GET /api/rebate/config/:ibId/history`<br>`GET /api/rebate/templates/:ibId`<br>`PUT /api/rebate/templates/:ibId`<br>`GET /api/rebate/calculate` | `rebate_configs`, `rebate_config_history`, `account_type_templates`, `markup_link_templates` |
+| **ib** | Quản lý cây phân cấp IB (CRUD + tree) | `GET /api/ib/me`<br>`GET /api/ib/tree`<br>`GET /api/ib/:id/tree` (ADMIN, Chain View)<br>`GET /api/ib/search`<br>`GET /api/ib/leaderboard`<br>`GET /api/ib/:id`<br>`POST /api/ib`<br>`PUT /api/ib/:id`<br>`DELETE /api/ib/:id`<br>`GET /api/ib/:id/children`<br>`GET /api/ib/:id/performance`<br>`PATCH /api/ib/:id/reset-password`<br>`GET /api/ib/:id/profile`<br>`PATCH /api/ib/:id/profile` | `ib_nodes`, `rebate_configs`, `rebate_transactions`, `audit_logs`, `notifications` |
+| **rebate** | Cấu hình rebate theo asset, tính toán & cascade phân phối | `GET /api/rebate/config/:ibId`<br>`PUT /api/rebate/config/:ibId`<br>`PUT /api/rebate/config/bulk` (ADMIN)<br>`PUT /api/rebate/config/mib/:mibId/max-override` (ADMIN)<br>`GET /api/rebate/config/:ibId/history`<br>`GET /api/rebate/ib/:ibId/templates`<br>`PUT /api/rebate/ib/:ibId/templates`<br>`GET /api/rebate/calculate` | `rebate_configs`, `rebate_config_history`, `account_type_templates`, `markup_link_templates` |
 | **transaction** | Ghi nhận giao dịch rebate (single & batch) | `POST /api/transactions`<br>`POST /api/transactions/batch`<br>`GET /api/transactions/:id`<br>`DELETE /api/transactions/:id` | `rebate_transactions`, `wallets`, `audit_logs`, `notifications` |
 | **wallet** | Quản lý số dư ví của IB | `GET /api/wallet/:ibId` | `wallets` |
 | **payout** | Yêu cầu và duyệt rút tiền | `POST /api/payouts`<br>`GET /api/payouts`<br>`GET /api/payouts/pending`<br>`PATCH /api/payouts/:id/approve`<br>`PATCH /api/payouts/:id/reject` | `payouts`, `wallets`, `audit_logs`, `notifications` |
@@ -154,8 +163,8 @@ Rebate project/                          ← Root workspace
 | **notification** | Thông báo hệ thống và thủ công | `GET /api/notifications`<br>`PATCH /api/notifications/:id/read`<br>`PATCH /api/notifications/read-all`<br>`POST /api/notifications` | `notifications` |
 | **audit** | Nhật ký mọi thao tác quan trọng | `GET /api/audit` | `audit_logs` |
 | **export** | Xuất dữ liệu ra file Excel | `GET /api/export/rebate-config`<br>`GET /api/export/transactions` | `rebate_configs`, `rebate_transactions`, `ib_nodes` |
-| **admin** | Quản trị viên hệ thống | `POST /api/admin/user` | `ib_nodes` |
-| **trash** | Quản lý tài khoản đã xóa | `GET /api/trash` | `ib_nodes` |
+| **admin** | Quản trị viên hệ thống | `POST /api/admin/users`<br>`GET /api/admin/users`<br>`PATCH /api/admin/users/:id`<br>`DELETE /api/admin/users/:id` | `ib_nodes` |
+| **trash** | Quản lý tài khoản đã xóa | `GET /api/trash`<br>`PATCH /api/trash/:id/restore`<br>`DELETE /api/trash/:id/permanent` | `ib_nodes` |
 | **docs** | Redirect đến Swagger UI | `GET /api/docs` | — |
 
 ### Guards & Middleware
@@ -246,6 +255,9 @@ Rebate project/                          ← Root workspace
 | `/{locale}/dashboard/tree` | Cây IB dạng visual phân cấp | `GET /ib/tree?depth=all` | useEffect + useState |
 | `/{locale}/dashboard/tree/edit/[id]` | Chỉnh sửa IB + rebate config | `GET /ib/:id`<br>`PUT /ib/:id`<br>`GET /rebate/config/:id`<br>`PUT /rebate/config/:id`<br>`GET /rebate/templates/:id`<br>`PUT /rebate/templates/:id` | useEffect + useState |
 | `/{locale}/dashboard/rebate` | Xem/cập nhật cấu hình rebate của mình | `GET /rebate/config/:id`<br>`PUT /rebate/config/:id` | useEffect + useState |
+| `/{locale}/dashboard/rebate-management` | Bulk edit rebate của N IB (ADMIN) — 3 view: **Flat / Pivot / Compact** | `GET /rebate/config/:id` (×N)<br>`PUT /rebate/config/bulk`<br>`PUT /rebate/config/mib/:mibId/max-override` | React Query + useState + `PivotArrowOverlay` / `CompactPivotTable` |
+| `/{locale}/dashboard/admin` | Quản lý Admin (ADMIN only) | `POST/GET/PATCH/DELETE /admin/users` | useEffect + useState |
+| `/{locale}/dashboard/trash` | Thùng rác: restore / hard-delete (ADMIN only) | `GET /trash`<br>`PATCH /trash/:id/restore`<br>`DELETE /trash/:id/permanent` | useEffect + useState |
 | `/{locale}/dashboard/transaction` | Lịch sử + tạo giao dịch (single & batch) | `GET /report/transactions`<br>`POST /transactions`<br>`POST /transactions/batch`<br>`DELETE /transactions/:id` | useEffect + useState + React Query |
 | `/{locale}/dashboard/payout` | Yêu cầu rút tiền + danh sách + duyệt/từ chối | `POST /payouts`<br>`GET /payouts`<br>`GET /payouts/pending`<br>`PATCH /payouts/:id/approve`<br>`PATCH /payouts/:id/reject` | useEffect + useState |
 | `/{locale}/dashboard/report` | Báo cáo tổng hợp rebate theo kỳ | `GET /report/summary`<br>`GET /report/transactions` | useEffect + useState |
@@ -259,13 +271,15 @@ Rebate project/                          ← Root workspace
 
 ### 🔴 RỦI RO CAO
 
-| # | Vị trí | Vấn đề | Khuyến nghị |
+| # | Vị trí | Vấn đề | Trạng thái / Khuyến nghị |
 |---|--------|--------|-------------|
-| R1 | `ib.service.ts: getTree()` | Tối ưu hóa truy vấn cây IB tránh load toàn bộ DB. | ✅ **ĐÃ GIẢM RR:** Chuyển sang truy vấn theo phạm vi quản lý. |
-| R2 | `wallet.service.ts: credit()` | Race condition khi cập nhật ví. | Dùng SELECT FOR UPDATE. |
-| R3 | `payout.service.ts: approvePayout()` | Race condition trong giao dịch rút tiền. | SELECT FOR UPDATE trong cùng transaction. |
-| R4 | `payout.service.ts: requestPayout()` | Thông báo tới MIB. | Filter theo phạm vi quyền hạn. |
-| R5 | `rebate.service.ts: updateConfig()` | Cập nhật cấu hình cascade. | Đệ quy update subtree. |
+| R1 | `ib.service.ts: getTree()` | Tối ưu hóa truy vấn cây IB tránh load toàn bộ DB. | ✅ **ĐÃ GIẢM RR** (2026-07-14): truy vấn theo phạm vi quản lý. |
+| R2 | `wallet.service.ts: credit()` | Race condition khi cập nhật ví. | 🟡 **CÒN**: Dùng `SELECT FOR UPDATE`. |
+| R3 | `payout.service.ts: approvePayout()` | Race condition trong giao dịch rút tiền. | 🟡 **CÒN**: SELECT FOR UPDATE trong cùng transaction. |
+| R4 | `payout.service.ts: requestPayout()` | Thông báo tới MIB. | 🟡 **CÒN**: filter theo phạm vi quyền hạn. |
+| R5 | `rebate.service.ts: updateConfig()` / `cascadeMaxPipsToSubtree()` | Cập nhật cấu hình cascade. | ✅ **ĐÃ GIẢM RR** (2026-07-15): hợp nhất 1 công thức duy nhất `maxPips(con) = max(0, parent.maxPips - parent.rebatePips)` qua `cascadeMaxPipsToSubtree()` (cả `setMibMaxOverride` & `updateConfig` gọi chung). |
+| R5b | `rebate.service.ts: bulkUpdateConfig()` | Race condition khi cascade nhiều item cùng subtree. | ✅ **ĐÃ GIẢM RR** (2026-07-15): sort `items` theo `level ASC` (parent→child) trước khi loop → cascade đọc `maxPips`/`rebatePips` mới nhất. |
+| **R6** | `IbNode.accountType` (`schema.prisma`) | **KHÔNG có FK** tới `account_type_templates` / `markup_link_templates` — chỉ là `String`. Nếu MIB đổi tên template, `accountType` của sub-IB không tự cập nhật → data lệch. | 🔴 **CHƯA XỬ LÝ** (CRITICAL data integrity): chờ quyết định thiết kế lại (thêm FK hoặc bỏ field, đọc template từ relation). Backlink: `02_DATA_MODELS.md`, `09_CODE_STANDARDS.md` §B.5. |
 
 ### 🟢 NHẬN XÉT TỐT / ĐÃ XỬ LÝ ĐÚNG
 
@@ -273,6 +287,8 @@ Rebate project/                          ← Root workspace
 |---|--------|---------|
 | G3 | `common/guards/subtree.guard.ts` | ✅ Đã cập nhật 2026-07-14: Kiểm tra 1 cấp trực tiếp thay vì dùng CTE đệ quy. |
 | G9 | `common/guards/protect-root-admin.guard.ts` | ✅ Đã cập nhật 2026-07-14: Bảo vệ Root Admin khỏi thao tác nguy hiểm. |
+| G10 | `rebate.service.ts: cascadeMaxPipsToSubtree()` | ✅ 2026-07-15: cascade formula thống nhất, xử lý tuần tự theo `level ASC`. |
+| G11 | `PivotArrowOverlay.tsx` | ✅ 2026-07-15: SVG overlay không trễ khi scroll (hệ tọa độ nội dung, không scroll listener), hover key composite không lan hàng. |
 
 ---
 

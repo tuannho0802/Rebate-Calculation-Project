@@ -2,8 +2,12 @@
 
 ## Changelog
 - **2026-07-15**:
-  - Cập nhật mục **Rebate Calculation Logic** — công thức cascade `maxPips` thống nhất
-    (`cascadeMaxPipsToSubtree()`), thay thế code mẫu cũ dùng `markupPips` làm cap.
+  - Cập nhật mục **Rebate Calculation Logic** — thay thế code mẫu cũ (`calculateDistribution`
+    dùng `markupPips` làm cap) bằng công thức cascade **DUY NHẤT** thật trong
+    `cascadeMaxPipsToSubtree()`: `maxPips(con) = max(0, parent.maxPips - parent.rebatePips)`.
+    Cả `setMibMaxOverride()` và `updateConfig()` đều gọi chung hàm này.
+  - Ghi chú: `bulkUpdateConfig()` sort items theo `level ASC` (parent→child) trước khi loop
+    để cascade đọc `maxPips`/`rebatePips` mới nhất của parent (fix race condition).
 - **2026-07-14**:
   - Thêm module `admin` và `trash`.
   - Cập nhật SubtreeGuard (chỉ check 1 cấp trực tiếp).
@@ -249,25 +253,47 @@ export default server;
 
 ## Rebate Calculation Logic
 
+> **Công thức cascade DUY NHẤT** (áp dụng toàn hệ thống từ 2026-07-15). Mọi ghi `maxPips`
+> xuống subtree đều đi qua `cascadeMaxPipsToSubtree()` — cả `setMibMaxOverride()` (ADMIN set
+> trần MIB) và `updateConfig()` (IB set config cho con trực tiếp) đều gọi chung hàm này.
+
 ```typescript
 // src/modules/rebate/rebate.service.ts
 
-// Logic tính rebate theo cây:
-// 1. Lấy config của IB hiện tại cho asset đó
-// 2. rebatePips = phần IB này giữ lại
-// 3. markupPips = phần đẩy xuống cấp dưới (hoặc giữ nếu không có cấp dưới)
-// 4. Tổng = rebatePips + markupPips = maxPips của cấp trên cấp này
+// CÔNG THỨC: maxPips(con) = max(0, parent.maxPips - parent.rebatePips)
+//   "Ngân sách còn lại" của con = trần của cha trừ đi phần cha tự giữ (rebatePips).
+//   Con trực tiếp của MIB: maxPips = mibMaxPips - mibRebatePips (không còn bị giữ 0).
+// Subtree được xử lý tuần tự theo level ASC (cha luôn upsert xong trước khi tới con)
+// nên parentConfig luôn đọc được giá trị maxPips/rebatePips MỚI NHẤT.
 
-calculateDistribution(config: RebateAssetConfig, lots: number) {
-  const selfAmount = config.rebatePips * lots;
-  const downstreamAmount = config.markupPips * lots;
-  
-  return {
-    self: selfAmount,
-    downstream: downstreamAmount,
-    total: selfAmount + downstreamAmount,
-  };
+private async cascadeMaxPipsToSubtree(
+  rootId: string, assetType: AssetType, rebateType: string, changedById: string,
+) {
+  const subtree = await this.prisma.$queryRaw`/* WITH RECURSIVE subtree ... ORDER BY level ASC */`;
+
+  for (const node of subtree) {
+    const parentConfig = await this.prisma.rebateConfig.findUnique({
+      where: { ibId_assetType_rebateType: { ibId: node.parentId!, assetType, rebateType } },
+    });
+    const parentRemaining = parentConfig
+      ? Number(parentConfig.maxPips) - Number(parentConfig.rebatePips)
+      : 0;
+    const newMaxPips = Math.max(0, parentRemaining); // ← công thức cascade duy nhất
+
+    await this.prisma.rebateConfig.upsert({
+      where: { ibId_assetType_rebateType: { ibId: node.id, assetType, rebateType } },
+      update: { maxPips: newMaxPips },
+      create: { /* maxPips: newMaxPips, rebatePips: 0, markupPips: 0, ... */ },
+    });
+
+    // Nếu config cũ vượt newMaxPips → ghi AuditLog REBATE_CONFIG_OVER_CEILING_DETECTED
+  }
 }
+
+// Tính tiền rebate thực tế (GET /rebate/calculate) — không đổi:
+//   self       = rebatePips * lots
+//   total      = (rebatePips + markupPips) * lots
+//   distributed= tổng rebatePips của các ancestor (CTE walk-up)
 ```
 
 ---
