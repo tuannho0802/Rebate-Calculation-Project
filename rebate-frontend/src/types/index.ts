@@ -119,10 +119,20 @@ export interface BulkUpdateResult {
   error?: { code: string; message: string; details?: Record<string, unknown> };
 }
 
+export interface BulkLeftoverViolation {
+  ibId: string;
+  assetType: string;
+  rebateType: string;
+  rebatePips: number;
+  markupPips: number;
+  maxPips: number;
+}
+
 export interface BulkUpdateResponse {
   results: BulkUpdateResult[];
   successCount: number;
   failCount: number;
+  warnings?: BulkLeftoverViolation[];
 }
 
 // ─── Rebate Calculation ───────────────────────────────────────────

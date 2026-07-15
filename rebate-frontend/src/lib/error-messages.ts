@@ -21,6 +21,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   REBATE_EXCEEDS_MAX:        "Tổng rebate vượt quá giới hạn cho phép",
   REBATE_CONFIG_NOT_FOUND:   "Chưa có cấu hình rebate",
   REBATE_ASSET_INVALID:      "Loại tài sản không hợp lệ",
+  CASCADE_WOULD_VIOLATE_DESCENDANT: "Thao tác sẽ khiến node cấp dưới vượt trần cho phép",
 
   // General
   VALIDATION_ERROR:          "Dữ liệu không hợp lệ, vui lòng kiểm tra lại",

@@ -429,3 +429,203 @@ describe('RebateService — setMibMaxOverride với cascade mới', () => {
     ).rejects.toMatchObject({ response: { code: 'NOT_A_MIB' } });
   });
 });
+
+// ─── CHẶN CỨNG cascade (dry-run 2 pha) + lỗ hổng bulk ────────────────────────
+
+describe('RebateService — CHẶN CỨNG cascade (dry-run 2 pha) + bulk vulnerability', () => {
+  const ASSET = AssetType.FOREX;
+  const RT = 'STP_REBATE';
+  const ADMIN = 'admin-id';
+  const MIB_ID = 'mib-1';
+  const LV1_ID = 'lv1-a';
+  const LV2_ID = 'lv2-a';
+  const LV3_ID = 'lv3-a';
+
+  let service: RebateService;
+  let prisma: any;
+  let configDB: Map<string, { assetType: string; rebateType: string; rebatePips: number; markupPips: number; maxPips: number }>;
+  let subtrees: Map<string, { id: string; parentId: string | null; level: number }[]>;
+  let failUpsert: Map<string, number>;
+  let audit: any;
+
+  const seed = () => {
+    configDB = new Map();
+    const put = (ibId: string, rebatePips: number, maxPips: number, markupPips: number) =>
+      configDB.set(`${ibId}:${ASSET}:${RT}`, { assetType: ASSET, rebateType: RT, rebatePips, markupPips, maxPips });
+    put(MIB_ID, 2, 12, 10);
+    put(LV1_ID, 3, 10, 7);
+    put(LV2_ID, 2, 7, 5);
+    put(LV3_ID, 5, 5, 0);
+
+    subtrees = new Map();
+    subtrees.set(MIB_ID, [node(LV1_ID, MIB_ID, 1), node(LV2_ID, LV1_ID, 2), node(LV3_ID, LV2_ID, 3)]);
+    subtrees.set(LV1_ID, [node(LV2_ID, LV1_ID, 2), node(LV3_ID, LV2_ID, 3)]);
+    subtrees.set(LV2_ID, [node(LV3_ID, LV2_ID, 3)]);
+    subtrees.set(LV3_ID, []);
+    failUpsert = new Map();
+  };
+
+  beforeEach(async () => {
+    seed();
+    const upsertCallCount = new Map<string, number>();
+
+    // $queryRaw xử lý 2 dạng: subtree CTE (values[0]=rootId string) và
+    // query vi phạm còn sót (values[0]=array affected ids).
+    const queryRaw = jest.fn((_strings: any, ...values: any[]) => {
+      const first = values[0];
+      if (Array.isArray(first)) {
+        const affected = first as string[];
+        const res: any[] = [];
+        for (const [k, c] of configDB) {
+          const [ibId, assetType, rebateType] = k.split(':');
+          if (affected.includes(ibId) && c.rebatePips + c.markupPips > c.maxPips) {
+            res.push({ ibId, assetType, rebateType, rebatePips: c.rebatePips, markupPips: c.markupPips, maxPips: c.maxPips });
+          }
+        }
+        return Promise.resolve(res);
+      }
+      const rootId = first as string;
+      return Promise.resolve(subtrees.get(rootId) ?? []);
+    });
+
+    const rebateConfig = {
+      findUnique: jest.fn(async ({ where }: any) => {
+        const { ibId, assetType, rebateType } = where.ibId_assetType_rebateType;
+        const c = configDB.get(`${ibId}:${assetType}:${rebateType}`);
+        return c ? { ibId, assetType, rebateType, rebatePips: c.rebatePips, markupPips: c.markupPips, maxPips: c.maxPips } : null;
+      }),
+      findMany: jest.fn(async ({ where }: any) => {
+        const ibId = where.ibId;
+        const res: any[] = [];
+        for (const [k, c] of configDB) {
+          const [id, assetType, rebateType] = k.split(':');
+          if (id === ibId) res.push({ ibId: id, assetType, rebateType, rebatePips: c.rebatePips, markupPips: c.markupPips, maxPips: c.maxPips, updatedAt: new Date() });
+        }
+        return res;
+      }),
+      upsert: jest.fn(async (args: any) => {
+        const { ibId, assetType, rebateType } = args.where.ibId_assetType_rebateType;
+        const n = (upsertCallCount.get(ibId) ?? 0) + 1;
+        upsertCallCount.set(ibId, n);
+        const failAt = failUpsert.get(ibId);
+        if (failAt && n >= failAt) throw new Error('SIMULATED_UNRELATED_WRITE_ERROR');
+        const key = `${ibId}:${assetType}:${rebateType}`;
+        const existing = configDB.get(key);
+        // Giống Prisma: `update` chỉ ghi các field có trong object, giữ nguyên field còn lại.
+        const data = args.update ?? args.create;
+        const merged = {
+          assetType,
+          rebateType,
+          rebatePips: data.rebatePips !== undefined ? Number(data.rebatePips) : (existing?.rebatePips ?? 0),
+          markupPips: data.markupPips !== undefined ? Number(data.markupPips) : (existing?.markupPips ?? 0),
+          maxPips: data.maxPips !== undefined ? Number(data.maxPips) : (existing?.maxPips ?? 0),
+        };
+        configDB.set(key, merged);
+        return { id: 'id-' + ibId, ibId, assetType, rebateType, ...merged };
+      }),
+    };
+
+    const ibNode = {
+      findUnique: jest.fn(),
+      findMany: jest.fn(async ({ where }: any) => {
+        if (where?.id?.in) return where.id.in.map((id: string) => ({ id, name: id, email: id }));
+        return [];
+      }),
+    };
+
+    prisma = {
+      ibNode,
+      rebateConfig,
+      rebateConfigHistory: { create: jest.fn().mockResolvedValue({}) },
+      $queryRaw: queryRaw,
+      $transaction: jest.fn(async (fn: any) => {
+        const tx = {
+          rebateConfig: { findUnique: rebateConfig.findUnique, upsert: rebateConfig.upsert },
+          rebateConfigHistory: { create: jest.fn().mockResolvedValue({}) },
+          $queryRaw: queryRaw,
+          ibNode: { findMany: ibNode.findMany, findUnique: ibNode.findUnique },
+        };
+        return fn(tx);
+      }),
+    };
+
+    audit = makeAuditMock();
+
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        RebateService,
+        { provide: PrismaService, useValue: prisma },
+        { provide: AuditService, useValue: audit },
+        { provide: NotificationService, useValue: makeNotificationMock() },
+      ],
+    }).compile();
+
+    service = module.get<RebateService>(RebateService);
+  });
+
+  // (A) PHA 1 dry-run: L1 giữ 8 → L2 max=2, L3 max=0; CẢ HAI vi phạm
+  it('(A) dryRunCascadeSubtree: L1 rebatePips=8 → L2 maxPips=2, L3 maxPips=0; L2 & L3 đều vi phạm', async () => {
+    const dry = await (service as any).dryRunCascadeSubtree(LV1_ID, ASSET, RT, 10, 8, new Map(), prisma);
+    const violating = dry.filter(n => n.rebatePips + n.markupPips > n.newMaxPips);
+    expect(violating.some(v => v.ibId === LV2_ID && v.newMaxPips === 2)).toBe(true);
+    expect(violating.some(v => v.ibId === LV3_ID && v.newMaxPips === 0)).toBe(true);
+  });
+
+  // (B) look-ahead proposedById: L2,L3 hạ xuống 0 → không vi phạm
+  it('(B) dryRunCascadeSubtree với proposedById (L2,L3 hạ 0): KHÔNG vi phạm', async () => {
+    const proposed = new Map<string, Record<string, { rebatePips: number; markupPips: number }>>();
+    proposed.set(LV2_ID, { [`${ASSET}:${RT}`]: { rebatePips: 0, markupPips: 0 } });
+    proposed.set(LV3_ID, { [`${ASSET}:${RT}`]: { rebatePips: 0, markupPips: 0 } });
+    const dry = await (service as any).dryRunCascadeSubtree(LV1_ID, ASSET, RT, 10, 8, proposed, prisma);
+    expect(dry.filter(n => n.rebatePips + n.markupPips > n.newMaxPips).length).toBe(0);
+  });
+
+  // (C) step 8: L1 3→8 (không sửa L3) → CHẶN CỨNG, DB L3 giữ nguyên
+  it('(C) updateConfig: L1 3→8 (không đổi L3) → CHẶN, L3 maxPips giữ 5', async () => {
+    await expect(
+      (service as any).updateConfig(ADMIN, 0, LV1_ID, { assets: [{ assetType: ASSET, rebateType: RT, rebatePips: 8, markupPips: 7 }] }, 'ADMIN')
+    ).rejects.toMatchObject({ response: { code: 'CASCADE_WOULD_VIOLATE_DESCENDANT' } });
+    expect(configDB.get(`${LV3_ID}:${ASSET}:${RT}`)!.maxPips).toBe(5);
+  });
+
+  // (D) step 10: L1 3→1 (tăng remaining) → luôn qua, cascade L2=9 L3=7
+  it('(D) updateConfig: L1 3→1 (tăng remaining) → THÀNH CÔNG, cascade L2=9 L3=7', async () => {
+    await expect(
+      (service as any).updateConfig(ADMIN, 0, LV1_ID, { assets: [{ assetType: ASSET, rebateType: RT, rebatePips: 1, markupPips: 7 }] }, 'ADMIN')
+    ).resolves.toBeDefined();
+    expect(configDB.get(`${LV2_ID}:${ASSET}:${RT}`)!.maxPips).toBe(9);
+    expect(configDB.get(`${LV3_ID}:${ASSET}:${RT}`)!.maxPips).toBe(7);
+  });
+
+  // (E) step 9: L1→8, L2→0, L3→0 cùng bulk → THÀNH CÔNG (look-ahead)
+  it('(E) bulkUpdateConfig: L1→8 + L2→0 + L3→0 cùng lúc → THÀNH CÔNG, không vi phạm', async () => {
+    const items = [
+      { ibId: LV1_ID, assets: [{ assetType: ASSET, rebateType: RT, rebatePips: 8, markupPips: 7 }] },
+      { ibId: LV2_ID, assets: [{ assetType: ASSET, rebateType: RT, rebatePips: 0, markupPips: 0 }] },
+      { ibId: LV3_ID, assets: [{ assetType: ASSET, rebateType: RT, rebatePips: 0, markupPips: 0 }] },
+    ];
+    const res = await service.bulkUpdateConfig(ADMIN, 0, { items } as any, 'ADMIN');
+    expect(res.results.every(r => r.success)).toBe(true);
+    expect(res.warnings.length).toBe(0);
+    expect(configDB.get(`${LV2_ID}:${ASSET}:${RT}`)!.maxPips).toBe(2);
+    expect(configDB.get(`${LV3_ID}:${ASSET}:${RT}`)!.maxPips).toBe(2);
+  });
+
+  // (F) lỗ hổng bulk: L1 pass look-ahead (L3 đề xuất 0), nhưng L3 fail sau (lý do khác)
+  //     → FALLBACK phát hiện vi phạm còn sót, cảnh báo + audit BULK_PARTIAL_LEFT_VIOLATION
+  it('(F) bulk vulnerability: L1 pass (look-ahead L2,L3 hạ) + L3 fail sau (unrelated) → FALLBACK cảnh báo L3', async () => {
+    // L3 upsert lần 3 (chính nó, sau khi L1/L2 cascade đã ghi L3) fail — mô phỏng lỗi ghi DB độc lập
+    failUpsert.set(LV3_ID, 3);
+    const items = [
+      { ibId: LV1_ID, assets: [{ assetType: ASSET, rebateType: RT, rebatePips: 8, markupPips: 7 }] },
+      { ibId: LV2_ID, assets: [{ assetType: ASSET, rebateType: RT, rebatePips: 0, markupPips: 0 }] },
+      { ibId: LV3_ID, assets: [{ assetType: ASSET, rebateType: RT, rebatePips: 0, markupPips: 0 }] },
+    ];
+    const res = await service.bulkUpdateConfig(ADMIN, 0, { items } as any, 'ADMIN');
+    expect(res.results.find(r => r.ibId === LV1_ID)!.success).toBe(true);
+    expect(res.results.find(r => r.ibId === LV3_ID)!.success).toBe(false);
+    // L3.maxPips đã bị cascade hạ (L1/L2), nhưng L3.rebatePips vẫn 5 → vi phạm còn sót
+    expect(res.warnings.some(w => w.ibId === LV3_ID)).toBe(true);
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'BULK_PARTIAL_LEFT_VIOLATION' }));
+  });
+});

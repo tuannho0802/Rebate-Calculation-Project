@@ -4,6 +4,9 @@
 > Frontend dựa vào mã code này để map ra câu thông báo tiếng Việt tương ứng.
 
 ## Changelog
+- **2026-07-15 (CHẶN CỨNG cascade — `dryRunCascadeSubtree`)**:
+  - Bổ sung `CASCADE_WOULD_VIOLATE_DESCENDANT` (422): chặn cứng khi sửa 1 node (qua `updateConfig` hoặc `setMibMaxOverride`) sẽ làm node cấp dưới vượt trần sau cascade. Có `details.violations[]` liệt kê node vi phạm.
+  - Bổ sung `BULK_PARTIAL_LEFT_VIOLATION` (audit action, không phải error response): ghi log khi bulk save xong mà vẫn còn node tồn tại trạng thái vượt trần (lỗ hổng bulk atomic). Bulk response thêm field `warnings[]`.
 - **2026-07-15 (setMibMaxOverride — đối chiếu `rebate.service.ts` thật)**:
   - Bổ sung 2 mã lỗi mới từ `setMibMaxOverride()`: `NOT_A_MIB` (400) và `MAX_OVERRIDE_INVALID` (422). Cả hai đã có trong code từ 2026-07-14 nhưng chưa ghi vào docs.
 - **2026-07-14 (cập nhật lần 2 — đối chiếu trực tiếp source code BE)**:
@@ -100,6 +103,7 @@
 | `CONFIG_NOT_FOUND` | 404 | Không tìm thấy cấu hình (context khác `REBATE_CONFIG_NOT_FOUND`, kiểm tra lại vị trí gọi) | "Không tìm thấy cấu hình" | `rebate.service.ts:366` |
 | `NOT_A_MIB` | 400 | `mibId` truyền vào không phải MIB (level ≠ 0) — chỉ MIB được set trần tuỳ chỉnh | "Chỉ MIB (level 0) mới được set trần tuỳ chỉnh" | `rebate.service.ts:365` |
 | `MAX_OVERRIDE_INVALID` | 422 | Trần tuỳ chỉnh (`maxPips`) không hợp lệ: `< 0` hoặc `> MAX_PIPS[assetType]` (trần công ty) | "Trần tuỳ chỉnh không hợp lệ (phải ≥ 0 và ≤ trần công ty)" | `rebate.service.ts:373,381` |
+| `CASCADE_WOULD_VIOLATE_DESCENDANT` | 422 | Sửa config 1 node sẽ khiến node cấp dưới (descendant) có `rebatePips + markupPips > maxPips` sau cascade → **CHẶN CỨNG**, không cho lưu. Trả `details.violations[]` liệt kê từng node vi phạm (`ibId`, `newMaxPips`, `rebatePips`, `markupPips`) | "Thao tác sẽ khiến node cấp dưới vượt trần cho phép" (message chi tiết liệt kê tên IB + phần đang giữ + trần mới) | `rebate.service.ts` (dryRunCascadeSubtree + updateConfig + setMibMaxOverride) |
 
 > ⚠️ **`REBATE_ASSET_INVALID` đã bị loại bỏ khỏi docs** — không có trong code.
 > `assetType` sai được chặn bởi `@IsEnum(AssetType)` → trả `VALIDATION_ERROR` (422).

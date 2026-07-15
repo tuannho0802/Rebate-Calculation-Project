@@ -170,7 +170,19 @@ export default function RebateManagementPage() {
       if (newDirtyIbs.size === 0) {
         toast.success(t('saveAllSuccess'));
       } else {
-        toast.warning(t('savePartialWarning'));
+        // Hiện rõ message liệt kê node vi phạm (không chỉ "lỗi chung")
+        const failedMsgs = Object.values(newSaveResults)
+          .filter((r) => !r.success)
+          .map((r) => r.message);
+        toast.error(failedMsgs.join('\n') || t('savePartialWarning'));
+      }
+
+      // Lỗ hổng bulk sót lại: cảnh báo rõ node vẫn vượt trần sau khi lưu
+      if (bulkResult.warnings && bulkResult.warnings.length > 0) {
+        const warnMsg = bulkResult.warnings
+          .map((w) => `${w.ibId}: giữ ${w.rebatePips}+${w.markupPips}=${w.rebatePips + w.markupPips} > trần ${w.maxPips}`)
+          .join('\n');
+        toast.warning(`Cảnh báo: một số node vẫn vượt trần sau khi lưu:\n${warnMsg}`);
       }
     } catch (err: unknown) {
       const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code || 'INTERNAL_ERROR';
