@@ -24,13 +24,12 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', labelKey: 'overview', icon: LayoutDashboard },
-  { href: '/dashboard/tree', labelKey: 'ibNetwork', icon: Users },
   { href: '/dashboard/report', labelKey: 'report', icon: BarChart3 },
   { href: '/dashboard/ib-management', labelKey: 'ibManagement', icon: Users },
   { href: '/dashboard/payout', labelKey: 'payout', icon: CreditCard },
   { href: '/dashboard/transaction', labelKey: 'transaction', icon: TrendingUp },
   { href: '/dashboard/export', labelKey: 'export', icon: Download },
-  { href: '/dashboard/rebate', labelKey: 'config', icon: Settings },
+  { href: '/dashboard/rebate', labelKey: 'config', icon: Settings, roles: ['ADMIN'] },
   { href: '/dashboard/notification', labelKey: 'notifications', icon: Bell },
   { href: '/dashboard/rebate-management', labelKey: 'rebateManagement', icon: TableProperties, roles: ['ADMIN'] },
   { href: '/dashboard/admin', labelKey: 'adminManagement', icon: UserCog, roles: ['ADMIN'] },

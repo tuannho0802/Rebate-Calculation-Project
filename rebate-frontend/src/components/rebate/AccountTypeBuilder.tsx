@@ -109,9 +109,6 @@ export function AccountTypeBuilder() {
   });
 
   // Modals state
-  const [isCreateTableModalOpen, setIsCreateTableModalOpen] = useState(false);
-  const [newTableName, setNewTableName] = useState('');
-  
   const [isRowModalOpen, setIsRowModalOpen] = useState(false);
   const [activeTableId, setActiveTableId] = useState<string | null>(null);
   const [isEditingRow, setIsEditingRow] = useState(false);
@@ -136,19 +133,7 @@ export function AccountTypeBuilder() {
 
   if (!mounted || !(user?.role === 'ADMIN' || (user?.role === 'IB' && user?.level === 0))) return null;
 
-  const handleCreateTable = () => {
-    if (!newTableName.trim()) return;
-    
-    const newTable: AccountTypeTable = {
-      id: Math.random().toString(36).substring(7),
-      name: newTableName.trim(),
-      rows: []
-    };
-    
-    updateTables([...tables, newTable]);
-    setNewTableName('');
-    setIsCreateTableModalOpen(false);
-  };
+
 
   const handleAddMarkupLink = () => {
     updateMarkupLinks([
@@ -236,24 +221,6 @@ export function AccountTypeBuilder() {
 
   return (
     <div className="space-y-6">
-      {/* Header & Create Button */}
-      <div className="flex flex-col sm:flex-row sm:justify-between gap-3">
-        <button
-          onClick={() => setIsCreateTableModalOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-[#0066ff] text-white font-medium rounded-lg hover:bg-[#0052cc] transition-colors shadow-sm"
-        >
-          <Plus className="h-4 w-4" />
-          {t('createAccountTypeBtn')}
-        </button>
-        <button
-          onClick={() => saveMutation.mutate()}
-          disabled={saveMutation.isPending}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50"
-        >
-          {saveMutation.isPending ? 'Đang lưu...' : 'Lưu mẫu'}
-        </button>
-      </div>
-
       {/* Markup Link Config Section */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-gray-100 flex items-center justify-between gap-3 bg-gray-50/50">
@@ -322,6 +289,15 @@ export function AccountTypeBuilder() {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="p-4 bg-gray-50/50 border-t border-gray-100 flex justify-start gap-3">
+          <button
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white font-medium rounded-lg hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50"
+          >
+            {saveMutation.isPending ? 'Đang lưu...' : 'Lưu'}
+          </button>
         </div>
       </div>
 
@@ -404,53 +380,6 @@ export function AccountTypeBuilder() {
           </div>
         ))}
       </div>
-
-      {/* Create Table Modal */}
-      {isCreateTableModalOpen && (
-        <div className="fixed inset-0 z-100 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="p-5 flex items-center justify-between border-b border-gray-100">
-              <h3 className="text-lg font-bold text-gray-900">{t('createAccountTypeModalTitle')}</h3>
-              <button 
-                onClick={() => setIsCreateTableModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t('tableNameLabel')}
-                </label>
-                <input
-                  type="text"
-                  value={newTableName}
-                  onChange={(e) => setNewTableName(e.target.value)}
-                  placeholder={t('tableNamePlaceholder')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0066ff] focus:border-[#0066ff] transition-colors"
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-3">
-              <button
-                onClick={() => setIsCreateTableModalOpen(false)}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                {t('cancelBtn')}
-              </button>
-              <button
-                onClick={handleCreateTable}
-                disabled={!newTableName.trim()}
-                className="px-4 py-2 text-sm font-medium text-white bg-[#0066ff] rounded-lg hover:bg-[#0052cc] disabled:bg-blue-300 transition-colors"
-              >
-                {t('createBtn')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Row Modal */}
       {isRowModalOpen && (

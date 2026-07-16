@@ -594,3 +594,38 @@
 - [x] Tài liệu đã đồng bộ với code thật
 - [x] Không có code nào bị thay đổi trong phiên docs này
 ---
+
+## [2026-07-16] — Phần: FRONTEND
+
+### Phiên Làm Việc
+- Agent: GitHub Copilot
+- Yêu cầu từ: Sửa UX trang config rebate + fix logic trang edit IB + xoá trang IB Network trùng lặp
+
+### Đã Triển Khai
+- src/components/rebate/AccountTypeBuilder.tsx: Xoá nút "Create Account Type & Markup Scheme" khỏi header. Di chuyển nút "Lưu mẫu" vào bên trong bảng "Cấu hình Link Markup" ở phía dưới bên trái (giống bảng phía trên "Trần hoa hồng theo MIB"). Đổi text nút thành "Lưu".
+- src/lib/nav-config.ts: Xoá nav item "IB Network" (`/dashboard/tree`, labelKey 'ibNetwork') khỏi danh sách NAV_ITEMS để gọn gàng dashboard.
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx: Xoá file page của trang IB Network (đã thực thi bằng terminal `Remove-Item`).
+
+### Đã Sửa Lỗi (trang edit IB)
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx (Templates API): Thay vì hard-code `ADMIN_ID` trong getTemplates, giờ lấy từ `loadedProfile.id` (nếu MIB) hoặc `loadedProfile.parentId` (nếu Sub-IB) để đảm bảo lấy đúng templates của MIB hiện tại.
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx (Parent Config): Tương tự, lấy parent config từ `loadedProfile.id` (MIB) hoặc `loadedProfile.parentId` (Sub-IB) thay vì luôn `loadedProfile.id`.
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx (AccountType dropdown): Đổi condition từ chỉ `isMib` được chọn sang cho phép cả MIB và Sub-IB chọn loại tài khoản nếu `markupLinks.length > 0` (xoá condition `|| markupLinks.length === 0`).
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx (getMarkupMax): Simplify logic — lấy từ `markupLinks` (template) dựa trên `subIbAccountType` thay vì kiểm tra `isMib`.
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx (getRebateMax): Fix logic — lấy từ `accountTypeTemplates` (maxCeiling) thay vì từ `parentConfig` (rebatePips). Thêm state `accountTypeTemplates` để lưu dữ liệu. Iterate qua template rows để tìm asset và trả về `row.maxCeiling`.
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx (Redirect): Sửa redirect khi save thành công từ `/dashboard/tree` sang `/dashboard/ib-management` (vì trang tree đã bị xoá).
+
+### Đã Cập Nhật
+- src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx: Lưu `accountTypeTemplates` từ API templates response để dùng trong `getRebateMax()`.
+
+### Ghi Chú
+- Xoá trang IB Network vì trùng lặp chức năng với IB Management — giữ lại `/dashboard/tree/edit/[id]` để sử dụng chung cho cả trang IB Management.
+- Fix Markup Max từ 0 → 10 (lấy đúng từ bảng cấu hình): Templates API giờ lấy từ MIB chính xác (không phải ADMIN).
+- Fix Rebate Max từ 2/4 → 12/20 (lấy đúng từ maxCeiling của account type template, không phải rebatePips thực tế).
+- Trang `/dashboard/tree/edit/[id]` được giữ lại và referenced bởi `IbManagementTable` component để chỉnh sửa chi tiết IB.
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi
+- [x] Không có chức năng cũ nào bị hỏng
+- [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [x] Các type vẫn khớp với 02_DATA_MODELS.md
+---
