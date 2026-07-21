@@ -33,7 +33,7 @@ export class AccountTypeTemplateDto {
 }
 
 export class MarkupLinkRowDto {
-  @ApiProperty({ description: 'Tên link markup / account type', example: 'SEA STD' })
+  @ApiProperty({ description: 'Tên link markup / account type', example: 'STD' })
   @IsString()
   @IsNotEmpty()
   name!: string;

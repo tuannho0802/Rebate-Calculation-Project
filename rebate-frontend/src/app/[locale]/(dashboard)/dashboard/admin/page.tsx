@@ -103,17 +103,17 @@ export default function AdminManagementPage() {
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <UserCog className="h-6 w-6 text-blue-600" />
+          <UserCog className="h-6 w-6 text-amber-700" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Quản trị Admin</h1>
-            <p className="text-gray-500">Thêm, sửa, vô hiệu hóa tài khoản quản trị viên.</p>
+            <h1 className="text-2xl font-extrabold text-gray-900">Quản trị Admin</h1>
+            <p className="text-gray-600 font-medium">Thêm, sửa, vô hiệu hóa tài khoản quản trị viên.</p>
           </div>
         </div>
         <button
           onClick={openCreateModal}
-          className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-700 shadow-md shadow-blue-500/20"
+          className="flex items-center gap-2 rounded-xl bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] px-5 py-2.5 text-sm font-extrabold text-gray-900 transition hover:opacity-95 shadow-md"
         >
-          <Plus className="h-4 w-4" />
+          <Plus className="h-4 w-4 text-gray-900" />
           Thêm Admin
         </button>
       </div>
@@ -124,40 +124,40 @@ export default function AdminManagementPage() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Tìm kiếm Admin theo email hoặc tên..."
-            className="w-full rounded-lg border border-gray-200 px-4 py-2 pr-10"
+            className="w-full rounded-xl border border-gray-300 px-4 py-2.5 pr-10 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
           />
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 h-4 w-4" />
         </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-amber-200/80 bg-white p-6 shadow-sm">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-            <thead className="bg-slate-50">
+          <table className="min-w-full divide-y divide-gray-100 text-left text-sm">
+            <thead className="bg-amber-50/80 font-extrabold text-gray-800 border-b border-amber-200/80">
               <tr>
-                <th className="px-4 py-3 font-semibold text-slate-600">ID</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Tên</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Email</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Loại Admin</th>
-                <th className="px-4 py-3 font-semibold text-slate-600 text-right">Hành động</th>
+                <th className="px-4 py-3 font-bold">ID</th>
+                <th className="px-4 py-3 font-bold">Tên</th>
+                <th className="px-4 py-3 font-bold">Email</th>
+                <th className="px-4 py-3 font-bold">Loại Admin</th>
+                <th className="px-4 py-3 font-bold text-right">Hành động</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center">
-                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-blue-600" />
+                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-amber-600" />
                   </td>
                 </tr>
               ) : filteredAdmins.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500 font-medium">
                     Không tìm thấy Admin nào phù hợp.
                   </td>
                 </tr>
               ) : (
                 filteredAdmins.map((admin) => (
-                  <tr key={admin.id} className="hover:bg-slate-50/50">
+                  <tr key={admin.id} className="hover:bg-amber-50/40 transition-colors">
                     <td className="px-4 py-3 text-xs font-mono text-gray-500">{admin.id}</td>
                     <td className="px-4 py-3 font-medium text-gray-900">{admin.name || '—'}</td>
                     <td className="px-4 py-3 text-gray-600">{admin.email}</td>
@@ -262,9 +262,9 @@ export default function AdminManagementPage() {
                 <button
                   type="submit"
                   disabled={createMutation.isPending || updateMutation.isPending}
-                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition shadow-sm disabled:opacity-70"
+                  className="flex items-center gap-2 rounded-xl bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] px-5 py-2 text-sm font-extrabold text-gray-900 hover:opacity-95 transition shadow-md disabled:opacity-70"
                 >
-                  {(createMutation.isPending || updateMutation.isPending) && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {(createMutation.isPending || updateMutation.isPending) && <Loader2 className="h-4 w-4 animate-spin text-gray-900" />}
                   Lưu thay đổi
                 </button>
               </div>

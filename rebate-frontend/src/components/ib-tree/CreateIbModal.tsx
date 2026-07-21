@@ -190,7 +190,7 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
                 <select
                   value={accountType}
                   onChange={(e) => setAccountType(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl focus:ring-2 focus:ring-[#0066ff]/50 focus:border-[#0066ff] transition-all appearance-none"
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all font-medium appearance-none"
                   required
                 >
                   {accountTypeOptions.map((option) => (
@@ -204,14 +204,14 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-semibold transition-colors"
+                className="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors"
               >
                 Hủy
               </button>
               <button
                 type="submit"
                 disabled={createMutation.isPending}
-                className="flex-1 py-2.5 px-4 bg-[#0066ff] hover:bg-[#0052cc] text-white rounded-xl font-semibold transition-all shadow-md shadow-blue-500/20 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 py-2.5 px-4 bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] text-gray-900 rounded-xl font-extrabold transition-all shadow-md hover:opacity-95 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {createMutation.isPending && <Loader2 className="h-5 w-5 animate-spin" />}
                 Xác nhận

@@ -1,10 +1,13 @@
-import { Controller, Get, Put, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { RebateService } from './rebate.service';
+import { RebateSimulatorService } from './rebate-simulator.service';
+import { CustomSimulateDto } from './dto/simulate.dto';
 import { UpdateRebateConfigDto } from './dto/update-config.dto';
 import { BulkUpdateRebateConfigDto } from './dto/bulk-update-config.dto';
 import { MibMaxOverrideDto } from './dto/mib-max-override.dto';
 import { SaveRebateTemplatesDto } from './dto/save-templates.dto';
+import { SaveBranchScenarioDto } from './dto/save-scenario.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -17,7 +20,10 @@ import { AssetType } from '@prisma/client';
 @Controller('rebate')
 @UseGuards(JwtAuthGuard)
 export class RebateController {
-  constructor(private readonly rebateService: RebateService) {}
+  constructor(
+    private readonly rebateService: RebateService,
+    private readonly rebateSimulatorService: RebateSimulatorService,
+  ) {}
 
   @Get('config/:ibId')
   @ApiBearerAuth('Bearer')
@@ -53,6 +59,17 @@ export class RebateController {
     @Body() dto: BulkUpdateRebateConfigDto,
   ) {
     return this.rebateService.bulkUpdateConfig(user.sub, user.level, dto, user.role);
+  }
+
+  @Put('config/scenario/save')
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Save AI Rebate Engine branch scenario allocations (% and pips) to database' })
+  @ApiResponse({ status: 200, description: 'Scenario saved successfully' })
+  async saveBranchScenario(
+    @CurrentUser() user: any,
+    @Body() dto: SaveBranchScenarioDto,
+  ) {
+    return this.rebateService.saveBranchScenario(dto, user.sub);
   }
 
   @Put('config/mib/:mibId/max-override')
@@ -163,4 +180,40 @@ export class RebateController {
     const parsedLots = Number(lots);
     return this.rebateService.calculateCascadeDistribution(ibId, assetType, parsedLots, rebateType);
   }
+
+  @Get('simulate')
+  @ApiOperation({ summary: 'Chạy thuật toán AI Rebate Simulator cho một nhánh IB' })
+  @ApiQuery({ name: 'ibId', description: 'ID của IB node ở cuối hoặc trong nhánh cần mô phỏng' })
+  @ApiQuery({ name: 'markupPips', required: false, description: 'Số pips Markup (bi trắng) truyền vào (mặc định đọc từ accountType)' })
+  @ApiResponse({ status: 200, description: 'Trả về các kịch bản phân bổ sắp xếp theo độ cân bằng (variance)' })
+  async simulateBranch(
+    @Query('ibId') ibId: string,
+    @Query('markupPips') markupPips?: string,
+  ) {
+    const parsedMarkup = markupPips !== undefined ? parseFloat(markupPips) : undefined;
+    const result = await this.rebateSimulatorService.simulateBranch(ibId, parsedMarkup);
+    return {
+      success: true,
+      data: result,
+    };
+  }
+
+  @Post('simulate')
+  @ApiOperation({ summary: 'Chạy thuật toán AI Rebate Simulator với cấu hình tuỳ chỉnh' })
+  @ApiResponse({ status: 200, description: 'Danh sách kịch bản phân bổ được sắp xếp theo độ cân bằng' })
+  async simulateCustom(@Body() dto: CustomSimulateDto) {
+    const scenarios = this.rebateSimulatorService.solveBallAllocation(
+      dto.treeNodes,
+      dto.markupPips,
+      dto.selectedAssets,
+    );
+    return {
+      success: true,
+      data: {
+        totalScenarios: scenarios.length,
+        scenarios,
+      },
+    };
+  }
 }
+

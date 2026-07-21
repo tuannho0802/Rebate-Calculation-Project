@@ -1,4 +1,4 @@
-import { ApiResponse, RebateConfig, RebateCalculation, AssetType, BulkUpdateResponse } from '@/types';
+import { ApiResponse, RebateConfig, RebateCalculation, AssetType, BulkUpdateResponse, SimulationResult, RebateScenario } from '@/types';
 import { apiClient } from './client';
 
 export const rebateApi = {
@@ -59,5 +59,23 @@ export const rebateApi = {
       params: { ibId, assetType, lots, period }
     });
     return response.data;
+  },
+
+  simulate: async (ibId: string, markupPips?: number): Promise<ApiResponse<SimulationResult>> => {
+    const response = await apiClient.get<ApiResponse<SimulationResult>>('/rebate/simulate', {
+      params: { ibId, markupPips }
+    });
+    return response.data;
+  },
+
+  simulateCustom: async (dto: any): Promise<ApiResponse<{ totalScenarios: number; scenarios: RebateScenario[] }>> => {
+    const response = await apiClient.post<ApiResponse<{ totalScenarios: number; scenarios: RebateScenario[] }>>('/rebate/simulate', dto);
+    return response.data;
+  },
+
+  saveBranchScenario: async (nodes: { ibId: string; markupPercent: number; markupPips: number }[]): Promise<ApiResponse<{ success: boolean; message: string }>> => {
+    const response = await apiClient.put<ApiResponse<{ success: boolean; message: string }>>('/rebate/config/scenario/save', { nodes });
+    return response.data;
   }
 };
+

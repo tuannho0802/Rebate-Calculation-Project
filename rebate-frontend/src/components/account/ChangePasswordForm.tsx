@@ -51,73 +51,73 @@ export default function ChangePasswordForm() {
 
   return (
     <div className="max-w-md">
-      <h2 className="text-lg font-bold text-white mb-6">{t('formTitle')}</h2>
+      <h2 className="text-lg font-extrabold text-gray-900 mb-6">{t('formTitle')}</h2>
       
       {error && (
-        <div className="bg-red-500/10 border border-red-500/50 text-red-500 px-4 py-3 rounded-lg mb-6 text-sm">
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm font-semibold">
           {error}
         </div>
       )}
       
       {success && (
-        <div className="bg-emerald-500/10 border border-emerald-500/50 text-emerald-500 px-4 py-3 rounded-lg mb-6 text-sm">
+        <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg mb-6 text-sm font-semibold">
           {success}
         </div>
       )}
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-1">
+          <label className="block text-sm font-bold text-gray-700 mb-1">
             {t('oldPasswordLabel')}
           </label>
           <input
             type="password"
             {...register('oldPassword')}
-            className={`w-full rounded-lg border bg-slate-950 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-colors ${
-              errors.oldPassword ? 'border-red-500 focus:border-red-500' : 'border-slate-700 focus:border-emerald-500'
+            className={`w-full rounded-lg border bg-gray-50 px-4 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors font-medium ${
+              errors.oldPassword ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-amber-500'
             }`}
           />
           {errors.oldPassword && (
-            <p className="mt-1 text-sm text-red-500">{errors.oldPassword.message}</p>
+            <p className="mt-1 text-sm text-red-500 font-medium">{errors.oldPassword.message}</p>
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-1">
+          <label className="block text-sm font-bold text-gray-700 mb-1">
             {t('newPasswordLabel')}
           </label>
           <input
             type="password"
             {...register('newPassword')}
-            className={`w-full rounded-lg border bg-slate-950 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-colors ${
-              errors.newPassword ? 'border-red-500 focus:border-red-500' : 'border-slate-700 focus:border-emerald-500'
+            className={`w-full rounded-lg border bg-gray-50 px-4 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors font-medium ${
+              errors.newPassword ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-amber-500'
             }`}
           />
           {errors.newPassword && (
-            <p className="mt-1 text-sm text-red-500">{errors.newPassword.message}</p>
+            <p className="mt-1 text-sm text-red-500 font-medium">{errors.newPassword.message}</p>
           )}
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-slate-300 mb-1">
+          <label className="block text-sm font-bold text-gray-700 mb-1">
             {t('confirmPasswordLabel')}
           </label>
           <input
             type="password"
             {...register('confirmPassword')}
-            className={`w-full rounded-lg border bg-slate-950 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-colors ${
-              errors.confirmPassword ? 'border-red-500 focus:border-red-500' : 'border-slate-700 focus:border-emerald-500'
+            className={`w-full rounded-lg border bg-gray-50 px-4 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors font-medium ${
+              errors.confirmPassword ? 'border-red-500 focus:border-red-500' : 'border-gray-300 focus:border-amber-500'
             }`}
           />
           {errors.confirmPassword && (
-            <p className="mt-1 text-sm text-red-500">{errors.confirmPassword.message}</p>
+            <p className="mt-1 text-sm text-red-500 font-medium">{errors.confirmPassword.message}</p>
           )}
         </div>
 
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full mt-6 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+          className="w-full mt-6 rounded-lg bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] px-4 py-3 text-sm font-extrabold text-gray-900 hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
         >
           {isSubmitting ? t('processing') : t('updateBtn')}
         </button>

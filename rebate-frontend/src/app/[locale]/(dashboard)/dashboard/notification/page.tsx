@@ -67,17 +67,17 @@ export default function NotificationPage() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center gap-3">
-        <Bell className="h-6 w-6 text-blue-600" />
+        <Bell className="h-6 w-6 text-amber-700" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Thông báo</h1>
-          <p className="text-gray-500">Xem, gửi và quản lý thông báo trong hệ thống.</p>
+          <h1 className="text-2xl font-extrabold text-gray-900">Thông báo</h1>
+          <p className="text-gray-600 font-medium">Xem, gửi và quản lý thông báo trong hệ thống.</p>
         </div>
       </div>
 
-      <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+      <section className="rounded-3xl border border-amber-200/80 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">Hộp thư</h2>
+            <h2 className="text-lg font-extrabold text-gray-900">Hộp thư</h2>
             <p className="text-sm text-gray-500">Danh sách thông báo của bạn và trạng thái đã đọc.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -87,7 +87,7 @@ export default function NotificationPage() {
                 setIsReadFilter(event.target.value as 'all' | 'true' | 'false');
                 setPage(1);
               }}
-              className="rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-900"
+              className="rounded-2xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-amber-500"
             >
               <option value="all">Tất cả</option>
               <option value="false">Chưa đọc</option>
@@ -97,37 +97,37 @@ export default function NotificationPage() {
               type="button"
               onClick={() => markAllMutation.mutate()}
               disabled={markAllMutation.isPending}
-              className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-2xl bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] px-5 py-3 text-sm font-extrabold text-gray-900 transition hover:opacity-95 shadow-md disabled:opacity-50"
             >
-              <MailPlus className="h-4 w-4" />
+              <MailPlus className="h-4 w-4 text-gray-900" />
               Đánh dấu đã đọc tất cả
             </button>
           </div>
         </div>
 
         <div className="mt-6 overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-            <thead className="bg-slate-50">
+          <table className="min-w-full divide-y divide-gray-100 text-left text-sm">
+            <thead className="bg-amber-50/80 font-extrabold text-gray-800 border-b border-amber-200/80">
               <tr>
-                <th className="px-4 py-3 font-medium text-slate-600">Tiêu đề</th>
-                <th className="px-4 py-3 font-medium text-slate-600">Loại</th>
-                <th className="px-4 py-3 font-medium text-slate-600">Ngày</th>
-                <th className="px-4 py-3 font-medium text-slate-600">Trạng thái</th>
-                <th className="px-4 py-3 font-medium text-slate-600">Hành động</th>
+                <th className="px-4 py-3 font-bold">Tiêu đề</th>
+                <th className="px-4 py-3 font-bold">Loại</th>
+                <th className="px-4 py-3 font-bold">Ngày</th>
+                <th className="px-4 py-3 font-bold">Trạng thái</th>
+                <th className="px-4 py-3 font-bold">Hành động</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">
-                    <Loader2 className="mx-auto h-5 w-5 animate-spin text-blue-600" />
+                  <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">
+                    <Loader2 className="mx-auto h-5 w-5 animate-spin text-amber-600" />
                   </td>
                 </tr>
               ) : notifications.length > 0 ? (
                 notifications.map((item: Notification) => (
-                  <tr key={item.id} className={`hover:bg-slate-50 ${item.isRead ? '' : 'bg-slate-50/80'}`}>
-                    <td className="px-4 py-3 text-slate-700">
-                      <p className="font-semibold">{item.title}</p>
+                  <tr key={item.id} className={`hover:bg-amber-50/40 transition-colors ${item.isRead ? '' : 'bg-amber-50/20 font-bold'}`}>
+                    <td className="px-4 py-3 text-gray-900">
+                      <p className="font-bold">{item.title}</p>
                       <p className="text-xs text-slate-500 mt-1">{item.body}</p>
                     </td>
                     <td className="px-4 py-3 text-slate-700">{item.type}</td>

@@ -101,82 +101,82 @@ export default function PayoutPage() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center gap-3">
-        <CreditCard className="h-6 w-6 text-blue-600" />
+        <CreditCard className="h-6 w-6 text-amber-700" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Quản lý Payout</h1>
-          <p className="text-gray-500">Gửi yêu cầu rút tiền và theo dõi trạng thái payout.</p>
+          <h1 className="text-2xl font-extrabold text-gray-900">Quản lý Payout</h1>
+          <p className="text-gray-600 font-medium">Gửi yêu cầu rút tiền và theo dõi trạng thái payout.</p>
         </div>
       </div>
 
       {!isAdmin && (
         <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-          <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Yêu cầu rút tiền mới</h2>
+          <section className="rounded-3xl border border-amber-200/80 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-extrabold text-gray-900 mb-4">Yêu cầu rút tiền mới</h2>
             <form className="space-y-4" onSubmit={handleRequestSubmit}>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Số tiền</label>
+                <label className="block text-sm font-bold text-gray-700">Số tiền</label>
                 <input
                   type="number"
                   step="0.01"
                   min="10"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  className="mt-2 block w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-2 block w-full rounded-2xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                   placeholder="10"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Phương thức thanh toán</label>
+                <label className="block text-sm font-bold text-gray-700">Phương thức thanh toán</label>
                 <input
                   value={paymentMethod}
                   onChange={(e) => setPaymentMethod(e.target.value)}
-                  className="mt-2 block w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-2 block w-full rounded-2xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                   placeholder="bank_transfer"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Ghi chú</label>
+                <label className="block text-sm font-bold text-gray-700">Ghi chú</label>
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={4}
-                  className="mt-2 block w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-2 block w-full rounded-2xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                   placeholder="Ghi chú thêm..."
                 />
               </div>
               <button
                 type="submit"
                 disabled={requestMutation.isPending}
-                className="inline-flex items-center justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                className="inline-flex items-center justify-center rounded-2xl bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] px-6 py-3 text-sm font-extrabold text-gray-900 transition hover:opacity-95 shadow-md disabled:opacity-50"
               >
                 {requestMutation.isPending ? 'Đang gửi...' : 'Gửi yêu cầu'}
               </button>
             </form>
-            {feedback && <p className="mt-4 text-sm text-green-600">{feedback}</p>}
+            {feedback && <p className="mt-4 text-sm font-semibold text-green-700">{feedback}</p>}
           </section>
 
-          <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Trạng thái tài khoản</h2>
+          <section className="rounded-3xl border border-amber-200/80 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-extrabold text-gray-900 mb-4">Trạng thái tài khoản</h2>
             <p className="text-sm text-gray-500">Bạn có thể theo dõi lịch sử request payout và trạng thái hiện tại.</p>
           </section>
         </div>
       )}
 
       {isAdmin && (
-        <section className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-amber-200/80 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4 mb-6">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Danh sách yêu cầu Payout đang chờ duyệt</h2>
+              <h2 className="text-lg font-extrabold text-gray-900">Danh sách yêu cầu Payout đang chờ duyệt</h2>
               <p className="text-sm text-gray-500">Chỉ có MIB / admin mới thấy danh sách này.</p>
             </div>
-            <div className="inline-flex items-center rounded-2xl bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
+            <div className="inline-flex items-center rounded-2xl bg-amber-100 px-4 py-2 text-sm font-extrabold text-amber-950 border border-amber-200">
               Tổng: {pendingPayouts.length}
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-              <thead className="bg-slate-50">
+            <table className="min-w-full divide-y divide-gray-100 text-left text-sm">
+              <thead className="bg-amber-50/80 text-gray-800 font-extrabold border-b border-amber-200/80">
                 <tr>
                   <th className="px-4 py-3 font-medium text-slate-600">IB ID</th>
                   <th className="px-4 py-3 font-medium text-slate-600">Số tiền</th>

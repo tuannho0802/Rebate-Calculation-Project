@@ -53,56 +53,50 @@ export function NetworkIbTable() {
       <div className="flex justify-end">
         <button
           onClick={() => setIsCreateModalOpen(true)}
-          className="flex items-center gap-2 bg-[#0066ff] hover:bg-[#0052cc] text-white px-5 py-2.5 rounded-xl font-semibold transition-all shadow-md shadow-blue-500/20"
+          className="flex items-center gap-2 bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] text-gray-900 px-5 py-2.5 rounded-xl font-extrabold transition-all shadow-md hover:opacity-95"
         >
-          <UserPlus className="h-5 w-5" />
+          <UserPlus className="h-5 w-5 text-gray-900" />
           Tạo sub-IB (Create IB)
         </button>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-amber-200/80 shadow-sm overflow-hidden">
         {isLoading ? (
-          <div className="flex justify-center items-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-[#0066ff]" />
+          <div className="flex items-center justify-center p-12">
+            <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
           </div>
         ) : subIbs.length === 0 ? (
-          <div className="text-center py-12">
-            <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <UserPlus className="h-8 w-8 text-gray-400" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-1">Chưa có Sub-IB nào</h3>
-            <p className="text-gray-500">Hãy tạo Sub-IB đầu tiên của bạn để bắt đầu xây dựng mạng lưới.</p>
-          </div>
+          <div className="p-12 text-center text-gray-500">Chưa có sub-IB nào</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="bg-gray-50 text-gray-700 font-semibold border-b border-gray-100">
+              <thead className="bg-amber-50/80 text-gray-800 font-extrabold border-b border-amber-200/80">
                 <tr>
                   <th className="px-6 py-4">Tên IB</th>
                   <th className="px-6 py-4">Email</th>
-                  <th className="px-6 py-4">Loại tài khoản</th>
-                  <th className="px-6 py-4 text-right">Thao tác</th>
+                  <th className="px-6 py-4">Mức Cấp</th>
+                  <th className="px-6 py-4">Loại Tài Khoản (Link)</th>
+                  <th className="px-6 py-4 text-right">Thao Tác</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {subIbs.map((ib) => (
-                  <tr key={ib.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4 font-medium text-gray-900">
-                      {ib.name || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 text-gray-600">
-                      {ib.email}
-                    </td>
+                  <tr key={ib.id} className="hover:bg-amber-50/40 transition-colors">
+                    <td className="px-6 py-4 font-bold text-gray-900">{ib.name || '---'}</td>
+                    <td className="px-6 py-4 text-gray-600 font-medium">{ib.email}</td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-100">
-                        {getAccountType(ib)}
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                        Level {ib.level}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 font-semibold text-gray-800">
+                      {getAccountType(ib)}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-2">
                         <button
                           onClick={() => setViewIbId(ib.id)}
-                          className="p-2 text-gray-400 hover:text-[#0066ff] hover:bg-blue-50 rounded-lg transition-colors group"
+                          className="p-2 text-gray-400 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-colors group"
                           title="View"
                         >
                           <Eye className="h-4 w-4 group-hover:scale-110 transition-transform" />

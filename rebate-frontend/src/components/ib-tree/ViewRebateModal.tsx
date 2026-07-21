@@ -43,16 +43,16 @@ export function ViewRebateModal({ isOpen, onClose, ibId }: ViewRebateModalProps)
           <div className="p-6 overflow-y-auto">
             {isLoading ? (
               <div className="flex justify-center items-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-[#0066ff]" />
+                <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
               </div>
             ) : assets.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
                 Chưa có cấu hình hoa hồng nào cho IB này.
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-gray-200">
+              <div className="overflow-x-auto rounded-xl border border-amber-200/80">
                 <table className="w-full text-sm text-left">
-                  <thead className="bg-gray-50 text-gray-700 font-semibold border-b border-gray-200">
+                  <thead className="bg-amber-50/80 text-gray-800 font-extrabold border-b border-amber-200/80">
                     <tr>
                       <th className="px-6 py-4">Sản Phẩm (Asset Type / Symbol)</th>
                       <th className="px-6 py-4">Mức Pips được chia</th>
@@ -61,11 +61,11 @@ export function ViewRebateModal({ isOpen, onClose, ibId }: ViewRebateModalProps)
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {assets.map((asset) => (
-                      <tr key={asset.assetType} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 font-medium text-gray-900">
+                      <tr key={asset.assetType} className="hover:bg-amber-50/40 transition-colors">
+                        <td className="px-6 py-4 font-bold text-gray-900">
                           {asset.assetType}
                         </td>
-                        <td className="px-6 py-4 text-[#0066ff] font-semibold">
+                        <td className="px-6 py-4 text-amber-950 font-bold">
                           {asset.markupPips}
                         </td>
                         <td className="px-6 py-4 text-gray-500">

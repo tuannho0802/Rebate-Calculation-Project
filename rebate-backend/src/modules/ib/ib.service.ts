@@ -205,7 +205,7 @@ export class IbService {
     const hashedPassword = await bcrypt.hash(createIbDto.password, 10);
     const newLevel = currentUserLevel + 1;
 
-    let parentAccountType = createIbDto.accountType || 'SEA STD';
+    let parentAccountType = createIbDto.accountType || 'STD';
     let selectedTemplate: { id: string; name: string; rows: any[] } | null = null;
     if (currentUserLevel > 0) {
       const parentNode = await this.prisma.ibNode.findUnique({ where: { id: currentUserId }});
@@ -278,19 +278,14 @@ export class IbService {
           where: { ibId: currentUserId },
         });
 
-        // Initialize child's config for each asset type
         const defaultConfigs = Object.values(AssetType).map((assetType) => {
-          const parentConfig = parentConfigs.find((pc: any) => pc.assetType === assetType);
-          // Child's max allowed pips is the parent's allocated markupPips
-          const maxPips = parentConfig ? Number(parentConfig.markupPips) : 0;
-
           return {
             ibId: ib.id,
             assetType,
             rebatePips: 0,
             markupPips: 0,
             markupPercent: 100,
-            maxPips,
+            maxPips: 0,
           };
         });
 

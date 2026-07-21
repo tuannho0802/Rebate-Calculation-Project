@@ -56,64 +56,64 @@ export default function ProjectStatistics({ userId }: ProjectStatisticsProps) {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-bold text-white">
-          {t('tabStats')} <span className="text-sm font-normal text-slate-400 ml-2">({t('month')} {data.period.month})</span>
+        <h2 className="text-lg font-extrabold text-gray-900">
+          {t('tabStats')} <span className="text-sm font-semibold text-gray-500 ml-2">({t('month')} {data.period.month})</span>
         </h2>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5">
+        <div className="bg-amber-50/40 border border-amber-200/60 rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-400">{t('totalVolume')}</p>
-              <p className="text-2xl font-bold text-emerald-400 mt-1">{data.overall.totalLots.toFixed(2)}</p>
+              <p className="text-sm font-semibold text-gray-600">{t('totalVolume')}</p>
+              <p className="text-2xl font-extrabold text-amber-950 mt-1">{data.overall.totalLots.toFixed(2)}</p>
             </div>
-            <div className="p-3 bg-emerald-500/10 rounded-lg">
-              <TrendingUp className="w-6 h-6 text-emerald-500" />
+            <div className="p-3 bg-amber-100 rounded-lg">
+              <TrendingUp className="w-6 h-6 text-amber-700" />
             </div>
           </div>
         </div>
 
-        <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-5">
+        <div className="bg-amber-50/40 border border-amber-200/60 rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-400">{t('totalTransactions')}</p>
-              <p className="text-2xl font-bold text-white mt-1">{data.overall.transactionCount}</p>
+              <p className="text-sm font-semibold text-gray-600">{t('totalTransactions')}</p>
+              <p className="text-2xl font-extrabold text-gray-900 mt-1">{data.overall.transactionCount}</p>
             </div>
-            <div className="p-3 bg-blue-500/10 rounded-lg">
-              <Activity className="w-6 h-6 text-blue-500" />
+            <div className="p-3 bg-red-100 rounded-lg">
+              <Activity className="w-6 h-6 text-red-600" />
             </div>
           </div>
         </div>
       </div>
 
       <div className="mt-8">
-        <h3 className="text-sm font-bold text-white uppercase tracking-wider mb-4">{t('detailsByAsset')}</h3>
-        <div className="overflow-hidden rounded-xl border border-slate-800">
-          <table className="w-full text-sm text-left text-slate-300">
-            <thead className="text-xs uppercase bg-slate-900 text-slate-400 border-b border-slate-800">
+        <h3 className="text-sm font-extrabold text-gray-900 uppercase tracking-wider mb-4">{t('detailsByAsset')}</h3>
+        <div className="overflow-hidden rounded-xl border border-gray-200">
+          <table className="w-full text-sm text-left text-gray-800">
+            <thead className="text-xs uppercase bg-amber-50/80 text-gray-800 border-b border-amber-200/80 font-extrabold">
               <tr>
                 <th className="px-5 py-4">{t('tableAsset')}</th>
                 <th className="px-5 py-4 text-right">{t('tableVolume')}</th>
                 <th className="px-5 py-4 text-right">{t('tableTransactions')}</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800 bg-slate-900/50">
+            <tbody className="divide-y divide-gray-100 bg-white">
               {data.byAssetType.length > 0 ? (
                 data.byAssetType.map((asset) => (
-                  <tr key={asset.assetType} className="hover:bg-slate-800/50 transition-colors">
-                    <td className="px-5 py-4 font-semibold text-white">{asset.assetType}</td>
-                    <td className="px-5 py-4 text-right text-emerald-400 font-medium">
+                  <tr key={asset.assetType} className="hover:bg-amber-50/40 transition-colors">
+                    <td className="px-5 py-4 font-bold text-gray-900">{asset.assetType}</td>
+                    <td className="px-5 py-4 text-right text-amber-950 font-extrabold">
                       {asset.lots.toFixed(2)}
                     </td>
-                    <td className="px-5 py-4 text-right text-slate-300">
+                    <td className="px-5 py-4 text-right text-gray-700 font-semibold">
                       {asset.count}
                     </td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={3} className="px-5 py-8 text-center text-slate-500">
+                  <td colSpan={3} className="px-5 py-8 text-center text-gray-500 font-medium">
                     {t('noData')}
                   </td>
                 </tr>

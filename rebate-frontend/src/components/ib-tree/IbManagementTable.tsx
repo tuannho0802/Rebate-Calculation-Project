@@ -7,10 +7,15 @@ import { Loader2, Search, Edit, Trash2 } from 'lucide-react';
 import { useRouter } from '@/i18n/routing';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
+import { useAuthStore } from '@/store/auth.store';
+import { CreateIbModal } from './CreateIbModal';
+import { Plus } from 'lucide-react';
 
 export function IbManagementTable() {
   const queryClient = useQueryClient();
   const router = useRouter();
+  const { user } = useAuthStore();
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const trimmedQ = q.trim();
@@ -53,24 +58,33 @@ export function IbManagementTable() {
 
   return (
     <div className="space-y-4">
-      <form onSubmit={handleSearch} className="flex gap-2 items-center">
-        <div className="relative flex-1">
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Tìm theo email hoặc tên (để trống = xem tất cả)"
-            className="w-full rounded-lg border border-gray-200 px-4 py-2 pr-10"
-          />
-          <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500">
-            <Search className="h-4 w-4" />
-          </button>
-        </div>
-      </form>
+      <div className="flex gap-4 items-center">
+        <form onSubmit={handleSearch} className="flex gap-2 items-center flex-1">
+          <div className="relative flex-1">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Tìm theo email hoặc tên (để trống = xem tất cả)"
+              className="w-full rounded-lg border border-gray-200 px-4 py-2 pr-10 outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button type="submit" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-blue-600">
+              <Search className="h-4 w-4" />
+            </button>
+          </div>
+        </form>
+        <button
+          onClick={() => setIsCreateModalOpen(true)}
+          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm"
+        >
+          <Plus className="h-4 w-4" />
+          Tạo Sub-IB
+        </button>
+      </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
         {isLoading || isFetching ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-[#0066ff]" />
+            <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
           </div>
         ) : !canSearch ? (
           <div className="text-center py-12 text-gray-500">Nhập ít nhất 2 ký tự để tìm kiếm</div>
@@ -129,6 +143,15 @@ export function IbManagementTable() {
           })()
         )}
       </div>
+      
+      {/* Modal tạo Sub-IB */}
+      {user?.id && (
+        <CreateIbModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          parentId={user.id}
+        />
+      )}
     </div>
   );
 }

@@ -12,9 +12,14 @@
  * Không có fetch riêng — dùng chung configs/dirtyIbs/handleCellChange.
  */
 
+import { useState, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
-import { Loader2 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { Loader2, Save } from 'lucide-react';
+import { toast } from 'sonner';
 import { AssetType, IbTreeNode, RebateConfig, MAX_PIPS } from '@/types';
+import { solveBallAllocation, SolverNodeInput } from '@/lib/ai-rebate-solver';
+import { rebateApi } from '@/lib/api/rebate';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,8 +35,6 @@ export interface CompactPivotTableProps {
   ibs: IbTreeNode[];                                   // flattenIbTree(root).filter(lv>0)
   assetTypes: AssetType[];
   configs: Record<string, RebateConfig>;
-  dirtyIbs: Set<string>;
-  handleCellChange: (ibId: string, assetType: AssetType, value: string) => void;
   getMibMaxDisplay: (mibId: string, assetType: AssetType) => number | null;
   parentById: Record<string, string | null>;
   ibNodesById: Record<string, IbTreeNode>;
@@ -115,8 +118,6 @@ export function CompactPivotTable({
   ibs,
   assetTypes,
   configs,
-  dirtyIbs,
-  handleCellChange,
   getMibMaxDisplay,
   parentById,
   ibNodesById,
@@ -125,9 +126,35 @@ export function CompactPivotTable({
   onCascadeReset,
 }: CompactPivotTableProps) {
   const t = useTranslations('RebateManagement');
+  const queryClient = useQueryClient();
+  const [selectedScenarioIndex, setSelectedScenarioIndex] = useState<number>(0);
+  const [userHasSelected, setUserHasSelected] = useState<boolean>(false);
+  const [isSavingScenario, setIsSavingScenario] = useState<boolean>(false);
 
-  // Dynamic columns — recomputed setiap render (dựa trên selection)
+  // Dynamic columns — recomputed mỗi render (dựa trên selection)
   const columns = buildColumns(rootId, rootIb, ibs, parentById, selection);
+
+  const activeBranchKey = [rootId, ...columns.map(c => c.selectedIbId)].join(',');
+  useEffect(() => {
+    setUserHasSelected(false);
+  }, [activeBranchKey]);
+
+  // Lấy level1 node và số Markup Pips của level 1
+  const level1Id = columns[0]?.selectedIbId;
+  const level1Node = level1Id ? ibNodesById[level1Id] : null;
+
+  const parseAccountTypePips = (accType?: string): number => {
+    if (!accType) return 0;
+    if (accType === 'STD' || accType === 'SEA STD') return 0;
+    const match = accType.match(/(\d+(?:\.\d+)?)/);
+    if (match) {
+      const num = parseFloat(match[1]);
+      return isNaN(num) ? 0 : num;
+    }
+    return 0;
+  };
+
+  const level1MarkupPips = parseAccountTypePips(level1Node?.accountType);
 
   const handleSelect = (level: number, ibId: string) => {
     // 1. Ghi selection mới
@@ -141,187 +168,396 @@ export function CompactPivotTable({
       <table className="w-full text-sm text-left border-collapse">
 
         {/* ── Header ── */}
-        <thead className="bg-slate-50 text-slate-700 font-semibold sticky top-0 z-20 shadow-sm">
+        <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
           <tr>
-            {/* Col 0: Asset Type */}
-            <th className="px-4 py-3 border-b border-r border-gray-200 sticky left-0 bg-slate-50 z-30 w-40 shadow-[1px_0_0_0_#e5e7eb]">
+            {/* Cột 1: Asset Type label */}
+            <th className="px-4 py-3 border-r border-slate-200 min-w-[150px] text-slate-900 font-bold bg-slate-100 sticky left-0 z-10 shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
               Asset Type
             </th>
 
-            {/* Col MIB */}
-            <th className="px-4 py-3 border-b border-gray-200 min-w-[120px] text-center">
-              <div className="text-[11px] font-bold text-indigo-700 uppercase tracking-wide">MIB</div>
-              <div className="text-[10px] font-normal text-gray-500 mt-0.5 truncate max-w-[110px] mx-auto" title={rootIb.email}>
-                {rootIb.name ?? rootIb.email}
+            {/* Cột MIB — Cố định ở Level 0 */}
+            <th className="px-3 py-2.5 border-r border-slate-200 text-center min-w-[150px] bg-indigo-50/50">
+              <div className="flex flex-col items-center justify-center gap-1">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black text-indigo-800 bg-indigo-100 border border-indigo-200 uppercase tracking-wider">
+                  MIB
+                </span>
+                <div className="text-xs font-extrabold text-gray-900 truncate max-w-[140px] mx-auto text-center" title={rootIb.email}>
+                  {rootIb.name ?? rootIb.email}
+                </div>
               </div>
             </th>
 
-            {/* Col Level N — chỉ hiển thị khi có options */}
-            {columns.map(({ level, selectedIbId, options }) => (
-              <th key={level} className="px-3 py-2 border-b border-gray-200 min-w-[160px] text-center">
-                <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wide mb-1">
-                  Level {level}
-                </div>
-                {options.length === 1 ? (
-                  <span
-                    className="text-[10px] font-medium text-gray-600 block truncate max-w-[140px] mx-auto"
-                    title={options[0].email}
-                  >
-                    {options[0].name ?? options[0].email}
-                  </span>
-                ) : (
-                  <select
-                    value={selectedIbId}
-                    onChange={e => handleSelect(level, e.target.value)}
-                    className="w-full max-w-[150px] px-2 py-1 text-[11px] border border-gray-300 rounded-lg bg-white font-normal focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  >
-                    {options.map(ib => (
-                      <option key={ib.id} value={ib.id}>
-                        {optionLabel(ib, parentById, ibNodesById)}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </th>
-            ))}
-
-            {/* Col cuối: company / MIB cap */}
-            <th className="px-4 py-3 border-b border-gray-200 min-w-[120px] text-center bg-emerald-50 text-emerald-700">
-              {t('capColumn')}
-            </th>
+            {/* Các Cột Dynamic Sub-IB (Level 1, Level 2, ...) */}
+            {columns.map(({ level, selectedIbId, options }) => {
+              return (
+                <th key={level} className="px-3 py-2.5 border-r border-slate-200 text-center min-w-[160px]">
+                  <div className="flex flex-col items-center justify-center gap-1.5">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black text-slate-800 bg-slate-200 border border-slate-300 uppercase tracking-wider">
+                      LEVEL {level}
+                    </span>
+                    {options.length === 1 ? (
+                      <div className="text-xs font-extrabold text-gray-900 truncate max-w-[150px] mx-auto text-center py-1" title={options[0].email}>
+                        {optionLabel(options[0], parentById, ibNodesById)}
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedIbId}
+                        onChange={(e) => handleSelect(level, e.target.value)}
+                        className="w-full text-xs font-bold text-gray-900 bg-white border border-slate-300 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-xs truncate text-center"
+                      >
+                        {options.map(ib => (
+                          <option key={ib.id} value={ib.id}>
+                            {optionLabel(ib, parentById, ibNodesById)}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </th>
+              );
+            })}
           </tr>
         </thead>
 
         {/* ── Body ── */}
-        <tbody className="divide-y divide-gray-100">
-          {assetTypes.map(asset => {
-            const companyMax = MAX_PIPS[asset];
-            const mibMax = getMibMaxDisplay(rootId, asset);
-            const isOverride = mibMax !== null && mibMax !== companyMax;
+        <tbody className="divide-y divide-slate-100 bg-white">
+          {assetTypes.map((asset) => {
+            // Lấy config của MIB cho asset này (base cap từ MIB config)
+            const mibAssetConfig = configs[rootId]?.assets?.find(a => a.assetType === asset);
+            const mibBaseCap = getMibMaxDisplay(rootId, asset) ?? Number(mibAssetConfig?.maxPips || 0);
+
+            // Cap thực tế của MIB = mibBaseCap + level1MarkupPips (nếu mibBaseCap > 0)
+            const mibCap = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
+
+            // MIB đã cho đi (allocated) = rebatePips của Level 1 đang chọn (Cột "Nhận" của Level 1)
+            const level1Config = level1Id ? configs[level1Id]?.assets?.find(a => a.assetType === asset) : null;
+            const mibGiven = level1Config ? Number(level1Config.rebatePips || 0) : 0;
+            const mibRetained = Math.max(0, mibCap - mibGiven);
 
             return (
-              <tr key={asset} className="hover:bg-blue-50/20 transition-colors">
-
-                {/* Col 0: Asset Type */}
-                <td className="px-4 py-3 border-r border-gray-100 sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10 font-medium text-gray-900">
+              <tr key={asset} className="hover:bg-slate-50/80 transition-colors">
+                {/* Cell: Asset Name */}
+                <td className="px-4 py-2.5 font-bold text-slate-800 border-r border-slate-200 text-xs bg-white sticky left-0 z-10 shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
                   {asset}
                 </td>
 
-                {/* Col MIB: editable rebatePips + Max label — cùng pattern cột IB */}
-                <td className="px-3 py-2 text-center">
-                  {(() => {
-                    const mibConfig = configs[rootId];
-                    if (!mibConfig) {
-                      return <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300" />;
-                    }
-                    const mibAssetConfig = mibConfig.assets.find(a => a.assetType === asset);
-                    if (!mibAssetConfig) {
-                      return <span className="text-gray-300 text-xs">—</span>;
-                    }
-                    const mibRaw =
-                      (mibAssetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput !== undefined
-                        ? (mibAssetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput!
-                        : String(mibAssetConfig.rebatePips);
-                    const mibExceeding = mibAssetConfig.rebatePips > mibAssetConfig.maxPips;
-                    const mibIsDirty = dirtyIbs.has(rootId);
-                    return (
-                      <div className="flex flex-col items-center gap-0.5">
-                        <input
-                          type="text"
-                          value={mibRaw}
-                          onChange={e => handleCellChange(rootId, asset, e.target.value)}
-                          title={rootIb.name ?? rootIb.email ?? rootId}
-                          className={[
-                            'w-full max-w-[80px] text-center px-2 py-1 text-sm border rounded',
-                            'focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors',
-                            mibExceeding
-                              ? 'border-red-400 bg-red-50 text-red-700'
-                              : mibIsDirty
-                                ? 'border-amber-300 bg-amber-50/40'
-                                : 'border-gray-200',
-                          ].join(' ')}
-                        />
-                        <span className={`text-[10px] ${mibExceeding ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
-                          {mibAssetConfig.maxPips === 0
-                            ? t('parentNotAllocated')
-                            : t('maxLabel', { max: mibAssetConfig.maxPips })}
-                        </span>
-                      </div>
-                    );
-                  })()}
+                {/* Cell: MIB (Level 0) */}
+                <td className="px-3 py-2 border-r border-slate-200 text-center bg-indigo-50/20">
+                  <div className="flex flex-col items-center justify-center gap-0.5">
+                    <span className="text-[11px] font-semibold text-slate-500">
+                      Cap: <span className="font-bold text-slate-700">{mibCap}</span>
+                    </span>
+                    <span className="text-sm font-black text-indigo-700 bg-indigo-100/60 px-2 py-0.5 rounded border border-indigo-200/50 min-w-[36px]">
+                      {mibRetained}
+                    </span>
+                  </div>
                 </td>
 
-                {/* Col Level N — chỉ hiển thị ô input của selectedIbId */}
-                {columns.map(({ level, selectedIbId }) => {
-                  const ibConfig = configs[selectedIbId];
-                  if (!ibConfig) {
-                    return (
-                      <td key={level} className="px-4 py-3 text-center">
-                        <Loader2 className="h-4 w-4 animate-spin mx-auto text-gray-300" />
-                      </td>
-                    );
-                  }
+                {/* Cells: Dynamic Sub-IBs (Level 1, Level 2, ...) */}
+                {columns.map(({ level, selectedIbId }, idx) => {
+                  const ibConfig = configs[selectedIbId]?.assets?.find(a => a.assetType === asset);
+                  const received = Number(ibConfig?.rebatePips || 0);
 
-                  const assetConfig = ibConfig.assets.find(a => a.assetType === asset);
-                  if (!assetConfig) {
-                    return (
-                      <td key={level} className="px-4 py-3 text-center text-gray-300 text-xs">—</td>
-                    );
-                  }
+                  // Next level đang chọn = cột tiếp theo trong columns array
+                  const nextLevelId = columns[idx + 1]?.selectedIbId;
+                  const nextIbConfig = nextLevelId ? configs[nextLevelId]?.assets?.find(a => a.assetType === asset) : null;
 
-                  const rawValue =
-                    (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput !== undefined
-                      ? (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput!
-                      : String(assetConfig.rebatePips);
-
-                  const isExceeding = assetConfig.rebatePips > assetConfig.maxPips;
-                  const isDirty = dirtyIbs.has(selectedIbId);
+                  // Đã cho đi = rebatePips của con tiếp theo trong nhánh active
+                  const given = nextIbConfig ? Number(nextIbConfig.rebatePips || 0) : 0;
+                  const retained = Math.max(0, received - given);
 
                   return (
-                    <td key={level} className="px-3 py-2 text-center">
-                      <div className="flex flex-col items-center gap-0.5">
-                        <input
-                          type="text"
-                          value={rawValue}
-                          onChange={e => handleCellChange(selectedIbId, asset, e.target.value)}
-                          title={ibNodesById[selectedIbId]?.name ?? ibNodesById[selectedIbId]?.email ?? selectedIbId}
-                          className={[
-                            'w-full max-w-[80px] text-center px-2 py-1 text-sm border rounded',
-                            'focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors',
-                            isExceeding
-                              ? 'border-red-400 bg-red-50 text-red-700'
-                              : isDirty
-                                ? 'border-amber-300 bg-amber-50/40'
-                                : 'border-gray-200',
-                          ].join(' ')}
-                        />
-                        <span className={`text-[10px] ${isExceeding ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
-                          {assetConfig.maxPips === 0
-                            ? t('parentNotAllocated')
-                            : t('maxLabel', { max: assetConfig.maxPips })}
+                    <td key={level} className="px-3 py-2 border-r border-slate-200 text-center">
+                      <div className="flex flex-col items-center justify-center gap-0.5">
+                        <span className="text-[11px] font-semibold text-slate-500">
+                          Nhận: <span className="font-bold text-slate-700">{received}</span>
+                        </span>
+                        <span className="text-sm font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 min-w-[36px]">
+                          {retained}
                         </span>
                       </div>
                     </td>
                   );
                 })}
-
-                {/* Col cuối: company / MIB cap */}
-                <td className="px-4 py-3 text-center bg-emerald-50/40">
-                  <div className="space-y-0.5">
-                    <div className="text-[10px] font-medium text-emerald-700">
-                      {t('companyCap', { max: companyMax })}
-                    </div>
-                    <div className={`text-[10px] ${isOverride ? 'font-semibold text-amber-700' : 'text-emerald-700'}`}>
-                      {t('mibCap', { max: mibMax ?? '—' })}
-                    </div>
-                  </div>
-                </td>
-
               </tr>
             );
           })}
         </tbody>
+
+        {/* ── Footer: Company Cap (Sum per column) ── */}
+        <tfoot className="bg-slate-100 border-t-2 border-slate-300 text-xs">
+          <tr>
+            <td className="px-4 py-3 font-extrabold text-slate-900 border-r border-slate-200 sticky left-0 bg-slate-100 z-10">
+              Company Caps
+            </td>
+
+            {/* Total cho MIB */}
+            <td className="px-3 py-3 border-r border-slate-200 text-center font-bold text-indigo-900 bg-indigo-100/40">
+              {(() => {
+                const totalCap = assetTypes.reduce((sum, asset) => {
+                  const mibAssetConfig = configs[rootId]?.assets?.find(a => a.assetType === asset);
+                  const mibBaseCap = getMibMaxDisplay(rootId, asset) ?? Number(mibAssetConfig?.maxPips || 0);
+                  const mibCap = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
+                  return sum + mibCap;
+                }, 0);
+                const totalGiven = assetTypes.reduce((sum, asset) => {
+                  const cfg = level1Id ? configs[level1Id]?.assets?.find(a => a.assetType === asset) : null;
+                  return sum + Number(cfg?.rebatePips || 0);
+                }, 0);
+                return (
+                  <div>
+                    <div className="text-[10px] text-slate-500">Company cap: <span className="font-bold">{totalCap}</span></div>
+                    <div className="text-xs font-black text-indigo-700">Allocated: {totalGiven}</div>
+                  </div>
+                );
+              })()}
+            </td>
+
+            {/* Total cho từng Sub-IB column */}
+            {columns.map(({ level, selectedIbId }, idx) => {
+              const totalReceived = assetTypes.reduce((sum, asset) => {
+                const cfg = configs[selectedIbId]?.assets?.find(a => a.assetType === asset);
+                return sum + Number(cfg?.rebatePips || 0);
+              }, 0);
+
+              const nextLevelId = columns[idx + 1]?.selectedIbId;
+              const totalGiven = assetTypes.reduce((sum, asset) => {
+                const cfg = nextLevelId ? configs[nextLevelId]?.assets?.find(a => a.assetType === asset) : null;
+                return sum + Number(cfg?.rebatePips || 0);
+              }, 0);
+
+              return (
+                <td key={level} className="px-3 py-3 border-r border-slate-200 text-center font-bold text-slate-800">
+                  <div>
+                    <div className="text-[10px] text-slate-500">Company cap: <span className="font-bold">{totalReceived}</span></div>
+                    <div className="text-xs font-black text-slate-900">Allocated: {totalGiven}</div>
+                  </div>
+                </td>
+              );
+            })}
+          </tr>
+        </tfoot>
       </table>
+
+      {/* ── 🤖 AI REBATE ENGINE SOLVER BẢNG BÊN DƯỚI ── */}
+      {(() => {
+        // Collect active branch node IDs: [rootId, col1.selectedIbId, col2.selectedIbId, ...]
+        const branchIds = [rootId, ...columns.map(c => c.selectedIbId)];
+
+        const totalMarkupPips = level1MarkupPips || 10;
+
+        // Build solver input for this active branch
+        const solverInput: SolverNodeInput[] = branchIds.map((id, idx) => {
+          const isRoot = idx === 0;
+          const name = isRoot ? (rootIb.name ?? rootIb.email) : (ibNodesById[id]?.name ?? ibNodesById[id]?.email ?? id);
+          const lvl = isRoot ? 0 : idx;
+          const assets: Record<string, number> = {};
+
+          assetTypes.forEach((asset) => {
+            if (isRoot) {
+              const mibAssetConfig = configs[rootId]?.assets?.find(a => a.assetType === asset);
+              const mibBaseCap = getMibMaxDisplay(rootId, asset) ?? Number(mibAssetConfig?.maxPips || 0);
+              assets[asset] = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
+            } else {
+              const cfg = configs[id]?.assets?.find(a => a.assetType === asset);
+              assets[asset] = Number(cfg?.rebatePips || 0);
+            }
+          });
+
+          return {
+            nodeId: id,
+            nodeName: name,
+            level: lvl,
+            assets,
+          };
+        });
+
+        const scenarios = solveBallAllocation(solverInput, totalMarkupPips, assetTypes);
+
+        // Read saved pattern from DB configs for active branch
+        const savedPatternKey = branchIds.map(id => {
+          const cfg = configs[id]?.assets?.[0];
+          return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
+        });
+
+        // Auto-match scenario if user hasn't manually picked a scenario in this session
+        let activeIndex = selectedScenarioIndex;
+        if (!userHasSelected && scenarios.length > 0) {
+          const isSavedPatternValid = savedPatternKey.every(p => p !== null);
+          if (isSavedPatternValid) {
+            const foundIdx = scenarios.findIndex(sc =>
+              sc.nodes.every((n, idx) => n.white_hold === savedPatternKey[idx])
+            );
+            if (foundIdx !== -1) {
+              activeIndex = foundIdx;
+            }
+          }
+        }
+
+        const activeScenario = scenarios[activeIndex] || scenarios[0];
+
+        // Map nodeId -> nodeResult from active scenario
+        const scenarioMap: Record<string, { pct: string; white_hold: number }> = {};
+        if (activeScenario) {
+          activeScenario.nodes.forEach((n) => {
+            scenarioMap[n.nodeId] = { pct: n.pct, white_hold: n.white_hold };
+          });
+        }
+
+        const handleSaveScenario = async () => {
+          if (!activeScenario || !activeScenario.nodes || activeScenario.nodes.length === 0) return;
+          setIsSavingScenario(true);
+          try {
+            const payloadNodes = activeScenario.nodes.map((node) => {
+              const pctNum = parseFloat(node.pct.replace('%', ''));
+              return {
+                ibId: node.nodeId,
+                markupPercent: isNaN(pctNum) ? 100 : pctNum,
+                markupPips: node.white_hold,
+              };
+            });
+
+            const res = await rebateApi.saveBranchScenario(payloadNodes);
+            if (res?.data?.success || res?.success) {
+              toast.success(res.data?.message || 'Đã lưu kịch bản phân bổ vào cơ sở dữ liệu thành công!');
+              queryClient.invalidateQueries({ queryKey: ['ibTree'] });
+              setUserHasSelected(true);
+            } else {
+              toast.error('Lỗi khi lưu kịch bản phân bổ');
+            }
+          } catch (err: any) {
+            toast.error('Lỗi kết nối khi lưu kịch bản');
+          } finally {
+            setIsSavingScenario(false);
+          }
+        };
+
+        return (
+          <div className="mt-4 border-t-2 border-slate-300">
+            <div className="overflow-x-auto rounded-none border-b border-slate-300 bg-white">
+              <div className="bg-indigo-900 text-white text-xs font-extrabold px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span>🤖 AI REBATE ENGINE - KỊCH BẢN PHÂN BỔ TỐI ƯU (SCENARIO {activeScenario ? activeScenario.scenarioId : 1} / {scenarios.length || 1})</span>
+                  {scenarios.length > 1 && (
+                    <>
+                      <button
+                        onClick={() => {
+                          setSelectedScenarioIndex((prev: number) => (prev + 1) % scenarios.length);
+                          setUserHasSelected(true);
+                        }}
+                        className="px-2.5 py-1 text-[11px] bg-amber-400 hover:bg-amber-300 text-indigo-950 font-extrabold rounded-md shadow transition-all cursor-pointer flex items-center gap-1 shrink-0"
+                      >
+                        🔀 Kịch Bản Tiếp Theo
+                      </button>
+
+                      <div className="flex items-center gap-1.5 shrink-0 bg-indigo-950/80 px-2.5 py-1 rounded-md border border-indigo-700/60">
+                        <span className="text-[11px] font-extrabold text-amber-300">Chọn trường hợp:</span>
+                        <select
+                          value={activeIndex}
+                          onChange={(e) => {
+                            setSelectedScenarioIndex(Number(e.target.value));
+                            setUserHasSelected(true);
+                          }}
+                          className="text-[11px] font-extrabold bg-indigo-900 text-white border border-indigo-500 rounded px-2 py-0.5 focus:outline-none focus:ring-2 focus:ring-amber-400 cursor-pointer shadow-xs max-w-[240px] truncate"
+                        >
+                          {scenarios.map((sc, idx) => {
+                            const pattern = sc.nodes.map((n) => n.white_hold).join(' : ');
+                            return (
+                              <option key={sc.scenarioId} value={idx} className="bg-indigo-950 text-white font-mono">
+                                #{sc.scenarioId} [{pattern}] (Var: {sc.variance})
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
+                      <button
+                        onClick={handleSaveScenario}
+                        disabled={isSavingScenario}
+                        className="px-3 py-1 text-[11px] bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold rounded-md shadow transition-all cursor-pointer flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                      >
+                        {isSavingScenario ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                        {isSavingScenario ? 'Đang lưu...' : 'Lưu Kịch Bản'}
+                      </button>
+                    </>
+                  )}
+                </div>
+                {activeScenario && (
+                  <span className="text-amber-300 font-normal text-right">
+                    Độ lệch (Variance): {activeScenario.variance} | Markup Giữ Max: {activeScenario.maxHold} pips
+                  </span>
+                )}
+              </div>
+              <table className="w-full text-sm text-left border-collapse">
+                <thead className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-3 border-r border-slate-200 min-w-[150px] text-slate-900 font-bold bg-slate-100">
+                      Markup Option
+                    </th>
+                    <th className="px-3 py-2.5 border-r border-slate-200 text-center min-w-[150px] bg-indigo-50/50">
+                      <div className="flex flex-col items-center justify-center gap-1">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black text-indigo-800 bg-indigo-100 border border-indigo-200 uppercase tracking-wider">
+                          MIB
+                        </span>
+                        <div className="text-xs font-extrabold text-gray-900 truncate max-w-[140px] mx-auto text-center" title={rootIb.email}>
+                          {rootIb.name ?? rootIb.email}
+                        </div>
+                      </div>
+                    </th>
+                    {columns.map(({ level, selectedIbId }) => {
+                      const node = ibNodesById[selectedIbId];
+                      const name = node ? (node.name ?? node.email) : selectedIbId;
+                      return (
+                        <th key={level} className="px-3 py-2.5 border-r border-slate-200 text-center min-w-[160px]">
+                          <div className="flex flex-col items-center justify-center gap-1">
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black text-slate-800 bg-slate-200 border border-slate-300 uppercase tracking-wider">
+                              LEVEL {level}
+                            </span>
+                            <div className="text-xs font-extrabold text-gray-900 truncate max-w-[150px] mx-auto text-center" title={node?.email || ''}>
+                              {name}
+                            </div>
+                          </div>
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {/* Hàng 1: % Giữ lại tính từ AI Rebate */}
+                  <tr className="bg-amber-50/70 font-semibold">
+                    <td className="px-4 py-3 border-r border-slate-200 font-bold text-amber-900 bg-amber-50">
+                      Tỷ Lệ % Giữ Lại
+                    </td>
+                    <td className="px-4 py-3 border-r border-slate-200 text-center text-amber-900 text-base font-extrabold bg-amber-50/50">
+                      {scenarioMap[rootId]?.pct ?? '100%'}
+                    </td>
+                    {columns.map(({ level, selectedIbId }) => (
+                      <td key={level} className="px-4 py-3 border-r border-slate-200 text-center text-amber-900 text-base font-extrabold">
+                        {scenarioMap[selectedIbId]?.pct ?? '0%'}
+                      </td>
+                    ))}
+                  </tr>
+
+                  {/* Hàng 2: Pips thực giữ lại tính từ AI Rebate Engine */}
+                  <tr className="hover:bg-blue-50/20 transition-colors">
+                    <td className="px-4 py-3 border-r border-slate-200 font-bold text-slate-800 bg-slate-50">
+                      {level1Node?.accountType || 'STD'} <span className="text-xs font-normal text-slate-500">({totalMarkupPips} Pips)</span>
+                    </td>
+                    <td className="px-4 py-3 border-r border-slate-200 text-center text-blue-700 font-bold text-base bg-slate-50/30">
+                      {scenarioMap[rootId]?.white_hold ?? 0}
+                    </td>
+                    {columns.map(({ level, selectedIbId }) => (
+                      <td key={level} className="px-4 py-3 border-r border-slate-200 text-center text-blue-700 font-bold text-base">
+                        {scenarioMap[selectedIbId]?.white_hold ?? 0}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -44,7 +44,7 @@ export function IbDetailsDrawer({ isOpen, onClose, ibId, onOpenCreate }: IbDetai
         <div className="p-6 flex-1 overflow-y-auto">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center h-40">
-              <Loader2 className="h-8 w-8 animate-spin text-[#0066ff]" />
+              <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
               <p className="text-sm text-gray-500 mt-4">Đang tải thông tin...</p>
             </div>
           ) : isError || !node ? (
@@ -53,16 +53,16 @@ export function IbDetailsDrawer({ isOpen, onClose, ibId, onOpenCreate }: IbDetai
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="flex items-center gap-4 bg-blue-50/50 p-4 rounded-2xl border border-blue-100">
-                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#0066ff] to-[#0047b3] flex items-center justify-center text-white shadow-lg shadow-blue-500/30">
-                  <User className="h-6 w-6" />
+              <div className="flex items-center gap-4 bg-amber-50/50 p-4 rounded-2xl border border-amber-200/80">
+                <div className="w-14 h-14 rounded-full bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] flex items-center justify-center text-gray-900 shadow-md border border-amber-300">
+                  <User className="h-6 w-6 text-gray-900" />
                 </div>
                 <div>
                   <h3 className="font-bold text-lg text-gray-900 truncate max-w-[200px]" title={node.email}>
                     {node.email}
                   </h3>
                   <div className="flex items-center gap-2 mt-1">
-                    <span className="px-2 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-bold uppercase">
+                    <span className="px-2.5 py-0.5 bg-amber-100 text-amber-950 rounded-full text-xs font-bold border border-amber-200">
                       Level {node.level}
                     </span>
                   </div>
@@ -102,19 +102,19 @@ export function IbDetailsDrawer({ isOpen, onClose, ibId, onOpenCreate }: IbDetai
           )}
         </div>
 
-        <div className="p-6 border-t border-gray-100 bg-gray-50 space-y-3">
+        <div className="p-6 border-t border-amber-100 bg-amber-50/40 space-y-3">
           <button
             onClick={() => router.push(`/dashboard/tree/edit/${ibId}`)}
-            className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 py-3 rounded-xl font-bold transition-all shadow-sm"
+            className="w-full flex items-center justify-center gap-2 bg-white border border-gray-300 text-gray-800 hover:bg-gray-50 py-3 rounded-xl font-bold transition-all shadow-sm"
           >
-            <Edit className="h-5 w-5" />
+            <Edit className="h-5 w-5 text-gray-700" />
             Cài đặt Hoa Hồng
           </button>
           <button
             onClick={onOpenCreate}
-            className="w-full flex items-center justify-center gap-2 bg-[#0066ff] hover:bg-[#0052cc] text-white py-3 rounded-xl font-bold transition-all shadow-md shadow-blue-500/20"
+            className="w-full flex items-center justify-center gap-2 bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] text-gray-900 py-3 rounded-xl font-extrabold transition-all shadow-md hover:opacity-95"
           >
-            <Plus className="h-5 w-5" />
+            <Plus className="h-5 w-5 text-gray-900" />
             Thêm IB cấp dưới
           </button>
         </div>

@@ -17,32 +17,32 @@ export default function AccountPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-white">{t('title')}</h1>
-        <p className="text-slate-400 mt-1">{t('description')}</p>
+        <h1 className="text-2xl font-extrabold text-gray-900">{t('title')}</h1>
+        <p className="text-gray-600 mt-1 font-medium">{t('description')}</p>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-        <div className="flex border-b border-slate-800">
+      <div className="bg-white border border-amber-200/80 rounded-2xl overflow-hidden shadow-sm">
+        <div className="flex border-b border-amber-100 bg-amber-50/40">
           <button
             onClick={() => setActiveTab('password')}
-            className={`flex items-center px-6 py-4 text-sm font-semibold transition-colors ${
+            className={`flex items-center px-6 py-4 text-sm font-bold transition-colors ${
               activeTab === 'password'
-                ? 'text-emerald-400 border-b-2 border-emerald-500 bg-slate-800/50'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+                ? 'text-gray-900 border-b-2 border-red-500 bg-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-amber-50/60'
             }`}
           >
-            <KeyRound className="w-4 h-4 mr-2" />
+            <KeyRound className="w-4 h-4 mr-2 text-amber-700" />
             {t('tabPassword')}
           </button>
           <button
             onClick={() => setActiveTab('stats')}
-            className={`flex items-center px-6 py-4 text-sm font-semibold transition-colors ${
+            className={`flex items-center px-6 py-4 text-sm font-bold transition-colors ${
               activeTab === 'stats'
-                ? 'text-emerald-400 border-b-2 border-emerald-500 bg-slate-800/50'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/30'
+                ? 'text-gray-900 border-b-2 border-red-500 bg-white shadow-sm'
+                : 'text-gray-600 hover:text-gray-900 hover:bg-amber-50/60'
             }`}
           >
-            <BarChart3 className="w-4 h-4 mr-2" />
+            <BarChart3 className="w-4 h-4 mr-2 text-amber-700" />
             {t('tabStats')}
           </button>
         </div>

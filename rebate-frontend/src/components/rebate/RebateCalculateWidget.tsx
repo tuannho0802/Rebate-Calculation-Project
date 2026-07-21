@@ -41,7 +41,7 @@ export function RebateCalculateWidget() {
       <div className="p-6 md:w-1/3 bg-gray-50 border-b md:border-b-0 md:border-r border-gray-100 flex flex-col justify-center">
         <div className="mb-6">
           <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-            <Calculator className="h-5 w-5 text-[#0066ff]" />
+            <Calculator className="h-5 w-5 text-amber-700" />
             Mô Phỏng Hoa Hồng
           </h2>
           <p className="text-sm text-gray-500 mt-1">Tính toán phân bổ tiền theo thời gian thực.</p>
@@ -106,9 +106,9 @@ export function RebateCalculateWidget() {
           <button
             type="submit"
             disabled={!ibId || lots === '' || isLoading || isFetching}
-            className="w-full mt-2 py-2.5 bg-[#0066ff] hover:bg-[#0052cc] text-white text-sm font-bold rounded-lg transition-all shadow-md shadow-blue-500/20 disabled:opacity-50 flex justify-center items-center gap-2"
+            className="w-full mt-2 py-2.5 bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] text-gray-900 text-sm font-extrabold rounded-lg hover:opacity-95 transition-all shadow-md disabled:opacity-50 flex justify-center items-center gap-2"
           >
-            {(isLoading || isFetching) && <Loader2 className="h-4 w-4 animate-spin" />}
+            {(isLoading || isFetching) && <Loader2 className="h-4 w-4 animate-spin text-gray-900" />}
             Chạy Mô Phỏng
           </button>
         </form>
@@ -118,12 +118,12 @@ export function RebateCalculateWidget() {
       <div className="p-6 md:w-2/3 flex flex-col justify-center min-h-[300px]">
         {!shouldCalculate ? (
           <div className="text-center text-gray-400">
-            <Calculator className="h-12 w-12 mx-auto mb-3 opacity-20" />
+            <Calculator className="h-12 w-12 mx-auto mb-3 opacity-20 text-amber-600" />
             <p>Nhập thông tin và bấm chạy mô phỏng để xem kết quả phân bổ.</p>
           </div>
         ) : isLoading || isFetching ? (
           <div className="flex flex-col items-center justify-center">
-            <Loader2 className="h-10 w-10 animate-spin text-[#0066ff] mb-4" />
+            <Loader2 className="h-10 w-10 animate-spin text-amber-600 mb-4" />
             <p className="text-gray-500">Đang tính toán...</p>
           </div>
         ) : errorMessage ? (

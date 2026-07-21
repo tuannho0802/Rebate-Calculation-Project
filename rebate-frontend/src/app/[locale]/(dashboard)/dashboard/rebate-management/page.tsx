@@ -6,25 +6,25 @@ import { useQuery } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
 import { AssetType, RebateConfig, MAX_PIPS, IbTreeNode } from '@/types';
-import { Loader2, Save, Table2, Sheet, LayoutGrid } from 'lucide-react';
-import { toast } from 'sonner';
-import { getErrorMessage } from '@/lib/error-messages';
+import { Loader2, Table2, Sheet, LayoutGrid, Eye, Download, GitBranch, Search } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 import { normalizeTreeRoots, flattenIbTree } from '@/lib/tree-utils';
-import { CompactPivotTable, CompactSelection } from '@/components/rebate/CompactPivotTable';
 import { PivotArrowOverlay } from '@/components/rebate/PivotArrowOverlay';
-import { GitBranch } from 'lucide-react';
+import { CompactPivotTable, CompactSelection } from '@/components/rebate/CompactPivotTable';
+import { solveBallAllocation, SolverNodeInput } from '@/lib/ai-rebate-solver';
 
 export default function RebateManagementPage() {
   const t = useTranslations('RebateManagement');
   const [viewMode, setViewMode] = useState<'flat' | 'pivot' | 'compact'>('flat');
   const [configs, setConfigs] = useState<Record<string, RebateConfig>>({});
-  const [dirtyIbs, setDirtyIbs] = useState<Set<string>>(new Set());
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveResults, setSaveResults] = useState<Record<string, { success: boolean; message: string }>>({});
   // Lifted-up selection cho CompactPivotTable: [rootId][level] = ibId
   const [compactSelection, setCompactSelection] = useState<CompactSelection>({});
-  // Toggle hiển thị mũi tên cha-con trong Pivot view
-  const [showArrows, setShowArrows] = useState(false);
+  // Search & Pagination state (2 MIBs per page)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 2;
+
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -55,8 +55,6 @@ export default function RebateManagementPage() {
     return map;
   }, [roots]);
 
-  // Mỗi MIB (root) là 1 nhóm riêng — giữ nguyên dạng bảng cũ (dòng=IB, cột=Asset)
-  // bên trong từng nhóm, chỉ tách khối hiển thị theo từng MIB thay vì gộp chung 1 bảng.
   const groups = useMemo(() => {
     return roots.map(root => ({
       root,
@@ -64,9 +62,24 @@ export default function RebateManagementPage() {
     }));
   }, [roots]);
 
+  const filteredGroups = useMemo(() => {
+    if (!searchQuery.trim()) return groups;
+    const q = searchQuery.toLowerCase();
+    return groups.filter(g =>
+      (g.root.name && g.root.name.toLowerCase().includes(q)) ||
+      (g.root.email && g.root.email.toLowerCase().includes(q))
+    );
+  }, [groups, searchQuery]);
+
+  const totalPages = Math.ceil(filteredGroups.length / ITEMS_PER_PAGE) || 1;
+
+  const paginatedGroups = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredGroups.slice(start, start + ITEMS_PER_PAGE);
+  }, [filteredGroups, currentPage]);
+
   const allNodes = useMemo(() => groups.flatMap(group => [group.root, ...group.ibs]), [groups]);
 
-  // Map id → node — dùng để lookup tên cha khi render indent
   const ibNodesById = useMemo(() => {
     const map: Record<string, IbTreeNode> = {};
     for (const n of allNodes) map[n.id] = n;
@@ -87,112 +100,17 @@ export default function RebateManagementPage() {
           }
         });
         setConfigs(newConfigs);
-        setDirtyIbs(new Set());
-        setSaveResults({});
       };
       loadConfigs();
     }
   }, [allNodes]);
 
-  if (!mounted) return null;
-
-  const handleCellChange = (ibId: string, assetType: AssetType, value: string) => {
-    if (value && !/^\d*\.?\d*$/.test(value)) return;
-
-    setConfigs(prev => {
-      const ibConfig = prev[ibId];
-      if (!ibConfig) return prev;
-
-      const newAssets = ibConfig.assets.map(asset => {
-        if (asset.assetType === assetType) {
-          const parsed = parseFloat(value);
-          return { ...asset, rebatePips: Number.isNaN(parsed) ? 0 : parsed, rawInput: value };
-        }
-        return asset;
-      });
-
-      return { ...prev, [ibId]: { ...ibConfig, assets: newAssets } };
-    });
-
-    setDirtyIbs(prev => new Set(prev).add(ibId));
-    setSaveResults(prev => {
-      const next = { ...prev };
-      delete next[ibId];
-      return next;
-    });
-  };
-
-  const handleSaveAll = async () => {
-    if (dirtyIbs.size === 0) return;
-
-    setIsSaving(true);
-    setSaveResults({});
-
-    const items = Array.from(dirtyIbs).map((ibId) => {
-      const ibConfig = configs[ibId];
-      const cleanAssets = ibConfig.assets.map((asset) => ({
-        assetType: asset.assetType,
-        rebateType: asset.rebateType,
-        rebatePips: asset.rebatePips,
-        markupPips: asset.markupPips,
-        markupPercent: asset.markupPercent,
-        maxPips: asset.maxPips,
-      }));
-      return { ibId, assets: cleanAssets };
-    });
-
-    try {
-      const bulkResult = await rebateApi.bulkUpdateConfig(items);
-
-      const newSaveResults: Record<string, { success: boolean; message: string }> = {};
-      const newDirtyIbs = new Set(dirtyIbs);
-      const newConfigs = { ...configs };
-
-      bulkResult.results.forEach((result) => {
-        newSaveResults[result.ibId] = {
-          success: result.success,
-          message: result.success
-            ? t('saveSuccess')
-            : getErrorMessage(result.error?.code || 'INTERNAL_ERROR', result.error?.message),
-        };
-        if (result.success) {
-          newDirtyIbs.delete(result.ibId);
-          if (result.config) {
-            newConfigs[result.ibId] = result.config;
-          }
-        }
-      });
-
-      setSaveResults(newSaveResults);
-      setDirtyIbs(newDirtyIbs);
-      setConfigs(newConfigs);
-
-      if (newDirtyIbs.size === 0) {
-        toast.success(t('saveAllSuccess'));
-      } else {
-        // Hiện rõ message liệt kê node vi phạm (không chỉ "lỗi chung")
-        const failedMsgs = Object.values(newSaveResults)
-          .filter((r) => !r.success)
-          .map((r) => r.message);
-        toast.error(failedMsgs.join('\n') || t('savePartialWarning'));
-      }
-
-      // Lỗ hổng bulk sót lại: cảnh báo rõ node vẫn vượt trần sau khi lưu
-      if (bulkResult.warnings && bulkResult.warnings.length > 0) {
-        const warnMsg = bulkResult.warnings
-          .map((w) => `${w.ibId}: giữ ${w.rebatePips}+${w.markupPips}=${w.rebatePips + w.markupPips} > trần ${w.maxPips}`)
-          .join('\n');
-        toast.warning(`Cảnh báo: một số node vẫn vượt trần sau khi lưu:\n${warnMsg}`);
-      }
-    } catch (err: unknown) {
-      const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code || 'INTERNAL_ERROR';
-      toast.error(getErrorMessage(code));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   const assetTypes = Object.values(AssetType);
+
+  const getAssetConfig = (ibId: string | null | undefined, assetType: AssetType) => {
+    if (!ibId) return undefined;
+    return configs[ibId]?.assets.find(a => a.assetType === assetType);
+  };
 
   const handleCompactSelectionChange = (rootId: string, level: number, ibId: string) => {
     setCompactSelection(prev => ({
@@ -201,7 +119,6 @@ export default function RebateManagementPage() {
     }));
   };
 
-  // Cascade reset: khi đổi select ở level N, xoá selection từ level N trở xuống
   const handleCascadeReset = (rootId: string, fromLevel: number) => {
     setCompactSelection(prev => {
       const rootSel = prev[rootId];
@@ -214,126 +131,386 @@ export default function RebateManagementPage() {
     });
   };
 
-  const getAssetConfig = (ibId: string | null | undefined, assetType: AssetType) => {
-    if (!ibId) return undefined;
-    return configs[ibId]?.assets.find(a => a.assetType === assetType);
-  };
-
   const getMibMaxDisplay = (mibId: string, assetType: AssetType) => {
     const mibAssetConfig = getAssetConfig(mibId, assetType);
     return mibAssetConfig ? mibAssetConfig.maxPips : null;
   };
 
-  const getChildMaxLabel = (ib: IbTreeNode, assetType: AssetType) => {
-    const parentId = parentById[ib.id];
-    const parentAssetConfig = getAssetConfig(parentId, assetType);
+  const handleExportExcel = async () => {
+    if (!roots || roots.length === 0) return;
 
-    if (!parentAssetConfig) {
-      return t('parentMissingConfig');
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Rebate Calculation System';
+    workbook.lastModifiedBy = 'Admin';
+    workbook.created = new Date();
+
+    function findLeafBranches(rootNode: IbTreeNode): IbTreeNode[][] {
+      const branches: IbTreeNode[][] = [];
+
+      function walk(currentNode: IbTreeNode, currentPath: IbTreeNode[]) {
+        const activeChildren = (currentNode.children ?? []).filter(c => c.isActive);
+        const newPath = [...currentPath, currentNode];
+
+        if (activeChildren.length === 0) {
+          branches.push(newPath);
+        } else {
+          for (const child of activeChildren) {
+            walk(child, newPath);
+          }
+        }
+      }
+
+      walk(rootNode, []);
+      return branches;
     }
 
-    if (parentAssetConfig.maxPips === 0) {
-      return t('parentNotAllocated');
-    }
+    roots.forEach((rootIb, rIdx) => {
+      const mibName = rootIb.name || rootIb.email;
+      const rawSheetName = `MIB_${rIdx + 1}_${mibName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const sheetName = rawSheetName.slice(0, 30);
 
-    return t('maxLabel', { max: parentAssetConfig.maxPips });
+      const worksheet = workbook.addWorksheet(sheetName, {
+        views: [{ showGridLines: true }],
+      });
+
+      const branches = findLeafBranches(rootIb);
+
+      branches.forEach((branch, bIdx) => {
+        const colCount = Math.max(branch.length + 3, 5);
+
+        // 1. Branch Banner Header
+        const branchTitle = branch
+          .map((n, idx) => (idx === 0 ? `MIB: ${n.name || n.email}` : `Level ${idx}: ${n.name || n.email}`))
+          .join(' ➔ ');
+
+        const titleRow = worksheet.addRow([`NHÁNH ${bIdx + 1}: ${branchTitle}`]);
+        worksheet.mergeCells(titleRow.number, 1, titleRow.number, colCount);
+        const titleCell = titleRow.getCell(1);
+        titleCell.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FFFFFF' } };
+        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E40AF' } }; // Royal Blue
+        titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+        titleRow.height = 28;
+
+        worksheet.addRow([]);
+
+        // 2. REBATE TABLE
+        const rebateSubTitle = worksheet.addRow(['I. BẢNG REBATE CÒN LẠI (RETAINED PIPS)']);
+        worksheet.mergeCells(rebateSubTitle.number, 1, rebateSubTitle.number, colCount);
+        const subCell1 = rebateSubTitle.getCell(1);
+        subCell1.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: '0F172A' } };
+        rebateSubTitle.height = 22;
+
+        const rebateHeaderRow = worksheet.addRow([
+          'Asset Type',
+          ...branch.map((n, idx) => (idx === 0 ? `MIB (${n.name || n.email})` : `Level ${idx} (${n.name || n.email})`)),
+          'Company Cap',
+          'Allocated',
+        ]);
+        rebateHeaderRow.height = 24;
+
+        rebateHeaderRow.eachCell((cell) => {
+          cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFF' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '334155' } }; // Dark Slate
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          cell.border = {
+            top: { style: 'thin', color: { argb: '94A3B8' } },
+            left: { style: 'thin', color: { argb: '94A3B8' } },
+            bottom: { style: 'thin', color: { argb: '94A3B8' } },
+            right: { style: 'thin', color: { argb: '94A3B8' } },
+          };
+        });
+
+        const level1NodeInBranch = branch[1];
+        const parseAccountTypePips = (accType?: string): number => {
+          if (!accType) return 0;
+          if (accType === 'STD' || accType === 'SEA STD') return 0;
+          const match = accType.match(/(\d+(?:\.\d+)?)/);
+          if (match) {
+            const num = parseFloat(match[1]);
+            return isNaN(num) ? 0 : num;
+          }
+          return 0;
+        };
+
+        const level1MarkupPips = parseAccountTypePips(level1NodeInBranch?.accountType);
+
+        assetTypes.forEach((asset, aIdx) => {
+          const companyCap = MAX_PIPS[asset];
+          const mibBaseCap = getMibMaxDisplay(rootIb.id, asset) ?? Number(configs[rootIb.id]?.assets?.find(a => a.assetType === asset)?.maxPips || 0);
+          const mibCap = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
+
+          const rowCells: any[] = [asset];
+          let branchSum = 0;
+
+          for (let i = 0; i < branch.length; i++) {
+            const currentNode = branch[i];
+            if (i === 0) {
+              const nextNode = branch[1];
+              const nextRebate = nextNode ? Number(configs[nextNode.id]?.assets?.find(a => a.assetType === asset)?.rebatePips || 0) : 0;
+              const mibRetained = nextNode ? Math.max(0, mibCap - nextRebate) : mibCap;
+              rowCells.push(mibRetained);
+              branchSum += mibRetained;
+            } else {
+              const currentRebate = Number(configs[currentNode.id]?.assets?.find(a => a.assetType === asset)?.rebatePips || 0);
+              const nextNode = branch[i + 1];
+              const nextRebate = nextNode ? Number(configs[nextNode.id]?.assets?.find(a => a.assetType === asset)?.rebatePips || 0) : 0;
+              const retained = nextNode ? Math.max(0, currentRebate - nextRebate) : currentRebate;
+              rowCells.push(retained);
+              branchSum += retained;
+            }
+          }
+
+          rowCells.push(companyCap);
+          rowCells.push(branchSum);
+
+          const dataRow = worksheet.addRow(rowCells);
+          dataRow.height = 20;
+
+          const isEven = aIdx % 2 === 0;
+          const bgColor = isEven ? 'FFFFFF' : 'F8FAFC';
+
+          dataRow.eachCell((cell, colIdx) => {
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+            cell.alignment = { vertical: 'middle', horizontal: colIdx === 1 ? 'left' : 'center' };
+            cell.font = {
+              name: 'Segoe UI',
+              size: 10,
+              bold: colIdx > 1,
+              color: { argb: colIdx === rowCells.length ? '059669' : (colIdx === rowCells.length - 1 ? '047857' : '0F172A') },
+            };
+            cell.border = {
+              top: { style: 'thin', color: { argb: 'E2E8F0' } },
+              left: { style: 'thin', color: { argb: 'E2E8F0' } },
+              bottom: { style: 'thin', color: { argb: 'E2E8F0' } },
+              right: { style: 'thin', color: { argb: 'E2E8F0' } },
+            };
+          });
+        });
+
+        worksheet.addRow([]);
+
+        // 3. MARKUP OPTION TABLE (AI REBATE ENGINE)
+        const markupSubTitle = worksheet.addRow(['II. BẢNG CẤU HÌNH MARKUP OPTION (TỶ LỆ % & PIPS THỰC NHẬN)']);
+        worksheet.mergeCells(markupSubTitle.number, 1, markupSubTitle.number, branch.length + 1);
+        const subCell2 = markupSubTitle.getCell(1);
+        subCell2.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: '0F172A' } };
+        markupSubTitle.height = 22;
+
+        const markupHeaderRow = worksheet.addRow([
+          'Markup Option',
+          ...branch.map((n, idx) => (idx === 0 ? `MIB (${n.name || n.email})` : `Level ${idx} (${n.name || n.email})`)),
+        ]);
+        markupHeaderRow.height = 24;
+
+        markupHeaderRow.eachCell((cell) => {
+          cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFF' } };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '4338CA' } }; // Indigo Header
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
+          cell.border = {
+            top: { style: 'thin', color: { argb: '818CF8' } },
+            left: { style: 'thin', color: { argb: '818CF8' } },
+            bottom: { style: 'thin', color: { argb: '818CF8' } },
+            right: { style: 'thin', color: { argb: '818CF8' } },
+          };
+        });
+
+        // Run AI Rebate Engine Solver for this branch
+        const solverInput: SolverNodeInput[] = branch.map((node, idx) => {
+          const isRoot = idx === 0;
+          const name = isRoot ? (rootIb.name ?? rootIb.email) : (node.name ?? node.email);
+          const lvl = node.level;
+          const assets: Record<string, number> = {};
+
+          assetTypes.forEach((asset) => {
+            if (isRoot) {
+              const mibAssetConfig = configs[rootIb.id]?.assets?.find(a => a.assetType === asset);
+              const mibBaseCap = getMibMaxDisplay(rootIb.id, asset) ?? Number(mibAssetConfig?.maxPips || 0);
+              assets[asset] = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
+            } else {
+              const cfg = configs[node.id]?.assets?.find(a => a.assetType === asset);
+              assets[asset] = Number(cfg?.rebatePips || 0);
+            }
+          });
+
+          return {
+            nodeId: node.id,
+            nodeName: name,
+            level: lvl,
+            assets,
+          };
+        });
+
+        const scenarios = solveBallAllocation(solverInput, level1MarkupPips || 10, assetTypes);
+        const topScenario = scenarios[0];
+        const scenarioMap: Record<string, { pct: string; white_hold: number }> = {};
+        if (topScenario) {
+          topScenario.nodes.forEach((n) => {
+            scenarioMap[n.nodeId] = { pct: n.pct, white_hold: n.white_hold };
+          });
+        }
+
+        const percentRowVals: any[] = ['Tỷ Lệ % Giữ Lại'];
+        branch.forEach((n) => {
+          const cfg = configs[n.id]?.assets?.[0];
+          const pctFromDb = cfg?.markupPercent !== undefined && cfg?.markupPercent !== null ? `${cfg.markupPercent}%` : null;
+          percentRowVals.push(pctFromDb ?? scenarioMap[n.id]?.pct ?? '0%');
+        });
+        const percentRow = worksheet.addRow(percentRowVals);
+        percentRow.height = 22;
+
+        percentRow.eachCell((cell, colIdx) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } }; // Warm Amber
+          cell.alignment = { vertical: 'middle', horizontal: colIdx === 1 ? 'left' : 'center' };
+          cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: '92400E' } };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FDE68A' } },
+            left: { style: 'thin', color: { argb: 'FDE68A' } },
+            bottom: { style: 'thin', color: { argb: 'FDE68A' } },
+            right: { style: 'thin', color: { argb: 'FDE68A' } },
+          };
+        });
+
+        const optRowVals: any[] = [`${level1NodeInBranch?.accountType || 'STD'} (${level1MarkupPips || 10} Pips)`];
+        branch.forEach((n) => {
+          const cfg = configs[n.id]?.assets?.[0];
+          const pipsFromDb = cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
+          optRowVals.push(pipsFromDb ?? scenarioMap[n.id]?.white_hold ?? 0);
+        });
+        const optRow = worksheet.addRow(optRowVals);
+        optRow.height = 20;
+
+        optRow.eachCell((cell, colIdx) => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F0F9FF' } }; // Light Sky Blue
+          cell.alignment = { vertical: 'middle', horizontal: colIdx === 1 ? 'left' : 'center' };
+          cell.font = { name: 'Segoe UI', size: 10, bold: colIdx > 1, color: { argb: '1E40AF' } };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'BAE6FD' } },
+            left: { style: 'thin', color: { argb: 'BAE6FD' } },
+            bottom: { style: 'thin', color: { argb: 'BAE6FD' } },
+            right: { style: 'thin', color: { argb: 'BAE6FD' } },
+          };
+        });
+
+        worksheet.addRow([]);
+        worksheet.addRow([]);
+      });
+
+      worksheet.columns.forEach((column, colIdx) => {
+        if (colIdx === 0) {
+          column.width = 25;
+        } else {
+          column.width = 28;
+        }
+      });
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `Bang_Gon_Rebate_Markup_All_Branches_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    anchor.click();
+    window.URL.revokeObjectURL(url);
   };
 
+  if (!mounted) return null;
+
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('title')}</h1>
-          <p className="text-gray-500">{t('description')}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center rounded-xl border border-gray-300 bg-white overflow-hidden divide-x divide-gray-300">
+    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* Header bar: Search MIB (Trái) + Phân Trang 1 2 3... Next (Giữa) + Export Excel (Phải) */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-3 border border-gray-300 shadow-sm">
+        {/* Ô Tìm Kiếm MIB */}
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            placeholder="Tìm kiếm theo tên hoặc email của MIB..."
+            className="w-full pl-9 pr-8 py-2 border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
+          />
+          {searchQuery && (
             <button
-              onClick={() => setViewMode('flat')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition ${viewMode === 'flat' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
+              onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold"
             >
-              <Table2 className="h-4 w-4" />
-              Dạng bảng
-            </button>
-            <button
-              onClick={() => setViewMode('pivot')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition ${viewMode === 'pivot' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
-            >
-              <Sheet className="h-4 w-4" />
-              Google Sheet
-            </button>
-            <button
-              onClick={() => setViewMode('compact')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-semibold transition ${viewMode === 'compact' ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-50'}`}
-            >
-              <LayoutGrid className="h-4 w-4" />
-              Bảng gọn
-            </button>
-          </div>
-          {/* Nút toggle mũi tên — chỉ hiện khi đang ở Pivot view */}
-          {viewMode === 'pivot' && (
-            <button
-              onClick={() => setShowArrows(v => !v)}
-              className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-sm font-semibold transition ${
-                showArrows
-                  ? 'border-indigo-400 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
-                  : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <GitBranch className="h-4 w-4" />
-              {showArrows ? 'Ẩn quan hệ cha-con' : 'Hiện quan hệ cha-con'}
+              ✕
             </button>
           )}
-          <button
-            onClick={handleSaveAll}
-            disabled={isSaving || dirtyIbs.size === 0}
-            className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 shadow-md shadow-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            {t('saveAll', { count: dirtyIbs.size })}
-          </button>
         </div>
+
+        {/* Cụm Phân Trang 1 2 3 ... Next */}
+        {totalPages > 1 && (
+          <div className="flex items-center gap-1 text-sm font-semibold text-gray-700">
+            <button
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              className="px-2.5 py-1.5 border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Prev
+            </button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                className={`px-3 py-1.5 border transition ${currentPage === page ? 'bg-blue-600 border-blue-600 text-white font-bold' : 'border-gray-300 bg-white hover:bg-gray-50 text-gray-700'}`}
+              >
+                {page}
+              </button>
+            ))}
+
+            <button
+              disabled={currentPage === totalPages}
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              className="px-2.5 py-1.5 border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        )}
+
+        {/* Nút Export Excel */}
+        <button
+          onClick={handleExportExcel}
+          className="flex items-center gap-2 rounded-none bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 text-sm font-semibold transition shadow-md hover:shadow-lg whitespace-nowrap"
+        >
+          <Download className="h-4 w-4" />
+          Xuất Excel Bảng Gọn
+        </button>
       </div>
 
       {isLoadingTree ? (
-        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm flex flex-col items-center justify-center p-12">
+        <div className="rounded-none border border-gray-300 bg-white shadow-sm flex flex-col items-center justify-center p-12">
           <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-4" />
           <p className="text-gray-500">{t('loading')}</p>
         </div>
-      ) : groups.length === 0 ? (
-        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm p-12 text-center text-gray-500">{t('noIbs')}</div>
+      ) : filteredGroups.length === 0 ? (
+        <div className="rounded-none border border-gray-300 bg-white shadow-sm p-12 text-center text-gray-500">
+          Không tìm thấy MIB nào phù hợp với từ khóa &quot;{searchQuery}&quot;.
+        </div>
       ) : (
-        // Mỗi MIB (root) là 1 khối bảng riêng biệt, xếp xuống — không gộp chung mọi MIB vào 1 bảng.
-        groups.map(({ root, ibs }) => (
-          <div key={root.id} className="rounded-2xl border border-gray-200 bg-white shadow-sm overflow-hidden flex flex-col max-h-[70vh]">
-            <div className="px-4 py-3 border-b border-gray-200 bg-indigo-50/50 flex items-center gap-2">
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700">MIB</span>
+        // Render tối đa 2 MIB (paginatedGroups) per page
+        paginatedGroups.map(({ root, ibs }) => (
+          <div key={root.id} className="rounded-none border border-gray-300 bg-white shadow-sm overflow-hidden flex flex-col">
+            <div className="px-4 py-3 border-b border-gray-300 bg-indigo-50/70 flex items-center gap-2">
+              <span className="px-1.5 py-0.5 rounded-none text-[10px] font-bold bg-indigo-100 text-indigo-700">MIB</span>
               <span className="font-semibold text-gray-900">{root.name || root.email}</span>
               <span className="text-xs text-gray-500">({root.email})</span>
             </div>
             {ibs.length === 0 ? (
               <div className="p-8 text-center text-gray-500 text-sm">{t('noIbs')}</div>
-            ) : viewMode === 'pivot' ? (
-              <PivotTable
-                rootId={root.id}
-                ibs={ibs}
-                assetTypes={assetTypes}
-                configs={configs}
-                dirtyIbs={dirtyIbs}
-                handleCellChange={handleCellChange}
-                getMibMaxDisplay={getMibMaxDisplay}
-                parentById={parentById}
-                showArrows={showArrows}
-              />
-            ) : viewMode === 'compact' ? (
+            ) : (
               <CompactPivotTable
                 rootId={root.id}
                 rootIb={root}
                 ibs={ibs}
                 assetTypes={assetTypes}
                 configs={configs}
-                dirtyIbs={dirtyIbs}
-                handleCellChange={handleCellChange}
                 getMibMaxDisplay={getMibMaxDisplay}
                 parentById={parentById}
                 ibNodesById={ibNodesById}
@@ -341,122 +518,6 @@ export default function RebateManagementPage() {
                 onSelectionChange={handleCompactSelectionChange}
                 onCascadeReset={handleCascadeReset}
               />
-            ) : (
-              <div className="overflow-auto relative">
-                <table className="w-full text-sm text-left border-collapse">
-                  <thead className="bg-slate-50 text-slate-700 font-semibold sticky top-0 z-20 shadow-sm">
-                    <tr>
-                      <th className="px-4 py-3 border-b border-r border-gray-200 sticky left-0 bg-slate-50 z-30 w-64 shadow-[1px_0_0_0_#e5e7eb]">{t('colIb')}</th>
-                      <th className="px-4 py-3 border-b border-gray-200 w-32 text-center">{t('colStatus')}</th>
-                      {assetTypes.map(asset => {
-                        const companyMax = MAX_PIPS[asset];
-                        const mibMax = getMibMaxDisplay(root.id, asset);
-                        const isOverride = mibMax !== null && mibMax !== companyMax;
-
-                        return (
-                          <th key={asset} className="px-4 py-3 border-b border-gray-200 min-w-[170px] text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              <span>{asset}</span>
-                              {isOverride ? (
-                                <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-700">
-                                  {t('overrideBadge')}
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="mt-1 space-y-0.5 text-[10px] font-normal">
-                              <div className="text-gray-400">{t('companyCap', { max: companyMax })}</div>
-                              <div className={isOverride ? 'text-amber-700 font-semibold' : 'text-gray-500'}>
-                                {t('mibCap', { max: mibMax ?? '—' })}
-                              </div>
-                            </div>
-                          </th>
-                        );
-                      })}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {ibs.map(ib => {
-                      const ibConfig = configs[ib.id];
-                      const isDirty = dirtyIbs.has(ib.id);
-                      const result = saveResults[ib.id];
-
-                      return (
-                        <tr key={ib.id} className={`hover:bg-blue-50/30 transition-colors ${isDirty ? 'bg-amber-50/20' : ''}`}>
-                          <td className="py-2 border-r border-gray-100 sticky left-0 bg-white shadow-[1px_0_0_0_#f3f4f6] z-10">
-                            {/* Indent theo level: mỗi level thụt vào 16px, bắt đầu từ level 1 */}
-                            <div
-                              className="flex items-start gap-1.5"
-                              style={{ paddingLeft: `${(ib.level - 1) * 16 + 16}px`, paddingRight: '16px' }}
-                            >
-                              {/* Connector line dọc thể hiện quan hệ cha–con */}
-                              {ib.level > 1 && (
-                                <span className="mt-1 shrink-0 w-3 h-3 border-l-2 border-b-2 border-gray-300 rounded-bl-sm" />
-                              )}
-                              <div className="min-w-0">
-                                <div className="font-medium text-gray-900 truncate" title={ib.email}>{ib.name || ib.email}</div>
-                                <div className="text-xs text-gray-500 flex items-center gap-1 mt-0.5 flex-wrap">
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700">
-                                    {`Lv${ib.level}`}
-                                  </span>
-                                  {/* Tên cha — lookup từ ibNodesById + parentById */}
-                                  {parentById[ib.id] && ibNodesById[parentById[ib.id]!] && (
-                                    <span className="text-gray-400 text-[10px] truncate max-w-[100px]" title={ibNodesById[parentById[ib.id]!].email}>
-                                      ↑ {ibNodesById[parentById[ib.id]!].name || ibNodesById[parentById[ib.id]!].email}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-4 py-2 text-center text-xs">
-                            {result ? (
-                              <span className={`px-2 py-1 rounded-full font-medium ${result.success ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`} title={result.message}>
-                                {result.success ? t('statusOk') : t('statusError')}
-                              </span>
-                            ) : isDirty ? (
-                              <span className="text-amber-600 font-medium">{t('statusUnsaved')}</span>
-                            ) : (
-                              <span className="text-gray-400">—</span>
-                            )}
-                          </td>
-                          {assetTypes.map(asset => {
-                            if (!ibConfig) {
-                              return <td key={asset} className="px-4 py-2 text-center text-gray-400"><Loader2 className="h-4 w-4 animate-spin mx-auto" /></td>;
-                            }
-
-                            const assetConfig = ibConfig.assets.find(a => a.assetType === asset);
-                            if (!assetConfig) {
-                              return <td key={asset} className="px-4 py-2 text-center text-gray-400">—</td>;
-                            }
-
-                            const rawValue = (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput !== undefined
-                              ? (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput
-                              : assetConfig.rebatePips;
-                            const isExceeding = assetConfig.rebatePips > assetConfig.maxPips;
-
-                            return (
-                              <td key={asset} className="px-2 py-2">
-                                <div className="flex flex-col items-center">
-                                  <input
-                                    type="text"
-                                    value={rawValue}
-                                    onChange={(e) => handleCellChange(ib.id, asset, e.target.value)}
-                                    className={`w-full max-w-[80px] text-center px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors ${isExceeding ? 'border-red-400 bg-red-50 text-red-700' : 'border-gray-200'
-                                      }`}
-                                  />
-                                  <div className={`text-[10px] mt-1 ${isExceeding ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
-                                    {getChildMaxLabel(ib, asset)}
-                                  </div>
-                                </div>
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
             )}
           </div>
         ))
@@ -474,8 +535,6 @@ function PivotTable({
   ibs,
   assetTypes,
   configs,
-  dirtyIbs,
-  handleCellChange,
   getMibMaxDisplay,
   parentById,
   showArrows,
@@ -484,8 +543,6 @@ function PivotTable({
   ibs: IbTreeNode[];
   assetTypes: AssetType[];
   configs: Record<string, RebateConfig>;
-  dirtyIbs: Set<string>;
-  handleCellChange: (ibId: string, assetType: AssetType, value: string) => void;
   getMibMaxDisplay: (mibId: string, assetType: AssetType) => number | null;
   parentById: Record<string, string | null>;
   showArrows: boolean;
@@ -557,11 +614,15 @@ function PivotTable({
                         if (!assetConfig) {
                           return <div key={ib.id} className="text-center text-gray-300 text-xs">—</div>;
                         }
-                        const rawValue = (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput !== undefined
-                          ? (assetConfig as RebateConfig['assets'][number] & { rawInput?: string }).rawInput
-                          : assetConfig.rebatePips;
-                        const isExceeding = assetConfig.rebatePips > assetConfig.maxPips;
-                        const isDirty = dirtyIbs.has(ib.id);
+                        const allocated = Number(assetConfig.maxPips);
+                        const parentId = parentById[ib.id];
+                        const parentAssetConfig = parentId ? configs[parentId]?.assets.find(a => a.assetType === asset) : null;
+                        
+                        const remaining = (() => {
+                          if (!parentId) return allocated;
+                          if (!parentAssetConfig) return null;
+                          return Math.max(0, Number(parentAssetConfig.maxPips) - allocated);
+                        })();
                         return (
                           <div
                             key={ib.id}
@@ -569,16 +630,13 @@ function PivotTable({
                             onMouseEnter={() => setHoveredArrowKey(`${ib.id}__${asset}`)}
                             onMouseLeave={() => setHoveredArrowKey(null)}
                           >
-                            <input
-                              type="text"
-                              value={rawValue}
-                              onChange={(e) => handleCellChange(ib.id, asset, e.target.value)}
-                              // data-arrow-id trực tiếp trên <input> → getBoundingClientRect()
-                              // trả về đúng kích thước input, điểm neo y nằm giữa input thật
+                            <div className="text-xs text-gray-400">Cấp: {allocated}</div>
+                            <div
                               data-arrow-id={`${ib.id}__${asset}`}
-                              className={`w-full max-w-[80px] text-center px-2 py-1 text-sm border rounded focus:ring-2 focus:ring-blue-500 focus:outline-none transition-colors ${isExceeding ? 'border-red-400 bg-red-50 text-red-700' : isDirty ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'
-                                }`}
-                            />
+                              className="text-lg font-bold text-emerald-700 px-2 py-0.5"
+                            >
+                              {remaining !== null ? remaining : '—'}
+                            </div>
                             <span className="text-[9px] text-gray-400 truncate max-w-[90px]" title={ib.email}>
                               {ib.name || ib.email}
                             </span>

@@ -70,21 +70,21 @@ export default function TransactionPage() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center gap-3">
-        <TrendingUp className="h-6 w-6 text-blue-600" />
+        <TrendingUp className="h-6 w-6 text-amber-700" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Giao dịch</h1>
-          <p className="text-gray-500">Tạo giao dịch mới và xem lịch sử giao dịch gần nhất.</p>
+          <h1 className="text-2xl font-extrabold text-gray-900">Giao dịch</h1>
+          <p className="text-gray-600 font-medium">Tạo giao dịch mới và xem lịch sử giao dịch gần nhất.</p>
         </div>
       </div>
 
       <section className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="rounded-3xl border border-amber-200/80 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4 mb-6">
             <div>
-              <h2 className="text-lg font-semibold text-gray-900">Tạo giao dịch</h2>
+              <h2 className="text-lg font-extrabold text-gray-900">Tạo giao dịch</h2>
               <p className="text-sm text-gray-500">Nhập dữ liệu giao dịch để ghi nhận rebate cho IB.</p>
             </div>
-            <PlusCircle className="h-5 w-5 text-blue-600" />
+            <PlusCircle className="h-5 w-5 text-amber-700" />
           </div>
           <form className="space-y-4" onSubmit={(event) => {
             event.preventDefault();
@@ -92,21 +92,21 @@ export default function TransactionPage() {
             createMutation.mutate();
           }}>
             <div>
-              <label className="block text-sm font-medium text-gray-700">IB ID</label>
+              <label className="block text-sm font-bold text-gray-700">IB ID</label>
               <IbSearchAutocomplete
                 value={ibId}
                 onChange={(id) => setIbId(id)}
                 placeholder="Tìm email hoặc tên IB..."
-                className="mt-2 block w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="mt-2 block w-full rounded-2xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
               />
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Tài sản</label>
+                <label className="block text-sm font-bold text-gray-700">Loại tài sản</label>
                 <select
                   value={assetType}
                   onChange={(event) => setAssetType(event.target.value as AssetType)}
-                  className="mt-2 block w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-2 block w-full rounded-2xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                 >
                   {assetTypeOptions.map((option) => (
                     <option key={option} value={option}>{option}</option>
@@ -114,93 +114,93 @@ export default function TransactionPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Số lot</label>
+                <label className="block text-sm font-bold text-gray-700">Số Lots</label>
                 <input
                   type="number"
-                  step="0.0001"
-                  min="0.0001"
+                  step="0.01"
+                  min="0.01"
                   value={lots}
                   onChange={(event) => setLots(event.target.value)}
-                  className="mt-2 block w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-2 block w-full rounded-2xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                 />
               </div>
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Rebate (USD)</label>
+                <label className="block text-sm font-bold text-gray-700">Rebate (USD)</label>
                 <input
                   type="number"
                   step="0.01"
                   min="0"
                   value={rebateAmount}
                   onChange={(event) => setRebateAmount(event.target.value)}
-                  className="mt-2 block w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-2 block w-full rounded-2xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Ngày giao dịch</label>
+                <label className="block text-sm font-bold text-gray-700">Ngày giao dịch</label>
                 <input
                   type="datetime-local"
                   value={tradedAt}
                   onChange={(event) => setTradedAt(event.target.value)}
-                  className="mt-2 block w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="mt-2 block w-full rounded-2xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                 />
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700">Ghi chú</label>
+              <label className="block text-sm font-bold text-gray-700">Ghi chú</label>
               <textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 rows={4}
-                className="mt-2 block w-full rounded-2xl border border-gray-200 bg-slate-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="mt-2 block w-full rounded-2xl border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                 placeholder="Ghi chú (tùy chọn)"
               />
             </div>
             <button
               type="submit"
               disabled={createMutation.isPending}
-              className="inline-flex items-center justify-center rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+              className="inline-flex items-center justify-center rounded-2xl bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] px-6 py-3 text-sm font-extrabold text-gray-900 transition hover:opacity-95 shadow-md disabled:opacity-50"
             >
               {createMutation.isPending ? 'Đang tạo...' : 'Tạo giao dịch'}
             </button>
-            {feedback && <p className="text-sm text-green-600">{feedback}</p>}
+            {feedback && <p className="text-sm font-semibold text-green-700">{feedback}</p>}
           </form>
         </div>
 
-        <div className="rounded-3xl border border-gray-200 bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Giao dịch gần nhất</h2>
+        <div className="rounded-3xl border border-amber-200/80 bg-white p-6 shadow-sm">
+          <h2 className="text-lg font-extrabold text-gray-900 mb-4">Giao dịch gần nhất</h2>
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-              <thead className="bg-slate-50">
+            <table className="min-w-full divide-y divide-gray-100 text-left text-sm">
+              <thead className="bg-amber-50/80 font-extrabold text-gray-800">
                 <tr>
-                  <th className="px-4 py-3 font-medium text-slate-600">ID</th>
-                  <th className="px-4 py-3 font-medium text-slate-600">IB (Tên/ID)</th>
-                  <th className="px-4 py-3 font-medium text-slate-600">Tài sản</th>
-                  <th className="px-4 py-3 font-medium text-slate-600">Lots</th>
-                  <th className="px-4 py-3 font-medium text-slate-600">Hoa hồng</th>
+                  <th className="px-4 py-3 font-bold">ID</th>
+                  <th className="px-4 py-3 font-bold">IB (Tên/ID)</th>
+                  <th className="px-4 py-3 font-bold">Tài sản</th>
+                  <th className="px-4 py-3 font-bold">Lots</th>
+                  <th className="px-4 py-3 font-bold">Hoa hồng</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {isLoadingTransactions ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">
-                      <Loader2 className="mx-auto h-5 w-5 animate-spin text-blue-600" />
+                    <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-400">
+                      <Loader2 className="mx-auto h-5 w-5 animate-spin text-amber-600" />
                     </td>
                   </tr>
                 ) : transactions.length > 0 ? (
                   transactions.map((transaction: RebateTransaction) => (
-                    <tr key={transaction.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 text-slate-700 text-xs font-mono">#{transaction.id.slice(-8)}</td>
-                      <td className="px-4 py-3 text-slate-700 font-medium text-blue-600">{transaction.ibName || `#${transaction.ibId.slice(-8)}`}</td>
-                      <td className="px-4 py-3 text-slate-700">{transaction.assetType}</td>
-                      <td className="px-4 py-3 text-slate-700">{transaction.lots.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-slate-700">{transaction.rebateAmount.toLocaleString()}</td>
+                    <tr key={transaction.id} className="hover:bg-amber-50/40 transition-colors">
+                      <td className="px-4 py-3 text-gray-900 text-xs font-mono font-bold">#{transaction.id.slice(-8)}</td>
+                      <td className="px-4 py-3 font-bold text-amber-950">{transaction.ibName || `#${transaction.ibId.slice(-8)}`}</td>
+                      <td className="px-4 py-3 text-gray-900 font-bold">{transaction.assetType}</td>
+                      <td className="px-4 py-3 text-gray-900 font-extrabold">{transaction.lots.toFixed(2)}</td>
+                      <td className="px-4 py-3 font-extrabold text-amber-950">${transaction.rebateAmount.toLocaleString()}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-sm text-slate-500">Không có giao dịch nào.</td>
+                    <td colSpan={5} className="px-4 py-6 text-center text-sm text-gray-500 font-medium">Không có giao dịch nào.</td>
                   </tr>
                 )}
               </tbody>

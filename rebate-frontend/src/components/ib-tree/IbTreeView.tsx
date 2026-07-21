@@ -36,8 +36,8 @@ export function IbTreeView() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 bg-white rounded-xl border border-gray-200 shadow-sm">
-        <Loader2 className="h-8 w-8 animate-spin text-[#0066ff] mb-4" />
+      <div className="flex flex-col items-center justify-center py-24 bg-white rounded-xl border border-amber-200/80 shadow-sm">
+        <Loader2 className="h-8 w-8 animate-spin text-amber-600 mb-4" />
         <p className="text-gray-500 font-medium">Đang vẽ cây mạng lưới IB...</p>
       </div>
     );
@@ -57,7 +57,7 @@ export function IbTreeView() {
 
   if (roots.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 bg-white rounded-xl border border-gray-200 shadow-sm text-gray-500">
+      <div className="flex flex-col items-center justify-center py-24 bg-white rounded-xl border border-amber-200/80 shadow-sm text-gray-500">
         <p className="font-semibold">Chưa có Sub-IB nào</p>
         <p className="text-sm mt-1">Hãy tạo Sub-IB đầu tiên để bắt đầu xây dựng mạng lưới.</p>
       </div>
@@ -67,13 +67,13 @@ export function IbTreeView() {
   const totalNodes = roots.reduce((sum, root) => sum + (root.totalChildren || 0) + 1, 0);
 
   return (
-    <div className="bg-white p-6 md:p-8 rounded-xl border border-gray-200 shadow-sm overflow-x-auto min-h-[500px]">
-      <div className="flex items-center justify-between mb-8 border-b border-gray-100 pb-4">
-        <h2 className="text-lg font-bold text-gray-800">
+    <div className="bg-white p-6 md:p-8 rounded-xl border border-amber-200/80 shadow-sm overflow-x-auto min-h-[500px]">
+      <div className="flex items-center justify-between mb-8 border-b border-amber-100 pb-4">
+        <h2 className="text-lg font-extrabold text-gray-900">
           Cấu Trúc Cây Tuyến Dưới
         </h2>
-        <div className="text-sm font-medium text-gray-500 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-100">
-          Tổng Node: <span className="text-[#0066ff] font-bold">{totalNodes}</span>
+        <div className="text-sm font-semibold text-gray-700 bg-amber-50/60 px-3 py-1.5 rounded-lg border border-amber-200/60">
+          Tổng Node: <span className="text-amber-950 font-extrabold">{totalNodes}</span>
         </div>
       </div>
       

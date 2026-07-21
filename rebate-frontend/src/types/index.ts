@@ -285,3 +285,52 @@ export interface ChangePasswordDto {
   oldPassword: string;
   newPassword: string;
 }
+
+// ─── Rebate Simulator (AI Rebate Engine) ──────────────────────────
+
+export interface ScenarioNodeItem {
+  nodeId: string;
+  nodeName: string;
+  level: number;
+  white_in: number;
+  white_hold: number;
+  pct: string;
+  white_pass: number;
+  retainedPips: Record<string, number>;
+  minSelf: number;
+}
+
+export interface RebateScenario {
+  scenarioId: number;
+  variance: number;
+  maxHold: number;
+  table1: Array<{
+    nodeId: string;
+    nodeName: string;
+    level: number;
+    retainedPips: Record<string, number>;
+  }>;
+  table2: Array<{
+    nodeId: string;
+    nodeName: string;
+    level: number;
+    white_in: number;
+    white_hold: number;
+    pct: string;
+    white_pass: number;
+  }>;
+  nodes: ScenarioNodeItem[];
+}
+
+export interface SimulationResult {
+  branch?: Array<{
+    id: string;
+    name: string;
+    level: number;
+    accountType?: string;
+  }>;
+  markupPips: number;
+  totalScenarios: number;
+  scenarios: RebateScenario[];
+}
+

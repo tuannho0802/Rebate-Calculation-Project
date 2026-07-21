@@ -3,7 +3,7 @@ import { MibMaxOverrideSection } from '@/components/rebate/MibMaxOverrideSection
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Gói Phí & Mẫu Hoa Hồng | IB Portal',
+  title: 'Gói Phí & Mẫu Hoa Hồng | Rebate BCR',
 };
 
 export default function RebatePage() {

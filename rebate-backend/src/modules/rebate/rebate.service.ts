@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { UpdateRebateConfigDto } from './dto/update-config.dto';
 import { BulkUpdateRebateConfigDto } from './dto/bulk-update-config.dto';
 import { SaveRebateTemplatesDto } from './dto/save-templates.dto';
+import { SaveBranchScenarioDto } from './dto/save-scenario.dto';
 import { AssetType } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.constants';
@@ -73,18 +74,58 @@ export class RebateService {
 
     const ownerId = rootIb.length > 0 ? rootIb[0].id : ibId;
 
+    // Lấy ID của Admin để lấy các templates cấu hình mặc định
+    const adminNode = await this.prisma.ibNode.findFirst({
+      where: { role: 'ADMIN' },
+      select: { id: true },
+    });
+    const adminId = adminNode?.id;
+
+    const ownerIds = [ownerId];
+    if (adminId && adminId !== ownerId) {
+      ownerIds.push(adminId);
+    }
+
     const [accountTypeTemplates, markupLinkTemplates] = await Promise.all([
-      this.prisma.accountTypeTemplate.findMany({ where: { ownerId } }),
-      this.prisma.markupLinkTemplate.findMany({ where: { ownerId } }),
+      this.prisma.accountTypeTemplate.findMany({ where: { ownerId: { in: ownerIds } } }),
+      this.prisma.markupLinkTemplate.findMany({ where: { ownerId: { in: ownerIds } } }),
     ]);
 
+    // Tránh trùng lặp tên template, ưu tiên template của MIB (ownerId)
+    const uniqueAccountTemplates: any[] = [];
+    const uniqueMarkupTemplates: any[] = [];
+
+    accountTypeTemplates.forEach((t: any) => {
+      const exists = uniqueAccountTemplates.some((ut) => ut.name === t.name);
+      if (!exists || t.ownerId === ownerId) {
+        if (exists) {
+          const idx = uniqueAccountTemplates.findIndex((ut) => ut.name === t.name);
+          uniqueAccountTemplates[idx] = t;
+        } else {
+          uniqueAccountTemplates.push(t);
+        }
+      }
+    });
+
+    markupLinkTemplates.forEach((t: any) => {
+      const exists = uniqueMarkupTemplates.some((ut) => ut.name === t.name);
+      if (!exists || t.ownerId === ownerId) {
+        if (exists) {
+          const idx = uniqueMarkupTemplates.findIndex((ut) => ut.name === t.name);
+          uniqueMarkupTemplates[idx] = t;
+        } else {
+          uniqueMarkupTemplates.push(t);
+        }
+      }
+    });
+
     return {
-      accountTypeTemplates: accountTypeTemplates.map((template: any) => ({
+      accountTypeTemplates: uniqueAccountTemplates.map((template: any) => ({
         id: template.id,
         name: template.name,
         rows: template.rows,
       })),
-      markupLinkTemplates: markupLinkTemplates.map((template: any) => ({
+      markupLinkTemplates: uniqueMarkupTemplates.map((template: any) => ({
         id: template.id,
         name: template.name,
         share: Number(template.share),
@@ -125,14 +166,12 @@ export class RebateService {
     callerRole?: string,
     proposedById?: Map<string, Record<string, { rebatePips: number; markupPips: number }>>,
   ) {
-    // ADMIN: bypass chọn hoàn toàn, được set config cho bất kỳ IB nào
-    // Lv0: bypass subtree (SubtreeGuard đã kiểm soat cross-tree)
-    // Lv1+: chỉ được set config cho con trực tiếp
+    const targetIb = await this.prisma.ibNode.findUnique({
+      where: { id: targetIbId },
+      select: { parentId: true, level: true, accountType: true },
+    });
+
     if (callerRole !== 'ADMIN' && currentUserLevel > 0) {
-      const targetIb = await this.prisma.ibNode.findUnique({
-        where: { id: targetIbId },
-        select: { parentId: true },
-      });
       if (!targetIb || targetIb.parentId !== currentUserId) {
         throw new ForbiddenException({
           code: 'REBATE_TARGET_NOT_DIRECT_CHILD',
@@ -152,6 +191,7 @@ export class RebateService {
           ? null
           : await tx.rebateConfig.findUnique({
             where: { ibId_assetType_rebateType: { ibId: currentUserId, assetType, rebateType: rebateType as any } },
+            include: { ib: true },
           });
 
         // 1. Lấy config hiện tại -> before
@@ -165,76 +205,108 @@ export class RebateService {
           markupPercent: Number(existing.markupPercent),
         } : null;
 
-        const totalRequested = rebatePips + markupPips;
-        const totalExisting = before ? (before.rebatePips + before.markupPips) : 0;
+        if (rebatePips < 0) {
+          throw new UnprocessableEntityException({
+            code: 'REBATE_INVALID',
+            message: 'rebatePips phải lớn hơn hoặc bằng 0',
+          });
+        }
 
-        let limit: number;
-        if (parentConfig) {
-          limit = Number(parentConfig.markupPips);
-        } else {
-          limit = existing ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 0);
+        if (markupPips < 0) {
+          throw new UnprocessableEntityException({
+            code: 'MARKUP_INVALID',
+            message: 'markupPips phải lớn hơn hoặc bằng 0',
+          });
         }
 
         if (parentConfig) {
-          if (rebatePips < 0) {
+          const parentRebateMax = parentConfig.ib.level === 0
+            ? Number(parentConfig.maxPips) + Number(markupPips || 0)
+            : Number(parentConfig.rebatePips || 0);
+
+          const parentMarkupMax = 100;
+
+          if (rebatePips > parentRebateMax) {
             throw new UnprocessableEntityException({
-              code: 'REBATE_INVALID',
-              message: 'rebatePips phải lớn hơn hoặc bằng 0',
+              code: 'REBATE_EXCEEDS_PARENT',
+              message: `rebatePips (${rebatePips}) vượt quá Rebate Max của cấp trên (${parentRebateMax} pips)`,
             });
           }
 
-          if (markupPips < 0) {
+          const targetMarkupVal = markupPercent !== undefined ? markupPercent : markupPips;
+          if (targetMarkupVal > parentMarkupMax) {
             throw new UnprocessableEntityException({
-              code: 'MARKUP_INVALID',
-              message: 'markupPips phải lớn hơn hoặc bằng 0',
-            });
-          }
-
-          if (rebatePips > limit) {
-            throw new UnprocessableEntityException({
-              code: 'REBATE_EXCEEDS_MAX',
-              message: `Số rebatePips vượt quá giới hạn tối đa (${limit} pips)`,
-            });
-          }
-
-          if (rebatePips + markupPips > limit) {
-            throw new UnprocessableEntityException({
-              code: 'MARKUP_EXCEEDS_MAX',
-              message: `Tổng rebatePips + markupPips vượt quá giới hạn tối đa (${limit} pips)`,
+              code: 'MARKUP_EXCEEDS_PARENT',
+              message: `markupPercent (${targetMarkupVal}%) vượt quá mức tối đa (100%)`,
             });
           }
         } else {
+          const limit = existing ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 0);
           if (rebatePips > limit) {
             throw new UnprocessableEntityException({
               code: 'REBATE_EXCEEDS_MAX',
-              message: `Số rebatePips vượt quá giới hạn tối đa (${limit} pips)`,
+              message: `rebatePips (${rebatePips}) vượt quá giới hạn tối đa (${limit} pips)`,
             });
           }
           if (markupPips > limit) {
             throw new UnprocessableEntityException({
               code: 'MARKUP_EXCEEDS_MAX',
-              message: `Số markupPips vượt quá giới hạn tối đa (${limit} pips)`,
+              message: `markupPips (${markupPips}) vượt quá giới hạn tối đa (${limit} pips)`,
             });
           }
         }
+
+        const targetShare = markupPercent !== undefined ? markupPercent : markupPips;
+        const parentKeptPercent = Math.max(0, 100 - targetShare);
+
+        // 1.1 Cập nhật % Markup giữ lại cho IB cha (cấp trên)
+        if (parentConfig && currentUserId !== targetIbId) {
+          await tx.rebateConfig.upsert({
+            where: { ibId_assetType_rebateType: { ibId: currentUserId, assetType, rebateType: rebateType as any } },
+            update: { markupPercent: parentKeptPercent },
+            create: {
+              ibId: currentUserId,
+              assetType,
+              rebateType: rebateType as any,
+              rebatePips: Number(parentConfig.rebatePips),
+              markupPips: Number(parentConfig.markupPips),
+              markupPercent: parentKeptPercent,
+              maxPips: Number(parentConfig.maxPips),
+            },
+          });
+        }
+
+        // 1.2 Xác định % Markup giữ lại cho IB con (targetIb)
+        // Mặc định nút lá chưa chia cho ai sẽ là 100%
+        const childTargetConfig = await tx.rebateConfig.findUnique({
+          where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
+        });
+
+        const childRetainedPercent = childTargetConfig && childTargetConfig.markupPercent !== null && childTargetConfig.markupPercent !== undefined
+          ? Number(childTargetConfig.markupPercent)
+          : 100;
+
+        const childMaxPips = targetIb?.level === 0
+          ? (existing ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 0))
+          : (targetIb?.level === 1 ? ((assetConfig as any).maxPips !== undefined ? Number((assetConfig as any).maxPips) : rebatePips) : rebatePips);
 
         // 2. Update -> after
         const updated = await tx.rebateConfig.upsert({
           where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
           update: {
             rebatePips,
-            markupPips,
-            markupPercent,
-            maxPips: limit,
+            markupPips: targetShare,
+            markupPercent: childRetainedPercent,
+            maxPips: childMaxPips,
           },
           create: {
             ibId: targetIbId,
             assetType,
             rebateType: rebateType as any,
             rebatePips,
-            markupPips,
-            markupPercent,
-            maxPips: limit,
+            markupPips: targetShare,
+            markupPercent: childRetainedPercent,
+            maxPips: childMaxPips,
           },
         });
 
@@ -266,58 +338,14 @@ export class RebateService {
           });
         }
 
-        // 4. Cascading update toàn subtree sau khi transaction commit
-        // (cascade đọc trực tiếp maxPips/rebatePips vừa ghi của targetIbId,
-        // không cần truyền số liệu qua tay — xem cascadeMaxPipsToSubtree)
-        if (hasChange && existing && totalRequested !== totalExisting) {
-          // PHA 1 — DRY-RUN: tính toán cascade cho toàn bộ subtree (KHÔNG ghi DB).
-          // Nếu bất kỳ node con nào sẽ vi phạm (đang giữ > trần mới) → CHẶN CỨNG,
-          // ném lỗi trước khi commit, giữ nguyên toàn bộ trạng thái cũ.
-          // Validation dùng proposedById (toàn bộ item trong cùng bulk) làm nguồn
-          // giá trị sẽ được ghi, nên bulk gửi cả tổ tiên lẫn con cùng lúc vẫn qua được.
-          const dryViolations = await this.dryRunCascadeSubtree(
-            targetIbId,
-            assetType,
-            rebateType,
-            limit,
-            rebatePips,
-            proposedById ?? new Map(),
-            tx,
-          );
-          const violating = dryViolations.filter(n => n.rebatePips + n.markupPips > n.newMaxPips);
-          if (violating.length > 0) {
-            const nodeNames = await tx.ibNode.findMany({
-              where: { id: { in: violating.map(v => v.ibId) } },
-              select: { id: true, name: true, email: true },
-            });
-            const nameById = new Map(nodeNames.map((n: any) => [n.id, n.name ?? n.email]));
-            const lines = violating.map(v => {
-              const held = v.rebatePips + v.markupPips;
-              const nm = nameById.get(v.ibId) ?? v.ibId;
-              return `- ${nm}: đang giữ ${v.rebatePips} rebate + ${v.markupPips} markup = ${held}, trần mới sẽ chỉ còn ${v.newMaxPips}.`;
-            });
-            throw new UnprocessableEntityException({
-              code: 'CASCADE_WOULD_VIOLATE_DESCENDANT',
-              message:
-                `Không thể lưu vì sẽ khiến các node cấp dưới vượt trần:\n${lines.join('\n')}\n` +
-                `Vui lòng giảm rebate/markup của các node vi phạm trước khi lưu.`,
-              details: {
-                violations: violating.map(v => ({
-                  ibId: v.ibId,
-                  newMaxPips: v.newMaxPips,
-                  rebatePips: v.rebatePips,
-                  markupPips: v.markupPips,
-                })),
-              },
-            });
-          }
+        if (hasChange) {
           pendingCascades.push({ assetType, rebateType });
         }
       }
     });
 
     for (const cascade of pendingCascades) {
-      await this.cascadeMaxPipsToSubtree(
+      await this.resetSubtreeAssets(
         targetIbId,
         cascade.assetType,
         cascade.rebateType,
@@ -411,9 +439,35 @@ export class RebateService {
       }
     }
 
-    const warnings = await this.checkBulkLeftoverViolations(currentUserId, results);
+    const warnings: any[] = [];
 
     return { results, successCount, failCount, warnings };
+  }
+
+  async saveBranchScenario(dto: SaveBranchScenarioDto, currentUserId: string) {
+    if (!dto.nodes || dto.nodes.length === 0) {
+      throw new BadRequestException({
+        code: 'VALIDATION_ERROR',
+        message: 'Danh sách nodes không được để trống',
+      });
+    }
+
+    await this.prisma.$transaction(async (tx: any) => {
+      for (const node of dto.nodes) {
+        await tx.rebateConfig.updateMany({
+          where: { ibId: node.ibId },
+          data: {
+            markupPercent: node.markupPercent,
+            markupPips: node.markupPips,
+          },
+        });
+      }
+    });
+
+    return {
+      success: true,
+      message: 'Đã lưu kịch bản phân bổ vào cơ sở dữ liệu thành công',
+    };
   }
 
   async setMibMaxOverride(
@@ -449,45 +503,7 @@ export class RebateService {
         where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
       });
 
-      // PHA 1 — DRY-RUN: nếu hạ trần MIB khiến 1 node con vượt trần → CHẶN CỨNG
-      // trước khi ghi bất kỳ gì (giữ nguyên trạng thái cũ).
-      const mibRebatePips = before ? Number(before.rebatePips) : 0;
-      const dryViolations = await this.dryRunCascadeSubtree(
-        mibId,
-        ov.assetType,
-        ov.rebateType,
-        ov.maxPips,
-        mibRebatePips,
-        new Map(),
-        this.prisma,
-      );
-      const violating = dryViolations.filter(n => n.rebatePips + n.markupPips > n.newMaxPips);
-      if (violating.length > 0) {
-        const nodeNames = await this.prisma.ibNode.findMany({
-          where: { id: { in: violating.map(v => v.ibId) } },
-          select: { id: true, name: true, email: true },
-        });
-        const nameById = new Map(nodeNames.map((n: any) => [n.id, n.name ?? n.email]));
-        const lines = violating.map(v => {
-          const held = v.rebatePips + v.markupPips;
-          const nm = nameById.get(v.ibId) ?? v.ibId;
-          return `- ${nm}: đang giữ ${v.rebatePips} rebate + ${v.markupPips} markup = ${held}, trần mới sẽ chỉ còn ${v.newMaxPips}.`;
-        });
-        throw new UnprocessableEntityException({
-          code: 'CASCADE_WOULD_VIOLATE_DESCENDANT',
-          message:
-            `Không thể set trần MIB vì sẽ khiến các node cấp dưới vượt trần:\n${lines.join('\n')}\n` +
-            `Vui lòng giảm rebate/markup của các node vi phạm trước khi lưu.`,
-          details: {
-            violations: violating.map(v => ({
-              ibId: v.ibId,
-              newMaxPips: v.newMaxPips,
-              rebatePips: v.rebatePips,
-              markupPips: v.markupPips,
-            })),
-          },
-        });
-      }
+
 
       const updated = await this.prisma.rebateConfig.upsert({
         where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
@@ -512,206 +528,56 @@ export class RebateService {
         },
       });
 
-      await this.cascadeMaxPipsToSubtree(mibId, ov.assetType, ov.rebateType, changedById);
+      await this.resetSubtreeAssets(mibId, ov.assetType, ov.rebateType, changedById);
     }
 
     return this.getConfig(mibId);
   }
 
-  private async cascadeMaxPipsToSubtree(
+  private async resetSubtreeAssets(
     rootId: string,
     assetType: AssetType,
     rebateType: string,
     changedById: string,
   ) {
-    const subtree: { id: string; parentId: string | null; level: number }[] = await this.prisma.$queryRaw`
+    const subtree: any[] = await this.prisma.$queryRaw`
       WITH RECURSIVE subtree AS (
-        SELECT id, "parentId", level FROM ib_nodes WHERE id = ${rootId}
+        SELECT id, "parentId" FROM ib_nodes WHERE id = ${rootId}
         UNION ALL
-        SELECT n.id, n."parentId", n.level
+        SELECT n.id, n."parentId"
         FROM ib_nodes n
         INNER JOIN subtree s ON n."parentId" = s.id
       )
-      SELECT id, "parentId", level FROM subtree WHERE id != ${rootId} ORDER BY level ASC
+      SELECT id FROM subtree WHERE id != ${rootId}
     `;
 
-    // CÔNG THỨC DUY NHẤT cho maxPips trong toàn hệ thống — "ngân sách còn lại":
-    //   maxPips(con) = maxPips(cha) - rebatePips(cha)
-    // Tức là trần của con = trần của cha trừ đi phần cha đã tự giữ cho mình.
-    // Đây là cơ chế cascade DUY NHẤT ghi vào field maxPips — thay thế mọi cascade
-    // khác trong hệ thống (kể cả cascade từng chạy cuối updateConfig()).
-    // parentConfig luôn đọc được giá trị mới nhất vì subtree xử lý tuần tự theo
-    // level ASC (cha luôn được upsert xong trước khi tới lượt con).
-    for (const node of subtree) {
-      const parentConfig = await this.prisma.rebateConfig.findUnique({
-        where: { ibId_assetType_rebateType: { ibId: node.parentId!, assetType, rebateType: rebateType as any } },
-      });
-      const parentRemaining = parentConfig
-        ? Number(parentConfig.maxPips) - Number(parentConfig.rebatePips)
-        : 0;
-      const newMaxPips = Math.max(0, parentRemaining);
+    const allIdsToNotify = [rootId, ...(subtree).map((s) => s.id)];
 
-      const existingConfig = await this.prisma.rebateConfig.findUnique({
-        where: { ibId_assetType_rebateType: { ibId: node.id, assetType, rebateType: rebateType as any } },
-      });
-
-      await this.prisma.rebateConfig.upsert({
-        where: { ibId_assetType_rebateType: { ibId: node.id, assetType, rebateType: rebateType as any } },
-        update: { maxPips: newMaxPips },
-        create: {
-          ibId: node.id,
+    if (subtree.length > 0) {
+      const descendantIds = subtree.map(s => s.id);
+      await this.prisma.rebateConfig.updateMany({
+        where: {
+          ibId: { in: descendantIds },
           assetType,
           rebateType: rebateType as any,
+        },
+        data: {
           rebatePips: 0,
           markupPips: 0,
-          markupPercent: 100,
-          maxPips: newMaxPips,
-        },
-      });
-
-      const existingRebate = existingConfig ? Number(existingConfig.rebatePips) : 0;
-      const existingMarkup = existingConfig ? Number(existingConfig.markupPips) : 0;
-      if (existingRebate + existingMarkup > newMaxPips) {
-        await this.auditService.log({
-          actorId: changedById,
-          action: AUDIT_ACTIONS.REBATE_CONFIG_OVER_CEILING_DETECTED,
-          targetType: 'REBATE_CONFIG',
-          targetId: node.id,
-          after: { rebatePips: existingRebate, markupPips: existingMarkup, newMaxPips },
-        });
-      }
-    }
-  }
-
-  /**
-   * PHA 1 (DRY-RUN) của cascade: tính toán newMaxPips cho TOÀN BỘ subtree theo công thức
-   *   newMaxPips(con) = max(0, maxPips(cha) - rebatePips(cha))
-   * NHƯNG KHÔNG GHI DB. Trả về danh sách node kèm (rebatePips, markupPips, newMaxPips)
-   * để caller so sánh và phát hiện vi phạm (đang giữ > trần mới).
-   *
-   * `proposedById` chứa giá trị SẼ ĐƯỢC GHI của các node khác trong cùng 1 bulk request
-   * (key = `${assetType}:${rebateType}`). Nếu 1 node có proposed value, dùng giá trị đó
-   * thay vì DB hiện tại — đảm bảo bulk gửi cả tổ tiên lẫn con cùng lúc vẫn validate đúng.
-   *
-   * `prisma` có thể là tx (trong transaction) hoặc this.prisma (setMibMaxOverride).
-   */
-  private async dryRunCascadeSubtree(
-    rootId: string,
-    assetType: AssetType,
-    rebateType: string,
-    rootMaxPips: number,
-    rootRebatePips: number,
-    proposedById: Map<string, Record<string, { rebatePips: number; markupPips: number }>>,
-    prisma: any,
-  ): Promise<Array<{ ibId: string; newMaxPips: number; rebatePips: number; markupPips: number }>> {
-    const subtree: { id: string; parentId: string | null; level: number }[] = await prisma.$queryRaw`
-      WITH RECURSIVE subtree AS (
-        SELECT id, "parentId", level FROM ib_nodes WHERE id = ${rootId}
-        UNION ALL
-        SELECT n.id, n."parentId", n.level
-        FROM ib_nodes n
-        INNER JOIN subtree s ON n."parentId" = s.id
-      )
-      SELECT id, "parentId", level FROM subtree WHERE id != ${rootId} ORDER BY level ASC
-    `;
-
-    const computedMax = new Map<string, number>();
-    computedMax.set(rootId, rootMaxPips);
-    const key = `${assetType}:${rebateType}`;
-    const out: Array<{ ibId: string; newMaxPips: number; rebatePips: number; markupPips: number }> = [];
-
-    for (const node of subtree) {
-      const parentId = node.parentId!;
-      const parentMax = computedMax.get(parentId)!;
-      let parentRebate: number;
-      if (parentId === rootId) {
-        parentRebate = rootRebatePips;
-      } else {
-        const prop = proposedById.get(parentId)?.[key];
-        if (prop) {
-          parentRebate = prop.rebatePips;
-        } else {
-          const pc = await prisma.rebateConfig.findUnique({
-            where: { ibId_assetType_rebateType: { ibId: parentId, assetType, rebateType: rebateType as any } },
-          });
-          parentRebate = pc ? Number(pc.rebatePips) : 0;
+          maxPips: 0,
         }
-      }
-      const newMaxPips = Math.max(0, parentMax - parentRebate);
-      computedMax.set(node.id, newMaxPips);
-
-      const prop = proposedById.get(node.id)?.[key];
-      let rebatePips: number;
-      let markupPips: number;
-      if (prop) {
-        rebatePips = prop.rebatePips;
-        markupPips = prop.markupPips;
-      } else {
-        const nc = await prisma.rebateConfig.findUnique({
-          where: { ibId_assetType_rebateType: { ibId: node.id, assetType, rebateType: rebateType as any } },
-        });
-        rebatePips = nc ? Number(nc.rebatePips) : 0;
-        markupPips = nc ? Number(nc.markupPips) : 0;
-      }
-      out.push({ ibId: node.id, newMaxPips, rebatePips, markupPips });
-    }
-    return out;
-  }
-
-  /**
-   * Sau khi 1 bulkUpdateConfig xử lý xong (kể cả có item fail), quét lại TOÀN BỘ node
-   * từng bị cascade ảnh hưởng để phát hiện vi phạm còn sót lại (trường hợp 1 item trong
-   * nhóm fail sau khi item khác đã cascade xuống nó). Không tự sửa — chỉ đánh dấu
-   * `warnings` trong response và ghi audit `BULK_PARTIAL_LEFT_VIOLATION` để admin biết
-   * xử lý tay, không để âm thầm tồn tại trong DB.
-   */
-  private async checkBulkLeftoverViolations(
-    actorId: string,
-    results: Array<{ ibId: string; success: boolean }>,
-  ): Promise<Array<{ ibId: string; assetType: string; rebateType: string; rebatePips: number; markupPips: number; maxPips: number }>> {
-    const savedIds = results.filter(r => r.success).map(r => r.ibId);
-    if (savedIds.length === 0) return [];
-
-    let affected: string[] = [];
-    for (const id of savedIds) {
-      const sub: { id: string }[] = await this.prisma.$queryRaw`
-        WITH RECURSIVE subtree AS (
-          SELECT id, "parentId" FROM ib_nodes WHERE id = ${id}
-          UNION ALL
-          SELECT n.id, n."parentId" FROM ib_nodes n INNER JOIN subtree s ON n."parentId" = s.id
-        )
-        SELECT id FROM subtree WHERE id != ${id}
-      `;
-      affected = affected.concat(sub.map(s => s.id));
-    }
-    if (affected.length === 0) return [];
-
-    const violated: any[] = await this.prisma.$queryRaw`
-      SELECT rc."ibId", rc."assetType", rc."rebateType", rc."rebatePips", rc."markupPips", rc."maxPips"
-      FROM rebate_configs rc
-      WHERE rc."ibId" = ANY(${affected}::text[])
-        AND (rc."rebatePips" + rc."markupPips") > rc."maxPips"
-    `;
-
-    const warnings = violated.map((v: any) => ({
-      ibId: v.ibId,
-      assetType: v.assetType,
-      rebateType: v.rebateType,
-      rebatePips: Number(v.rebatePips),
-      markupPips: Number(v.markupPips),
-      maxPips: Number(v.maxPips),
-    }));
-
-    for (const w of warnings) {
-      await this.auditService.log({
-        actorId,
-        action: AUDIT_ACTIONS.BULK_PARTIAL_LEFT_VIOLATION,
-        targetType: 'REBATE_CONFIG',
-        targetId: w.ibId,
-        after: { assetType: w.assetType, rebateType: w.rebateType, rebatePips: w.rebatePips, markupPips: w.markupPips, maxPips: w.maxPips },
       });
     }
-    return warnings;
+
+    for (const id of allIdsToNotify) {
+      this.notificationService.createSystemNotification({
+        recipientId: id,
+        type: 'REBATE_UPDATED' as any,
+        title: 'Sửa đổi Rebate',
+        body: 'Vui lòng bạn hãy vô kiểm tra lại Rebate hiện tại của mình',
+        metadata: { assetType, action: 'RESET' },
+      });
+    }
   }
 
   async calculateCascadeDistribution(

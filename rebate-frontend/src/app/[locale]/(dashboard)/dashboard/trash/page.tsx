@@ -52,39 +52,39 @@ export default function TrashManagementPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="rounded-2xl border border-amber-200/80 bg-white p-6 shadow-sm">
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-            <thead className="bg-slate-50">
+          <table className="min-w-full divide-y divide-gray-100 text-left text-sm">
+            <thead className="bg-amber-50/80 font-extrabold text-gray-800 border-b border-amber-200/80">
               <tr>
-                <th className="px-4 py-3 font-semibold text-slate-600">ID</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Email</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Level</th>
-                <th className="px-4 py-3 font-semibold text-slate-600">Role</th>
-                <th className="px-4 py-3 font-semibold text-slate-600 text-right">Hành động</th>
+                <th className="px-4 py-3 font-bold">ID</th>
+                <th className="px-4 py-3 font-bold">Email</th>
+                <th className="px-4 py-3 font-bold">Level</th>
+                <th className="px-4 py-3 font-bold">Role</th>
+                <th className="px-4 py-3 font-bold text-right">Hành động</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center">
-                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-red-600" />
+                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-amber-600" />
                   </td>
                 </tr>
               ) : items.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500 font-medium">
                     Thùng rác trống.
                   </td>
                 </tr>
               ) : (
                 items.map((user) => (
-                  <tr key={user.id} className="hover:bg-slate-50/50">
-                    <td className="px-4 py-3 text-xs font-mono text-gray-500">{user.id}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{user.email}</td>
-                    <td className="px-4 py-3 text-gray-600">Level {user.level}</td>
+                  <tr key={user.id} className="hover:bg-amber-50/40 transition-colors">
+                    <td className="px-4 py-3 text-xs font-mono text-gray-500 font-bold">{user.id}</td>
+                    <td className="px-4 py-3 font-bold text-gray-900">{user.email}</td>
+                    <td className="px-4 py-3 text-gray-700 font-semibold">Level {user.level}</td>
                     <td className="px-4 py-3">
-                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${user.role === 'ADMIN' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                      <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-extrabold border ${user.role === 'ADMIN' ? 'bg-amber-100 text-amber-950 border-amber-200' : 'bg-gray-100 text-gray-800 border-gray-200'}`}>
                         {user.role}
                       </span>
                     </td>
