@@ -185,14 +185,13 @@ export class RebateService {
     await this.prisma.$transaction(async (tx: any) => {
       for (const assetConfig of updateDto.assets) {
         const { assetType, rebateType = 'STP_REBATE', rebatePips, markupPips, markupPercent } = assetConfig;
-        const isSelfTarget = currentUserId === targetIbId;
-
-        const parentConfig = isSelfTarget
-          ? null
-          : await tx.rebateConfig.findUnique({
-            where: { ibId_assetType_rebateType: { ibId: currentUserId, assetType, rebateType: rebateType as any } },
+        const parentIbId = targetIb?.parentId;
+        const parentConfig = (parentIbId && parentIbId !== targetIbId)
+          ? await tx.rebateConfig.findUnique({
+            where: { ibId_assetType_rebateType: { ibId: parentIbId, assetType, rebateType: rebateType as any } },
             include: { ib: true },
-          });
+          })
+          : null;
 
         // 1. Lấy config hiện tại -> before
         const existing = await tx.rebateConfig.findUnique({
@@ -241,7 +240,7 @@ export class RebateService {
             });
           }
         } else {
-          const limit = existing ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 0);
+          const limit = (existing && Number(existing.maxPips) > 0) ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 100);
           if (rebatePips > limit) {
             throw new UnprocessableEntityException({
               code: 'REBATE_EXCEEDS_MAX',
@@ -286,9 +285,13 @@ export class RebateService {
           ? Number(childTargetConfig.markupPercent)
           : 100;
 
+        const calculatedMaxPips = (assetConfig as any).maxPips !== undefined && Number((assetConfig as any).maxPips) > 0
+          ? Number((assetConfig as any).maxPips)
+          : (parentConfig ? Number(parentConfig.maxPips) : (MAX_PIPS[assetType] || 0));
+
         const childMaxPips = targetIb?.level === 0
-          ? (existing ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 0))
-          : (targetIb?.level === 1 ? ((assetConfig as any).maxPips !== undefined ? Number((assetConfig as any).maxPips) : rebatePips) : rebatePips);
+          ? (existing && Number(existing.maxPips) > 0 ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 0))
+          : (targetIb?.level === 1 ? calculatedMaxPips : rebatePips);
 
         // 2. Update -> after
         const updated = await tx.rebateConfig.upsert({
@@ -355,11 +358,32 @@ export class RebateService {
 
     // ADMIN sửa xong -> bắn notification theo notifyScope
     // (chạy non-blocking sau khi transaction đã commit)
+    const scope = updateDto.notifyScope || 'direct';
     if (callerRole === 'ADMIN') {
-      const scope = updateDto.notifyScope || 'direct';
       // Trích xuất những asset bị thay đổi thực sự
       const changes = { assets: updateDto.assets.map(a => ({ asset: a.assetType, rebatePips: a.rebatePips, markupPips: a.markupPips })) };
       this.notificationService.notifyConfigChangedByAdmin(targetIbId, scope as any, changes, currentUserId);
+    } else {
+      // Khi MIB hoặc IB sửa Rebate config cho chính mình hoặc Sub-IB con -> thông báo cho Admin duyệt
+      const actor = await this.prisma.ibNode.findUnique({
+        where: { id: currentUserId },
+        select: { name: true, email: true },
+      });
+      const targetNode = await this.prisma.ibNode.findUnique({
+        where: { id: targetIbId },
+        select: { name: true, email: true },
+      });
+
+      const title = `MIB/IB (${actor?.email}) đã cập nhật chia hoa hồng Rebate`;
+      const body = `MIB/IB (${actor?.email}) vừa lưu lại cấu hình chia hoa hồng Rebate cho Sub-IB (${targetNode?.email || actor?.email}). Vui lòng kiểm tra lại tỷ lệ và số dư hoa hồng hệ thống.`;
+
+      await this.notificationService.notifyAdminsOnIbAction({
+        actorId: currentUserId,
+        title,
+        body,
+        actionType: 'REBATE_CONFIG_UPDATE',
+        details: { targetIbId, targetEmail: targetNode?.email, assetsCount: updateDto.assets.length },
+      });
     }
 
     return this.getConfig(targetIbId);

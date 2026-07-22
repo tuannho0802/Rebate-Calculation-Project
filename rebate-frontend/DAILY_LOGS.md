@@ -629,3 +629,26 @@
 - [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
 - [x] Các type vẫn khớp với 02_DATA_MODELS.md
 ---
+
+## [2026-07-22] — Phần: FRONTEND
+
+### Phiên Làm Việc
+- Agent: Antigravity AI
+- Yêu cầu từ: Nâng cấp Rebate Management (3 nút action, 3-stage restore snapshot history, realtime optimistic updates, Retained Pips formula trừ Markup Option, consolidated save, fixed infinite loop, Excel export sync) + Triển khai Drag & Drop Subtree Move trên trang IB View.
+
+### Đã Triển Khai
+- `src/lib/api/ib.ts`: Thêm method `moveIb(ibId: string, targetParentId: string)`.
+- `src/components/ib-tree/IbViewTree.tsx`: Triển khai nút **"Chỉnh Sửa (Kéo-Thả)"** cho Admin (sử dụng `useAuthStore`), hỗ trợ di chuyển toàn bộ nhánh con (subtree), cập nhật nguyên tử (atomic update) `nodeChildrenMap` chống nhân bản node ở nhánh cũ, tự động đổi `accountType` và recalculate `level` cho subtree, kiểm tra Cycle Detection & Rebate Pips validation với thông báo chuẩn (`"Số Rebate cấp trên không đủ cấp cho nhánh dưới..."`), và nút **"Lưu Vị Trí Mới"** gửi API `PATCH /ib/:id/move` lưu cố định xuống PostgreSQL DB.
+- `src/components/rebate/CompactPivotTable.tsx`: Sửa công thức Retained Pips trừ số pips giữ lại từ AI Scenario Markup Option, tính toán `scenarioMap` realtime, xóa nút "Lưu Kịch Bản" riêng lẻ và dùng `useEffect` ổn định bằng `scenarioNodesKey`.
+- `src/app/[locale]/(dashboard)/dashboard/rebate-management/page.tsx`: Thêm 3 nút action (Chỉnh sửa, Khôi phục, Lưu), lưu `savedSnapshotHistory` đệm khôi phục 1 bước trước khi lưu DB, cập nhật optimistic UI 0ms, kích hoạt nút Lưu khi đổi AI Scenario (`hasScenarioChanged`), và đồng bộ công thức Retained Pips trong hàm `handleExportExcel`.
+
+### Đã Sửa Lỗi
+- `src/components/ib-tree/IbViewTree.tsx`: Sửa lỗi nhân bản node IB ở nhánh cũ bằng cách thực hiện atomic state update trên `nodeChildrenMap` loại bỏ `draggedNode.id` ở tất cả các keys cha trước khi append vào parent mới.
+- `src/components/rebate/CompactPivotTable.tsx`: Sửa lỗi `Maximum update depth exceeded` bằng cách chuyển effect dependency sang chuỗi primitive `scenarioNodesKey = JSON.stringify(...)`.
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi (`npx tsc --noEmit` 0 errors)
+- [x] Không có chức năng cũ nào bị hỏng
+- [x] Hợp đồng API không bị vi phạm
+- [x] Các type vẫn khớp với Data Models
+---

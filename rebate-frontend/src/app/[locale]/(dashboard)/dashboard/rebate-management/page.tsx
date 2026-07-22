@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } from 'react';
 import { useTranslations } from 'next-intl';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
 import { AssetType, RebateConfig, MAX_PIPS, IbTreeNode } from '@/types';
-import { Loader2, Table2, Sheet, LayoutGrid, Eye, Download, GitBranch, Search } from 'lucide-react';
+import { Loader2, Table2, Sheet, LayoutGrid, Eye, Download, GitBranch, Search, Edit3, RotateCcw, Save } from 'lucide-react';
+import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { normalizeTreeRoots, flattenIbTree } from '@/lib/tree-utils';
@@ -86,6 +87,32 @@ export default function RebateManagementPage() {
     return map;
   }, [allNodes]);
 
+  const [configRefreshTrigger, setConfigRefreshTrigger] = useState(0);
+
+  const handleRefreshConfigs = () => {
+    setConfigRefreshTrigger(prev => prev + 1);
+  };
+
+  const handleOptimisticUpdateConfigs = (
+    updates: Record<string, Record<string, number>>
+  ) => {
+    setConfigs(prev => {
+      const next = { ...prev };
+      for (const [ibId, assetMap] of Object.entries(updates)) {
+        if (next[ibId]) {
+          next[ibId] = {
+            ...next[ibId],
+            assets: next[ibId].assets.map(a => ({
+              ...a,
+              rebatePips: assetMap[a.assetType] !== undefined ? assetMap[a.assetType] : a.rebatePips,
+            })),
+          };
+        }
+      }
+      return next;
+    });
+  };
+
   useEffect(() => {
     if (allNodes.length > 0) {
       const loadConfigs = async () => {
@@ -103,7 +130,7 @@ export default function RebateManagementPage() {
       };
       loadConfigs();
     }
-  }, [allNodes]);
+  }, [allNodes, configRefreshTrigger]);
 
   const assetTypes = Object.values(AssetType);
 
@@ -234,6 +261,59 @@ export default function RebateManagementPage() {
 
         const level1MarkupPips = parseAccountTypePips(level1NodeInBranch?.accountType);
 
+        // 1. Chạy AI Rebate Engine Solver trước cho nhánh này để lấy kịch bản Markup
+        const solverInput: SolverNodeInput[] = branch.map((node, idx) => {
+          const isRoot = idx === 0;
+          const name = isRoot ? (rootIb.name ?? rootIb.email) : (node.name ?? node.email);
+          const lvl = node.level;
+          const assets: Record<string, number> = {};
+
+          assetTypes.forEach((asset) => {
+            if (isRoot) {
+              const mibAssetConfig = configs[rootIb.id]?.assets?.find(a => a.assetType === asset);
+              const mibBaseCap = getMibMaxDisplay(rootIb.id, asset) ?? Number(mibAssetConfig?.maxPips || 0);
+              assets[asset] = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
+            } else {
+              const cfg = configs[node.id]?.assets?.find(a => a.assetType === asset);
+              assets[asset] = Number(cfg?.rebatePips || 0);
+            }
+          });
+
+          return {
+            nodeId: node.id,
+            nodeName: name,
+            level: lvl,
+            assets,
+          };
+        });
+
+        const scenarios = solveBallAllocation(solverInput, level1MarkupPips || 10, assetTypes);
+
+        // Lấy pattern đã lưu trong DB nếu có
+        const savedPatternKey = branch.map(node => {
+          const cfg = configs[node.id]?.assets?.[0];
+          return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
+        });
+
+        let topScenario = scenarios[0];
+        const isSavedPatternValid = savedPatternKey.every(p => p !== null);
+        if (isSavedPatternValid && scenarios.length > 0) {
+          const foundIdx = scenarios.findIndex(sc =>
+            sc.nodes.every((n, idx) => n.white_hold === savedPatternKey[idx])
+          );
+          if (foundIdx !== -1) {
+            topScenario = scenarios[foundIdx];
+          }
+        }
+
+        const scenarioMap: Record<string, { pct: string; white_hold: number }> = {};
+        if (topScenario) {
+          topScenario.nodes.forEach((n) => {
+            scenarioMap[n.nodeId] = { pct: n.pct, white_hold: n.white_hold };
+          });
+        }
+
+        // 2. TẠO CÁC HÀNG BẢNG REBATE TÍNH SỐ PIPS GIỮ LẠI (ĐÃ TRỪ MARKUP PIPS HELD)
         assetTypes.forEach((asset, aIdx) => {
           const companyCap = MAX_PIPS[asset];
           const mibBaseCap = getMibMaxDisplay(rootIb.id, asset) ?? Number(configs[rootIb.id]?.assets?.find(a => a.assetType === asset)?.maxPips || 0);
@@ -244,17 +324,25 @@ export default function RebateManagementPage() {
 
           for (let i = 0; i < branch.length; i++) {
             const currentNode = branch[i];
+            // Lấy pips hold thực tế từ DB hoặc từ scenarioMap
+            const cfg = configs[currentNode.id]?.assets?.[0];
+            const nodeHold = cfg?.markupPips !== undefined && cfg?.markupPips !== null
+              ? Number(cfg.markupPips)
+              : (scenarioMap[currentNode.id]?.white_hold || 0);
+
             if (i === 0) {
               const nextNode = branch[1];
               const nextRebate = nextNode ? Number(configs[nextNode.id]?.assets?.find(a => a.assetType === asset)?.rebatePips || 0) : 0;
-              const mibRetained = nextNode ? Math.max(0, mibCap - nextRebate) : mibCap;
+              const rawMibRetained = nextNode ? Math.max(0, mibCap - nextRebate) : mibCap;
+              const mibRetained = Math.max(0, rawMibRetained - nodeHold);
               rowCells.push(mibRetained);
               branchSum += mibRetained;
             } else {
               const currentRebate = Number(configs[currentNode.id]?.assets?.find(a => a.assetType === asset)?.rebatePips || 0);
               const nextNode = branch[i + 1];
               const nextRebate = nextNode ? Number(configs[nextNode.id]?.assets?.find(a => a.assetType === asset)?.rebatePips || 0) : 0;
-              const retained = nextNode ? Math.max(0, currentRebate - nextRebate) : currentRebate;
+              const rawRetained = nextNode ? Math.max(0, currentRebate - nextRebate) : currentRebate;
+              const retained = Math.max(0, rawRetained - nodeHold);
               rowCells.push(retained);
               branchSum += retained;
             }
@@ -313,41 +401,6 @@ export default function RebateManagementPage() {
             right: { style: 'thin', color: { argb: '818CF8' } },
           };
         });
-
-        // Run AI Rebate Engine Solver for this branch
-        const solverInput: SolverNodeInput[] = branch.map((node, idx) => {
-          const isRoot = idx === 0;
-          const name = isRoot ? (rootIb.name ?? rootIb.email) : (node.name ?? node.email);
-          const lvl = node.level;
-          const assets: Record<string, number> = {};
-
-          assetTypes.forEach((asset) => {
-            if (isRoot) {
-              const mibAssetConfig = configs[rootIb.id]?.assets?.find(a => a.assetType === asset);
-              const mibBaseCap = getMibMaxDisplay(rootIb.id, asset) ?? Number(mibAssetConfig?.maxPips || 0);
-              assets[asset] = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
-            } else {
-              const cfg = configs[node.id]?.assets?.find(a => a.assetType === asset);
-              assets[asset] = Number(cfg?.rebatePips || 0);
-            }
-          });
-
-          return {
-            nodeId: node.id,
-            nodeName: name,
-            level: lvl,
-            assets,
-          };
-        });
-
-        const scenarios = solveBallAllocation(solverInput, level1MarkupPips || 10, assetTypes);
-        const topScenario = scenarios[0];
-        const scenarioMap: Record<string, { pct: string; white_hold: number }> = {};
-        if (topScenario) {
-          topScenario.nodes.forEach((n) => {
-            scenarioMap[n.nodeId] = { pct: n.pct, white_hold: n.white_hold };
-          });
-        }
 
         const percentRowVals: any[] = ['Tỷ Lệ % Giữ Lại'];
         branch.forEach((n) => {
@@ -496,31 +549,332 @@ export default function RebateManagementPage() {
       ) : (
         // Render tối đa 2 MIB (paginatedGroups) per page
         paginatedGroups.map(({ root, ibs }) => (
-          <div key={root.id} className="rounded-none border border-gray-300 bg-white shadow-sm overflow-hidden flex flex-col">
-            <div className="px-4 py-3 border-b border-gray-300 bg-indigo-50/70 flex items-center gap-2">
-              <span className="px-1.5 py-0.5 rounded-none text-[10px] font-bold bg-indigo-100 text-indigo-700">MIB</span>
-              <span className="font-semibold text-gray-900">{root.name || root.email}</span>
-              <span className="text-xs text-gray-500">({root.email})</span>
-            </div>
-            {ibs.length === 0 ? (
-              <div className="p-8 text-center text-gray-500 text-sm">{t('noIbs')}</div>
-            ) : (
-              <CompactPivotTable
-                rootId={root.id}
-                rootIb={root}
-                ibs={ibs}
-                assetTypes={assetTypes}
-                configs={configs}
-                getMibMaxDisplay={getMibMaxDisplay}
-                parentById={parentById}
-                ibNodesById={ibNodesById}
-                selection={compactSelection}
-                onSelectionChange={handleCompactSelectionChange}
-                onCascadeReset={handleCascadeReset}
-              />
-            )}
-          </div>
+          <MibBranchCard
+            key={root.id}
+            root={root}
+            ibs={ibs}
+            assetTypes={assetTypes}
+            configs={configs}
+            getMibMaxDisplay={getMibMaxDisplay}
+            parentById={parentById}
+            ibNodesById={ibNodesById}
+            compactSelection={compactSelection}
+            onSelectionChange={handleCompactSelectionChange}
+            onCascadeReset={handleCascadeReset}
+            noIbsText={t('noIbs')}
+            onRefreshConfigs={handleRefreshConfigs}
+            onOptimisticUpdateConfigs={handleOptimisticUpdateConfigs}
+          />
         ))
+      )}
+    </div>
+  );
+}
+
+interface MibBranchCardProps {
+  root: IbTreeNode;
+  ibs: IbTreeNode[];
+  assetTypes: AssetType[];
+  configs: Record<string, RebateConfig>;
+  getMibMaxDisplay: (mibId: string, assetType: AssetType) => number | null;
+  parentById: Record<string, string | null>;
+  ibNodesById: Record<string, IbTreeNode>;
+  compactSelection: CompactSelection;
+  onSelectionChange: (rootId: string, level: number, ibId: string) => void;
+  onCascadeReset: (rootId: string, fromLevel: number) => void;
+  noIbsText: string;
+  onRefreshConfigs: () => void;
+  onOptimisticUpdateConfigs: (updates: Record<string, Record<string, number>>) => void;
+}
+
+function MibBranchCard({
+  root,
+  ibs,
+  assetTypes,
+  configs,
+  getMibMaxDisplay,
+  parentById,
+  ibNodesById,
+  compactSelection,
+  onSelectionChange,
+  onCascadeReset,
+  noIbsText,
+  onRefreshConfigs,
+  onOptimisticUpdateConfigs,
+}: MibBranchCardProps) {
+  const queryClient = useQueryClient();
+  const [isEditing, setIsEditing] = useState<boolean>(false);
+  const [draftPips, setDraftPips] = useState<Record<string, Record<string, number>>>({});
+  const [historyStack, setHistoryStack] = useState<Array<Record<string, Record<string, number>>>>([]);
+  const [activeScenarioNodes, setActiveScenarioNodes] = useState<Array<{ nodeId: string; pct: string; white_hold: number }>>([]);
+  const [hasScenarioChanged, setHasScenarioChanged] = useState<boolean>(false);
+  const initialScenarioKeyRef = useRef<string | null>(null);
+
+  const handleActiveScenarioChange = useCallback((nodes: Array<{ nodeId: string; pct: string; white_hold: number }>) => {
+    const key = JSON.stringify(nodes);
+    if (initialScenarioKeyRef.current === null) {
+      initialScenarioKeyRef.current = key;
+    } else if (initialScenarioKeyRef.current !== key) {
+      setHasScenarioChanged(true);
+    }
+    setActiveScenarioNodes(nodes);
+  }, []);
+
+  // Lưu giữ bảng snapshot cấu hình thực tế trong DB ngay TRƯỚC KHI thực hiện mỗi lần nhấn LƯU
+  const [savedSnapshotHistory, setSavedSnapshotHistory] = useState<
+    Array<Record<string, Record<string, number>>>
+  >([]);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+
+  const handleToggleEdit = () => {
+    if (!isEditing) {
+      setIsEditing(true);
+      toast.info(`Đã bật chế độ chỉnh sửa trực tiếp cho nhánh MIB: ${root.name || root.email}`);
+    } else {
+      setIsEditing(false);
+      toast.info(`Đã tắt chế độ chỉnh sửa cho nhánh MIB: ${root.name || root.email}`);
+    }
+  };
+
+  const handleCellEdit = (ibId: string, assetType: AssetType, newPips: number) => {
+    // Luu snapshot vao historyStack cho chuc nang Khoi phuc thao tac go
+    setHistoryStack(prev => [...prev, JSON.parse(JSON.stringify(draftPips))]);
+
+    setDraftPips(prev => ({
+      ...prev,
+      [ibId]: {
+        ...(prev[ibId] || {}),
+        [assetType]: newPips,
+      },
+    }));
+  };
+
+  const handleRestore = async () => {
+    // 1. In-memory Undo stack cho các thao tác gõ chưa lưu
+    if (historyStack.length > 0) {
+      const lastSnapshot = historyStack[historyStack.length - 1];
+      setDraftPips(lastSnapshot);
+      setHistoryStack(prev => prev.slice(0, -1));
+      toast.success(`Đã khôi phục về thao tác gõ trước đó của nhánh.`);
+      return;
+    }
+
+    // 2. Nếu đang có ô nhập dở chưa lưu, hủy nháp và reset về DB hiện tại
+    if (Object.keys(draftPips).length > 0) {
+      setDraftPips({});
+      setHistoryStack([]);
+      setIsEditing(false);
+      onRefreshConfigs();
+      toast.success(`Đã hủy bỏ các chỉnh sửa chưa lưu và quay lại cấu hình DB hiện tại.`);
+      return;
+    }
+
+    // 3. Rollback cấu hình DB về bản lưu trước đó trong savedSnapshotHistory
+    if (savedSnapshotHistory.length > 0) {
+      setIsSaving(true);
+      try {
+        const previousSavedState = savedSnapshotHistory[savedSnapshotHistory.length - 1];
+        
+        // 🚀 OPTIMISTIC UPDATE REALTIME (0ms): Cập nhật trực tiếp lên màn hình lập tức
+        onOptimisticUpdateConfigs(previousSavedState);
+
+        const revertItems = Object.entries(previousSavedState).map(([ibId, assetMap]) => {
+          const existingAssets = configs[ibId]?.assets || [];
+          return {
+            ibId,
+            assets: Object.entries(assetMap).map(([assetType, rebatePips]) => {
+              const existing = existingAssets.find(a => a.assetType === assetType);
+              return {
+                assetType: assetType as AssetType,
+                rebateType: (existing?.rebateType || 'STP_REBATE') as any,
+                maxPips: Number(existing?.maxPips || MAX_PIPS[assetType as AssetType] || 0),
+                rebatePips,
+                markupPips: Number(existing?.markupPips || 0),
+                markupPercent: Number(existing?.markupPercent || 100),
+              };
+            }),
+          };
+        });
+
+        const res = await rebateApi.bulkUpdateConfig(revertItems);
+        if (res && res.failCount === 0 && res.successCount > 0) {
+          toast.success(`Đã khôi phục thành công cấu hình nhánh MIB (${root.name || root.email}) về thiết lập trước khi lưu!`);
+          queryClient.invalidateQueries({ queryKey: ['ibTree'] });
+          onRefreshConfigs();
+          setSavedSnapshotHistory(prev => prev.slice(0, -1));
+          setDraftPips({});
+          setHistoryStack([]);
+          setIsEditing(false);
+        } else {
+          toast.error('Lỗi khi khôi phục cấu hình trước đó.');
+          onRefreshConfigs();
+        }
+      } catch (err: any) {
+        toast.error('Lỗi kết nối khi khôi phục cấu hình');
+        onRefreshConfigs();
+      } finally {
+        setIsSaving(false);
+      }
+      return;
+    }
+
+    // 4. Nếu chưa có bản lưu trước đó
+    toast.info(`Chưa có bản lưu trước đó để khôi phục cho nhánh ${root.name || root.email}.`);
+    setDraftPips({});
+    setHistoryStack([]);
+    setIsEditing(false);
+    onRefreshConfigs();
+  };
+
+  const handleSave = async () => {
+    const editedIbIds = Object.keys(draftPips);
+    const hasScenarioToSave = activeScenarioNodes.length > 0 && (hasScenarioChanged || editedIbIds.length > 0);
+
+    if (editedIbIds.length === 0 && !hasScenarioToSave) {
+      toast.info('Không có thay đổi nào cần lưu.');
+      setIsEditing(false);
+      return;
+    }
+
+    // Capture snapshot của cấu hình DB hiện tại ngay trước khi Lưu mới
+    const snapshotBeforeSave: Record<string, Record<string, number>> = {};
+    const branchNodes = [root, ...ibs];
+    for (const node of branchNodes) {
+      const assetMap: Record<string, number> = {};
+      const existingAssets = configs[node.id]?.assets || [];
+      for (const a of existingAssets) {
+        assetMap[a.assetType] = Number(a.rebatePips || 0);
+      }
+      snapshotBeforeSave[node.id] = assetMap;
+    }
+
+    // 🚀 OPTIMISTIC UPDATE REALTIME (0ms) khi Lưu
+    if (editedIbIds.length > 0) {
+      onOptimisticUpdateConfigs(draftPips);
+    }
+
+    setIsSaving(true);
+    try {
+      // 1. Lưu thay đổi cấu hình Rebate Pips nếu có gõ nháp
+      if (editedIbIds.length > 0) {
+        const items = editedIbIds.map(ibId => {
+          const existingAssets = configs[ibId]?.assets || [];
+          const assetMap = draftPips[ibId];
+
+          return {
+            ibId,
+            assets: Object.entries(assetMap).map(([assetType, rebatePips]) => {
+              const existing = existingAssets.find(a => a.assetType === assetType);
+              return {
+                assetType: assetType as AssetType,
+                rebateType: (existing?.rebateType || 'STP_REBATE') as any,
+                maxPips: Number(existing?.maxPips || MAX_PIPS[assetType as AssetType] || 0),
+                rebatePips,
+                markupPips: Number(existing?.markupPips || 0),
+                markupPercent: Number(existing?.markupPercent || 100),
+              };
+            }),
+          };
+        });
+
+        await rebateApi.bulkUpdateConfig(items);
+      }
+
+      // 2. Đồng thời lưu Kịch bản Markup Option (Tỷ lệ % & Số Pips Giữ Lại) vào DB
+      if (hasScenarioToSave) {
+        const payloadNodes = activeScenarioNodes.map((node) => {
+          const pctNum = parseFloat(node.pct.replace('%', ''));
+          return {
+            ibId: node.nodeId,
+            markupPercent: isNaN(pctNum) ? 100 : pctNum,
+            markupPips: node.white_hold,
+          };
+        });
+        await rebateApi.saveBranchScenario(payloadNodes);
+      }
+
+      toast.success(`Đã lưu đồng thời Cấu hình Rebate & Kịch bản Markup cho nhánh ${root.name || root.email} vào cơ sở dữ liệu thành công!`);
+      queryClient.invalidateQueries({ queryKey: ['ibTree'] });
+      setSavedSnapshotHistory(prev => [...prev, snapshotBeforeSave]);
+      onRefreshConfigs();
+      setDraftPips({});
+      setHistoryStack([]);
+      setHasScenarioChanged(false);
+      initialScenarioKeyRef.current = JSON.stringify(activeScenarioNodes);
+      setIsEditing(false);
+    } catch (err: any) {
+      toast.error('Lỗi kết nối khi lưu cấu hình');
+      onRefreshConfigs();
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const isSaveDisabled = isSaving || (!isEditing && Object.keys(draftPips).length === 0 && !hasScenarioChanged);
+
+  return (
+    <div className="rounded-none border border-gray-300 bg-white shadow-sm overflow-hidden flex flex-col">
+      {/* Card Header with 3 Action Buttons on Top-Right as requested */}
+      <div className="px-4 py-3 border-b border-gray-300 bg-indigo-50/70 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="px-1.5 py-0.5 rounded-none text-[10px] font-bold bg-indigo-100 text-indigo-700">MIB</span>
+          <span className="font-semibold text-gray-900">{root.name || root.email}</span>
+          <span className="text-xs text-gray-500">({root.email})</span>
+        </div>
+
+        {/* 3 Action Buttons per Branch Table: Chỉnh Sửa | Khôi Phục | Lưu */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleToggleEdit}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-extrabold rounded bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition cursor-pointer ${
+              isEditing ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-400' : ''
+            }`}
+          >
+            <Edit3 className="h-3.5 w-3.5" />
+            {isEditing ? 'Đang Chỉnh Sửa' : 'Chỉnh Sửa'}
+          </button>
+
+          <button
+            onClick={handleRestore}
+            disabled={isSaving}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-extrabold rounded bg-slate-600 hover:bg-slate-700 text-white shadow-xs transition cursor-pointer disabled:opacity-50"
+            title="Khôi phục về cấu hình trước đó của nhánh"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            Khôi Phục
+          </button>
+
+          <button
+            onClick={handleSave}
+            disabled={isSaveDisabled}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-extrabold rounded bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition cursor-pointer disabled:opacity-40"
+          >
+            {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {isSaving ? 'Đang Lưu...' : 'Lưu'}
+          </button>
+        </div>
+      </div>
+
+      {ibs.length === 0 ? (
+        <div className="p-8 text-center text-gray-500 text-sm">{noIbsText}</div>
+      ) : (
+        <CompactPivotTable
+          rootId={root.id}
+          rootIb={root}
+          ibs={ibs}
+          assetTypes={assetTypes}
+          configs={configs}
+          getMibMaxDisplay={getMibMaxDisplay}
+          parentById={parentById}
+          ibNodesById={ibNodesById}
+          selection={compactSelection}
+          onSelectionChange={onSelectionChange}
+          onCascadeReset={onCascadeReset}
+          isEditing={isEditing}
+          draftPips={draftPips}
+          onCellEdit={handleCellEdit}
+          onActiveScenarioChange={handleActiveScenarioChange}
+        />
       )}
     </div>
   );

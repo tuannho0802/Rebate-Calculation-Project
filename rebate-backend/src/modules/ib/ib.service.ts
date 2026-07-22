@@ -24,6 +24,39 @@ export class IbService {
     private readonly notificationService: NotificationService,
   ) {}
 
+  async getMibs() {
+    const mibs = await this.prisma.ibNode.findMany({
+      where: {
+        role: 'IB',
+        OR: [
+          { level: 0 },
+          { parentId: null }
+        ]
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        accountType: true,
+        level: true,
+        isActive: true,
+      },
+      orderBy: { email: 'asc' },
+    });
+
+    // Count children for each MIB
+    const mibsWithCount = await Promise.all(
+      mibs.map(async (mib) => {
+        const totalChildren = await this.prisma.ibNode.count({
+          where: { parentId: mib.id },
+        });
+        return { ...mib, totalChildren };
+      })
+    );
+
+    return mibsWithCount;
+  }
+
   async getMe(ibId: string) {
     const user = await this.prisma.ibNode.findUnique({
       where: { id: ibId },
@@ -316,6 +349,21 @@ export class IbService {
       metadata: { newIbId: newIb.id },
     });
 
+    const creator = await this.prisma.ibNode.findUnique({
+      where: { id: currentUserId },
+      select: { name: true, email: true, role: true },
+    });
+
+    if (creator?.role !== 'ADMIN') {
+      await this.notificationService.notifyAdminsOnIbAction({
+        actorId: currentUserId,
+        title: `IB (${creator?.email}) đã tạo Sub-IB mới`,
+        body: `MIB/IB (${creator?.email}) vừa khởi tạo một Sub-IB mới: ${newIb.name || newIb.email} (${newIb.email}). Vui lòng kiểm tra lại sơ đồ gia phả và chia hoa hồng.`,
+        actionType: 'IB_CREATE',
+        details: { newIbId: newIb.id, email: newIb.email },
+      });
+    }
+
     return {
       id: newIb.id,
       name: newIb.name,
@@ -417,6 +465,21 @@ export class IbService {
       body: 'Tài khoản của bạn đã bị vô hiệu hóa. Vui lòng liên hệ cấp trên để biết thêm thông tin.',
     });
 
+    const actor = await this.prisma.ibNode.findUnique({
+      where: { id: currentUserId },
+      select: { email: true, role: true },
+    });
+
+    if (actor?.role !== 'ADMIN') {
+      await this.notificationService.notifyAdminsOnIbAction({
+        actorId: currentUserId,
+        title: `IB (${actor?.email}) đã vô hiệu hóa Sub-IB`,
+        body: `MIB/IB (${actor?.email}) vừa vô hiệu hóa Sub-IB (${node.email}). Vui lòng kiểm tra lại cây mạng lưới.`,
+        actionType: 'IB_DEACTIVATE',
+        details: { targetIbId: id, email: node.email },
+      });
+    }
+
     return { message: 'IB đã bị deactivate' };
   }
 
@@ -433,15 +496,26 @@ export class IbService {
       this.prisma.ibNode.count({ where: { parentId: id } }),
     ]);
 
+    const childrenWithDetails = await Promise.all(
+      data.map(async (child: any) => {
+        const totalChildren = await this.prisma.ibNode.count({
+          where: { parentId: child.id, isActive: true },
+        });
+        return {
+          id: child.id,
+          name: child.name,
+          email: child.email,
+          level: child.level,
+          accountType: child.accountType || 'Standard',
+          isActive: child.isActive,
+          totalChildren,
+          createdAt: child.createdAt,
+        };
+      })
+    );
+
     return {
-      data: data.map((child: any) => ({
-        id: child.id,
-        name: child.name,
-        email: child.email,
-        level: child.level,
-        isActive: child.isActive,
-        createdAt: child.createdAt,
-      })),
+      data: childrenWithDetails,
       meta: {
         total,
         page,
@@ -763,4 +837,120 @@ export class IbService {
     return { message: 'Da dat lai mat khau thanh cong' };
   }
 
+  /**
+   * PATCH /ib/:id/move — Admin only
+   * Di chuyển IB node (và toàn bộ subtree con) sang một parent IB/MIB mới
+   */
+  async moveIb(targetIbId: string, targetParentId: string, currentUserId: string) {
+    if (targetIbId === targetParentId) {
+      throw new BadRequestException({
+        code: 'INVALID_MOVE',
+        message: 'Một IB không thể di chuyển sang làm con của chính nó.',
+      });
+    }
+
+    const movedIb = await this.prisma.ibNode.findUnique({
+      where: { id: targetIbId },
+      select: { id: true, email: true, name: true, level: true, parentId: true },
+    });
+
+    if (!movedIb) {
+      throw new NotFoundException({ code: 'IB_NOT_FOUND', message: 'Không tìm thấy IB cần di chuyển' });
+    }
+
+    const newParent = await this.prisma.ibNode.findUnique({
+      where: { id: targetParentId },
+      select: { id: true, email: true, name: true, level: true, accountType: true, parentId: true },
+    });
+
+    if (!newParent) {
+      throw new NotFoundException({ code: 'TARGET_PARENT_NOT_FOUND', message: 'Không tìm thấy parent IB đích' });
+    }
+
+    // 1. Cycle Detection: Verify targetParentId is not a child/descendant of targetIbId
+    let ancestor: { id: string; parentId: string | null } | null = newParent;
+    while (ancestor && ancestor.parentId) {
+      if (ancestor.parentId === targetIbId) {
+        throw new BadRequestException({
+          code: 'CYCLE_DETECTED',
+          message: 'Không thể di chuyển IB sang làm con của chính con/cháu trong nhánh của nó.',
+        });
+      }
+      ancestor = await this.prisma.ibNode.findUnique({
+        where: { id: ancestor.parentId },
+        select: { id: true, parentId: true },
+      });
+    }
+
+    // 2. Fetch all nodes in movedIb's subtree for level & accountType update
+    const allSubtreeNodes = await this.getAllSubtreeNodes(targetIbId);
+
+    // Calculate level delta
+    const oldLevel = movedIb.level;
+    const newLevel = newParent.level + 1;
+    const levelDelta = newLevel - oldLevel;
+
+    // 3. Execute DB Transaction
+    await this.prisma.$transaction(async (tx) => {
+      // Update targetIb's parentId
+      await tx.ibNode.update({
+        where: { id: targetIbId },
+        data: {
+          parentId: targetParentId,
+          level: newLevel,
+          accountType: newParent.accountType || undefined,
+        },
+      });
+
+      // Update all descendants' level & accountType
+      for (const node of allSubtreeNodes) {
+        if (node.id !== targetIbId) {
+          await tx.ibNode.update({
+            where: { id: node.id },
+            data: {
+              level: node.level + levelDelta,
+              accountType: newParent.accountType || undefined,
+            },
+          });
+        }
+      }
+
+      await this.auditService.log({
+        actorId: currentUserId,
+        action: 'IB_MOVE_SUBTREE',
+        targetType: 'IB',
+        targetId: targetIbId,
+        before: { parentId: movedIb.parentId, level: oldLevel },
+        after: { parentId: targetParentId, level: newLevel, accountType: newParent.accountType },
+      });
+    });
+
+    return {
+      success: true,
+      message: `Đã di chuyển nhánh IB (${movedIb.name || movedIb.email}) sang parent mới (${newParent.name || newParent.email}) thành công!`,
+    };
+  }
+
+  private async getAllSubtreeNodes(rootId: string): Promise<Array<{ id: string; level: number; parentId: string | null }>> {
+    const results: Array<{ id: string; level: number; parentId: string | null }> = [];
+    const queue = [rootId];
+
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      const node = await this.prisma.ibNode.findUnique({
+        where: { id: currentId },
+        select: { id: true, level: true, parentId: true },
+      });
+      if (node) {
+        results.push(node);
+        const children = await this.prisma.ibNode.findMany({
+          where: { parentId: currentId },
+          select: { id: true },
+        });
+        queue.push(...children.map((c) => c.id));
+      }
+    }
+
+    return results;
+  }
 }
