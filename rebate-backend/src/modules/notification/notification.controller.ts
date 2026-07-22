@@ -11,6 +11,9 @@ import { QueryNotificationDto } from './dto/query-notification.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+
 @ApiTags('🔔 Notifications')
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
@@ -52,6 +55,19 @@ export class NotificationController {
   @ApiParam({ name: 'id', description: 'UUID của thông báo' })
   markAsRead(@CurrentUser() user: any, @Param('id') id: string) {
     return this.notificationService.markAsRead(user.sub, id);
+  }
+
+  @Patch(':id/review')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Admin duyệt hoặc báo lỗi thông báo chỉnh sửa của MIB/IB' })
+  @ApiParam({ name: 'id', description: 'UUID của thông báo' })
+  reviewNotification(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: { status: 'APPROVED' | 'REJECTED'; reason?: string },
+  ) {
+    return this.notificationService.reviewNotification(user.sub, id, dto.status, dto.reason);
   }
 
   @Delete(':id')

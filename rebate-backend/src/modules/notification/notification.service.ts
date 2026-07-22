@@ -40,7 +40,7 @@ export class NotificationService {
       }),
     ]);
 
-    return { items, meta: { page, limit, total, unreadCount } };
+    return { data: items, meta: { page, limit, total, unreadCount } };
   }
 
   /**
@@ -198,6 +198,117 @@ export class NotificationService {
         body,
         metadata: { adminId, targetIbId, changes, scope: notifyScope },
       });
+    }
+  }
+
+  /**
+   * Admin duyệt hoặc báo lỗi thông báo chỉnh sửa của MIB/IB
+   */
+  async reviewNotification(
+    adminId: string,
+    notificationId: string,
+    status: 'APPROVED' | 'REJECTED',
+    reason?: string,
+  ) {
+    const notification = await this.prisma.notification.findUnique({
+      where: { id: notificationId },
+      include: { sender: { select: { id: true, name: true, email: true } } },
+    });
+
+    if (!notification) {
+      throw new NotFoundException({ code: 'NOTIFICATION_NOT_FOUND', message: 'Không tìm thấy thông báo' });
+    }
+
+    const currentMeta = (notification.metadata as Record<string, any>) || {};
+    const targetUserId = notification.senderId || currentMeta.actorId;
+
+    const updatedMetadata = {
+      ...currentMeta,
+      reviewStatus: status,
+      reviewedAt: new Date().toISOString(),
+      reviewedBy: adminId,
+      reviewReason: reason || null,
+    };
+
+    // Update notification metadata & mark read
+    const updatedNotification = await this.prisma.notification.update({
+      where: { id: notificationId },
+      data: {
+        metadata: updatedMetadata,
+        isRead: true,
+        readAt: new Date(),
+      },
+    });
+
+    // Send feedback notification to the MIB/IB
+    if (targetUserId) {
+      if (status === 'APPROVED') {
+        await this.createSystemNotification({
+          recipientId: targetUserId,
+          type: NotificationType.SYSTEM,
+          title: 'Chỉnh sửa đã được Admin duyệt thành công',
+          body: `Admin đã kiểm tra và duyệt thành công các chỉnh sửa/thao tác "${notification.title}" của bạn trên hệ thống.`,
+          metadata: { originalNotificationId: notificationId, status: 'APPROVED' },
+        });
+      } else {
+        await this.createSystemNotification({
+          recipientId: targetUserId,
+          type: NotificationType.SYSTEM,
+          title: 'Chỉnh sửa của bạn bị báo lỗi / chưa đạt yêu cầu',
+          body: `Admin đã kiểm tra và báo lỗi thao tác "${notification.title}" của bạn. Yêu cầu: ${
+            reason || 'Vui lòng kiểm tra lại thiết lập và chia hoa hồng xem đã khớp với hệ thống hay chưa.'
+          }`,
+          metadata: { originalNotificationId: notificationId, status: 'REJECTED', reason },
+        });
+      }
+    }
+
+    return updatedNotification;
+  }
+
+  /**
+   * Thông báo cho tất cả Admin khi có MIB/IB thực hiện chỉnh sửa/thay đổi
+   */
+  async notifyAdminsOnIbAction(params: {
+    actorId: string;
+    title: string;
+    body: string;
+    actionType: string;
+    details?: any;
+  }) {
+    try {
+      const admins = await this.prisma.ibNode.findMany({
+        where: { role: 'ADMIN' },
+        select: { id: true },
+      });
+
+      const actor = await this.prisma.ibNode.findUnique({
+        where: { id: params.actorId },
+        select: { name: true, email: true, level: true },
+      });
+
+      for (const admin of admins) {
+        await this.prisma.notification.create({
+          data: {
+            recipientId: admin.id,
+            senderId: params.actorId,
+            type: NotificationType.REBATE_UPDATED,
+            title: params.title,
+            body: params.body,
+            metadata: {
+              actorId: params.actorId,
+              actorName: actor?.name || '',
+              actorEmail: actor?.email || '',
+              actorLevel: actor?.level,
+              actionType: params.actionType,
+              details: params.details,
+              reviewStatus: 'PENDING',
+            },
+          },
+        });
+      }
+    } catch (error) {
+      console.error('[NotificationService] Failed to notify admins:', error.message);
     }
   }
 }

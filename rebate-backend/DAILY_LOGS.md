@@ -726,3 +726,24 @@ oles.guard.ts — phân quyền theo role (ADMIN/IB), dùng @Roles('ADMIN') deco
 - [x] Tài liệu đã đồng bộ với code thật (append-only, không xóa entry cũ)
 - [x] Không có code nào bị thay đổi trong phiên docs này
 ---
+
+## [2026-07-22] — Phần: BACKEND
+
+### Phiên Làm Việc
+- Agent: Antigravity AI
+- Yêu cầu từ: Sửa lỗi Admin parent lookup trong `rebate.service.ts` và triển khai API di chuyển nhánh IB (`PATCH /ib/:id/move`).
+
+### Đã Triển Khai
+- `src/modules/ib/dto/move-ib.dto.ts`: Tạo DTO `MoveIbDto` chứa `targetParentId: string`.
+- `src/modules/ib/ib.controller.ts`: Bổ sung endpoint `@Patch(':id/move')` protected bởi `@Roles('ADMIN')` để di chuyển IB node và toàn bộ subtree.
+- `src/modules/ib/ib.service.ts`: Triển khai `moveIb(targetIbId, targetParentId, currentUserId)` với Cycle Detection ngắt vòng lặp đồ thị cây, chạy Prisma `$transaction` cập nhật `parentId`, recalculate `level` đệ quy và cập nhật `accountType` cho toàn bộ subtree, đồng thời ghi audit log `IB_MOVE_SUBTREE`.
+
+### Đã Sửa Lỗi
+- `src/modules/rebate/rebate.service.ts`: Sửa `parentConfig` lookup trong `bulkUpdateConfig` sử dụng `targetIb.parentId` thay vì `targetIb.id` khi Admin can thiệp chỉnh sửa trực tiếp.
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi (`npx tsc --noEmit` 0 errors)
+- [x] Không có chức năng cũ nào bị hỏng
+- [x] Hợp đồng API không bị vi phạm
+- [x] Các type vẫn khớp với Data Models
+---

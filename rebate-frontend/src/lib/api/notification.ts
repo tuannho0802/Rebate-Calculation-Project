@@ -20,10 +20,24 @@ export const notificationApi = {
   getMyNotifications: async (
     params?: NotificationQueryParams
   ): Promise<ApiResponse<Notification[]>> => {
-    const response = await apiClient.get<ApiResponse<Notification[]>>('/notifications', {
+    const response = await apiClient.get<any>('/notifications', {
       params,
     });
-    return response.data;
+    const resData = response.data;
+    let items: Notification[] = [];
+    if (Array.isArray(resData?.data)) {
+      items = resData.data;
+    } else if (Array.isArray(resData?.data?.items)) {
+      items = resData.data.items;
+    } else if (Array.isArray(resData?.items)) {
+      items = resData.items;
+    }
+    const meta = resData?.meta || resData?.data?.meta;
+    return {
+      ...resData,
+      data: items,
+      meta,
+    };
   },
 
   sendNotification: async (
@@ -45,6 +59,14 @@ export const notificationApi = {
 
   removeNotification: async (id: string): Promise<ApiResponse<{ message: string }>> => {
     const response = await apiClient.delete<ApiResponse<{ message: string }>>(`/notifications/${id}`);
+    return response.data;
+  },
+
+  reviewNotification: async (
+    id: string,
+    data: { status: 'APPROVED' | 'REJECTED'; reason?: string }
+  ): Promise<ApiResponse<Notification>> => {
+    const response = await apiClient.patch<ApiResponse<Notification>>(`/notifications/${id}/review`, data);
     return response.data;
   },
 };
