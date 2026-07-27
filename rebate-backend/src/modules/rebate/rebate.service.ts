@@ -378,7 +378,12 @@ export class RebateService {
           type: 'REBATE_UPDATED' as any,
           title: 'Cập nhật hoa hồng Rebate từ cấp trên',
           body: `${actorLabel} đã cập nhật lại số dư hoa hồng Rebate cho tài khoản của bạn. Vui lòng vào trang Rebate Management để kiểm tra chi tiết.`,
-          metadata: { updatedBy: currentUserId, actorEmail: actor?.email, targetIbId, assetsCount: updateDto.assets.length },
+          metadata: {
+            updatedBy: currentUserId,
+            actorEmail: actor?.email,
+            targetIbId,
+            changedAssets: updateDto.assets.map((a) => ({ assetType: a.assetType, rebateType: a.rebateType })),
+          },
         });
       }
 
@@ -395,8 +400,12 @@ export class RebateService {
         actorId: currentUserId,
         title,
         body,
-        actionType: 'REBATE_CONFIG_UPDATE',
-        details: { targetIbId, targetEmail: targetNode?.email, assetsCount: updateDto.assets.length },
+        actionType: AUDIT_ACTIONS.REBATE_CONFIG_UPDATE,
+        details: {
+          targetIbId,
+          targetEmail: targetNode?.email,
+          changedAssets: updateDto.assets.map((a) => ({ assetType: a.assetType, rebateType: a.rebateType })),
+        },
       });
     }
 

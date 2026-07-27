@@ -22,7 +22,7 @@ export class IbService {
     private readonly prisma: PrismaService,
     private readonly auditService: AuditService,
     private readonly notificationService: NotificationService,
-  ) {}
+  ) { }
 
   async getMibs() {
     const mibs = await this.prisma.ibNode.findMany({
@@ -241,7 +241,7 @@ export class IbService {
     let parentAccountType = createIbDto.accountType || 'STD';
     let selectedTemplate: { id: string; name: string; rows: any[] } | null = null;
     if (currentUserLevel > 0) {
-      const parentNode = await this.prisma.ibNode.findUnique({ where: { id: currentUserId }});
+      const parentNode = await this.prisma.ibNode.findUnique({ where: { id: currentUserId } });
       if (parentNode?.accountType) {
         parentAccountType = parentNode.accountType;
       }
@@ -958,7 +958,7 @@ export class IbService {
 
       await this.auditService.log({
         actorId: currentUserId,
-        action: 'IB_MOVE_SUBTREE',
+        action: AUDIT_ACTIONS.IB_MOVE_SUBTREE,
         targetType: 'IB',
         targetId: targetIbId,
         before: { parentId: movedIb.parentId, level: oldLevel },
@@ -968,7 +968,7 @@ export class IbService {
 
     const actor = await this.prisma.ibNode.findUnique({
       where: { id: currentUserId },
-      select: { name: true, email: true },
+      select: { name: true, email: true, role: true },
     });
     const actorLabel = actor?.name ? `${actor.name} (${actor.email})` : (actor?.email || 'Admin');
     const newParentLabel = newParent.name ? `${newParent.name} (${newParent.email})` : newParent.email;
@@ -980,6 +980,22 @@ export class IbService {
       body: `${actorLabel} đã di chuyển vị trí nhánh cây gia phả của bạn sang làm tuyến dưới của ${newParentLabel}.`,
       metadata: { action: 'IB_MOVE_SUBTREE', newParentId: targetParentId, newParentEmail: newParent.email },
     });
+
+    if (actor?.role !== 'ADMIN') {
+      await this.notificationService.notifyAdminsOnIbAction({
+        actorId: currentUserId,
+        title: `MIB/IB (${actor?.email}) đã di chuyển một nhánh IB`,
+        body: `MIB/IB (${actor?.email}) vừa di chuyển nhánh (${movedIb.name || movedIb.email}) sang làm tuyến dưới của ${newParentLabel}. Vui lòng kiểm tra lại sơ đồ gia phả.`,
+        actionType: AUDIT_ACTIONS.IB_MOVE_SUBTREE,
+        details: {
+          targetIbId,
+          targetEmail: movedIb.email,
+          oldParentId: movedIb.parentId,
+          newParentId: targetParentId,
+          newParentEmail: newParent.email,
+        },
+      });
+    }
 
     return {
       success: true,
