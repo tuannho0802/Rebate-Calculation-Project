@@ -285,13 +285,17 @@ export class RebateService {
           ? Number(childTargetConfig.markupPercent)
           : 100;
 
-        const calculatedMaxPips = (assetConfig as any).maxPips !== undefined && Number((assetConfig as any).maxPips) > 0
+        // Max của mọi level >= 1 luôn = đúng số pips vừa nhận từ cấp trên (rebatePips),
+        // KHÔNG lấy trần gốc của MIB. Đây là nguyên tắc cascade: 20 -> 15 -> 10 -> 5 -> 0,
+        // mỗi mốc là max của chính level đó. Chỉ giữ lại đường override tường minh
+        // (assetConfig.maxPips) cho các trường hợp đặc biệt nếu caller có truyền vào.
+        const explicitMaxPips = (assetConfig as any).maxPips !== undefined && Number((assetConfig as any).maxPips) > 0
           ? Number((assetConfig as any).maxPips)
-          : (parentConfig ? Number(parentConfig.maxPips) : (MAX_PIPS[assetType] || 0));
+          : undefined;
 
         const childMaxPips = targetIb?.level === 0
           ? (existing && Number(existing.maxPips) > 0 ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 0))
-          : (targetIb?.level === 1 ? calculatedMaxPips : rebatePips);
+          : (explicitMaxPips ?? rebatePips);
 
         // 2. Update -> after
         const updated = await tx.rebateConfig.upsert({

@@ -74,9 +74,9 @@ function makeNotificationMock() {
   return {
     notifyConfigChangedByAdmin: jest.fn(),
     createSystemNotification: jest.fn(),
+    notifyAdminsOnIbAction: jest.fn().mockResolvedValue(undefined),
   };
 }
-
 describe('RebateService — Cascading Rebate Max', () => {
   let service: RebateService;
   let prisma: ReturnType<typeof makePrismaMock>;
