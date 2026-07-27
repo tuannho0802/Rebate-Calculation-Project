@@ -39,23 +39,84 @@ export class RebateService {
     private readonly notificationService: NotificationService,
   ) { }
 
-  async getConfig(ibId: string) {
-    const configs = await this.prisma.rebateConfig.findMany({
-      where: { ibId },
-      orderBy: { updatedAt: 'desc' },
-    });
+  /**
+   * NGUỒN DUY NHẤT để tính "trần" (maxPips) THỰC TẾ áp dụng cho một IB.
+   * Dùng CHUNG cho cả đường đọc (getConfig) LẪN đường ghi/validate
+   * (updateConfig) — bắt buộc, để tránh tái phát bug "2 nơi tính trần
+   * khác nhau" (VĐ3 gốc, rồi lặp lại ở updateConfig() ngày 27/07/2026:
+   * UI hiện trần fallback đúng nhưng lúc Lưu lại validate theo giá trị
+   * raw trong DB chưa fallback → REBATE_EXCEEDS_PARENT sai, xem Test B).
+   *
+   * Quy tắc: CHỈ fallback về MAX_PIPS[assetType] (trần công ty) khi là
+   * MIB (level 0) VÀ maxPips trong DB <= 0 (chưa từng được set / bị
+   * reset). Với non-MIB, maxPips = 0 là trạng thái HỢP LỆ ("cấp trên
+   * chưa cấp gì cho asset này"), KHÔNG được fallback — nếu không child
+   * sẽ tưởng nhầm mình có full budget.
+   */
+  private resolveEffectiveMaxPips(rawMaxPips: number, isMib: boolean, assetType: AssetType): number {
+    return isMib && rawMaxPips <= 0 ? (MAX_PIPS[assetType] || 0) : rawMaxPips;
+  }
 
-    return {
-      ibId,
-      assets: configs.map((c: any) => ({
+  async getConfig(ibId: string) {
+    const [configs, ib] = await Promise.all([
+      this.prisma.rebateConfig.findMany({
+        where: { ibId },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { level: true } }),
+    ]);
+
+    // Fallback về "Trần công ty" (MAX_PIPS[assetType]) khi maxPips <= 0 —
+    // CHỈ áp dụng cho MIB (level 0). Với non-MIB, maxPips = 0 là trạng thái
+    // hợp lệ ("cấp trên chưa cấp/cấp 0 pips cho asset này"), KHÔNG được che
+    // bằng trần mặc định, nếu không child sẽ tưởng mình có full budget.
+    const isMib = ib?.level === 0;
+
+    const existingAssets = configs.map((c: any) => {
+      const rawMaxPips = Number(c.maxPips);
+      const maxPips = this.resolveEffectiveMaxPips(rawMaxPips, isMib, c.assetType as AssetType);
+      return {
         assetType: c.assetType,
         rebateType: c.rebateType,
         rebatePips: Number(c.rebatePips),
         markupPips: Number(c.markupPips),
         markupPercent: Number(c.markupPercent),
-        maxPips: Number(c.maxPips),
+        maxPips,
         updatedAt: c.updatedAt,
-      })),
+      };
+    });
+
+    if (!isMib) {
+      return {
+        ibId,
+        assets: existingAssets,
+        updatedAt: configs.length > 0 ? configs[0].updatedAt : new Date(),
+      };
+    }
+
+    // FIX (27/07/2026) — "bootstrap gap": MIB không có dòng rebateConfig nào
+    // trong DB trừ khi Admin từng override, hoặc chính MIB đã tự cấu hình.
+    // Trước đây điều này khiến getConfig() trả về assets=[] hoàn toàn cho MIB
+    // dù MIB là root của cả 1 nhánh (Dashboard hiện "Chưa có cấu hình Rebate
+    // nào được kích hoạt"). Giờ với MIB, đảm bảo MỌI AssetType đều xuất hiện —
+    // asset chưa có dòng thật thì trả về "ảo" với maxPips = trần công ty mặc định,
+    // giống hệt như thể đã có sẵn (không ghi gì xuống DB, chỉ synth ở response).
+    const existingAssetTypes = new Set(existingAssets.map((a) => a.assetType));
+    const syntheticAssets = Object.values(AssetType)
+      .filter((at) => !existingAssetTypes.has(at))
+      .map((at) => ({
+        assetType: at,
+        rebateType: 'STP_REBATE' as any,
+        rebatePips: 0,
+        markupPips: 0,
+        markupPercent: 100,
+        maxPips: MAX_PIPS[at] || 0,
+        updatedAt: null as any,
+      }));
+
+    return {
+      ibId,
+      assets: [...existingAssets, ...syntheticAssets],
       updatedAt: configs.length > 0 ? configs[0].updatedAt : new Date(),
     };
   }
@@ -186,12 +247,21 @@ export class RebateService {
       for (const assetConfig of updateDto.assets) {
         const { assetType, rebateType = 'STP_REBATE', rebatePips, markupPips, markupPercent } = assetConfig;
         const parentIbId = targetIb?.parentId;
-        const parentConfig = (parentIbId && parentIbId !== targetIbId)
+        const hasParent = !!(parentIbId && parentIbId !== targetIbId);
+        const parentConfig = hasParent
           ? await tx.rebateConfig.findUnique({
             where: { ibId_assetType_rebateType: { ibId: parentIbId, assetType, rebateType: rebateType as any } },
             include: { ib: true },
           })
           : null;
+        // Level 1 luôn có cha là MIB (level 0) theo đúng cấu trúc cây — suy luận
+        // trực tiếp từ targetIb.level thay vì phụ thuộc parentConfig.ib.level, để
+        // xử lý đúng cả trường hợp MIB CHƯA TỪNG có dòng rebateConfig nào trong DB
+        // (bootstrap gap: MIB không có dòng riêng nếu Admin chưa từng override VÀ
+        // MIB chưa từng tự cấu hình chính mình — mục 1.1 bên dưới bỏ qua khi
+        // parentConfig null. Fix 27/07/2026, xem hand-off "MIB không hiện trên
+        // Dashboard dù là root").
+        const parentIsMib = hasParent && targetIb?.level === 1;
 
         // 1. Lấy config hiện tại -> before
         const existing = await tx.rebateConfig.findUnique({
@@ -218,12 +288,26 @@ export class RebateService {
           });
         }
 
-        if (parentConfig) {
-          const parentRebateMax = parentConfig.ib.level === 0
-            ? Number(parentConfig.maxPips) + Number(markupPips || 0)
-            : Number(parentConfig.rebatePips || 0);
+        if (hasParent) {
+          // FIX Test B (27/07/2026): trước đây đọc thẳng parentConfig.maxPips
+          // raw từ DB (có thể = 0 nếu MIB chưa từng được set), khiến validate
+          // ở đây khác với số đang hiển thị trên UI (vốn đã fallback về trần
+          // công ty MAX_PIPS[assetType] bên getConfig()). Giờ dùng chung 1
+          // nguồn duy nhất qua resolveEffectiveMaxPips(). parentConfig có thể
+          // là null (MIB chưa từng có dòng nào — bootstrap gap) → coi như raw=0,
+          // vẫn fallback đúng về MAX_PIPS[assetType] khi parentIsMib.
+          const effectiveParentMaxPips = this.resolveEffectiveMaxPips(
+            parentConfig ? Number(parentConfig.maxPips) : 0,
+            parentIsMib,
+            assetType,
+          );
+
+          const parentRebateMax = parentIsMib
+            ? effectiveParentMaxPips + Number(markupPips || 0)
+            : Number(parentConfig?.rebatePips || 0);
 
           const parentMarkupMax = 100;
+
 
           if (rebatePips > parentRebateMax) {
             throw new UnprocessableEntityException({
@@ -240,7 +324,8 @@ export class RebateService {
             });
           }
         } else {
-          const limit = (existing && Number(existing.maxPips) > 0) ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 100);
+          const rawExistingMaxPips = existing ? Number(existing.maxPips) : 0;
+          const limit = rawExistingMaxPips > 0 ? rawExistingMaxPips : (MAX_PIPS[assetType] || 100);
           if (rebatePips > limit) {
             throw new UnprocessableEntityException({
               code: 'REBATE_EXCEEDS_MAX',
@@ -255,8 +340,17 @@ export class RebateService {
           }
         }
 
-        const targetShare = markupPercent !== undefined ? markupPercent : markupPips;
-        const parentKeptPercent = Math.max(0, 100 - targetShare);
+        // FIX (27/07/2026): trước đây biến `targetShare` bị dùng cho 2 việc khác
+        // nhau cùng lúc — (a) tính % cấp cha giữ lại (parentKeptPercent), và (b) bị
+        // gán thẳng vào cột `markupPips` khi lưu (dòng update/create bên dưới). Vì
+        // FE luôn gửi markupPercent=100 (hardcode ở handleSave), `markupPips` trong
+        // DB bị ghi đè thành 100 cho MỌI asset, đè mất giá trị markupPips THẬT mà FE
+        // gửi lên (vd addedMarkupPips theo Loại tài khoản). Giờ tách rõ 2 khái niệm:
+        // `parentSharePercent` CHỈ dùng để tính % cấp cha giữ lại; `markupPips` (biến
+        // gốc từ request, destructure ở đầu vòng lặp) mới là giá trị đúng để lưu vào
+        // cột `markupPips` trong DB (xem đoạn upsert bên dưới).
+        const parentSharePercent = markupPercent !== undefined ? markupPercent : 100;
+        const parentKeptPercent = Math.max(0, 100 - parentSharePercent);
 
         // 1.1 Cập nhật % Markup giữ lại cho IB cha (cấp trên)
         if (parentConfig && currentUserId !== targetIbId) {
@@ -287,22 +381,20 @@ export class RebateService {
 
         // Max của mọi level >= 1 luôn = đúng số pips vừa nhận từ cấp trên (rebatePips),
         // KHÔNG lấy trần gốc của MIB. Đây là nguyên tắc cascade: 20 -> 15 -> 10 -> 5 -> 0,
-        // mỗi mốc là max của chính level đó. Chỉ giữ lại đường override tường minh
-        // (assetConfig.maxPips) cho các trường hợp đặc biệt nếu caller có truyền vào.
-        const explicitMaxPips = (assetConfig as any).maxPips !== undefined && Number((assetConfig as any).maxPips) > 0
-          ? Number((assetConfig as any).maxPips)
-          : undefined;
-
+        // mỗi mốc là max của chính level đó.
+        // XOÁ HẲN explicitMaxPips — KHÔNG tin field maxPips từ request body của FE nữa
+        // (dù FE có gửi lên hay không), vì đây chính là đường khiến addedMarkupPips
+        // (VĐ2) hoặc bất kỳ giá trị tạm tính client-side nào bị ghi đè vĩnh viễn vào DB.
         const childMaxPips = targetIb?.level === 0
-          ? (existing && Number(existing.maxPips) > 0 ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 0))
-          : (explicitMaxPips ?? rebatePips);
+          ? this.resolveEffectiveMaxPips(existing ? Number(existing.maxPips) : 0, true, assetType)
+          : rebatePips;
 
         // 2. Update -> after
         const updated = await tx.rebateConfig.upsert({
           where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
           update: {
             rebatePips,
-            markupPips: targetShare,
+            markupPips: Number(markupPips || 0),
             markupPercent: childRetainedPercent,
             maxPips: childMaxPips,
           },
@@ -311,7 +403,7 @@ export class RebateService {
             assetType,
             rebateType: rebateType as any,
             rebatePips,
-            markupPips: targetShare,
+            markupPips: Number(markupPips || 0),
             markupPercent: childRetainedPercent,
             maxPips: childMaxPips,
           },
