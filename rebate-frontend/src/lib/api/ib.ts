@@ -7,6 +7,11 @@ export const ibApi = {
     return response.data;
   },
 
+  getMibs: async (): Promise<ApiResponse<IbNode[]>> => {
+    const response = await apiClient.get<ApiResponse<IbNode[]>>('/ib/mibs');
+    return response.data;
+  },
+
   getTree: async (depth: 'all' | 1 = 1): Promise<ApiResponse<IbTreeNode | IbTreeNode[]>> => {
     const response = await apiClient.get<ApiResponse<IbTreeNode | IbTreeNode[]>>(`/ib/tree?depth=${depth}`);
     return response.data;
@@ -81,6 +86,11 @@ export const ibApi = {
   getPerformance: async (id: string, month?: string): Promise<ApiResponse<IbPerformanceResponse>> => {
     const query = month ? `?month=${month}` : '';
     const response = await apiClient.get<ApiResponse<IbPerformanceResponse>>(`/ib/${id}/performance${query}`);
+    return response.data;
+  },
+
+  moveIb: async (ibId: string, targetParentId: string): Promise<ApiResponse<any>> => {
+    const response = await apiClient.patch<ApiResponse<any>>(`/ib/${ibId}/move`, { targetParentId });
     return response.data;
   },
 };

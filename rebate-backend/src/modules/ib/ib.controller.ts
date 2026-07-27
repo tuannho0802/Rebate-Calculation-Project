@@ -8,6 +8,7 @@ import { IbService } from './ib.service';
 import { CreateIbDto } from './dto/create-ib.dto';
 import { UpdateIbDto } from './dto/update-ib.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { MoveIbDto } from './dto/move-ib.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -116,6 +117,15 @@ export class IbController {
     @Query('depth') depth: '1' | 'all' = '1',
   ) {
     return this.ibService.getTreeById(id, depth);
+  }
+
+  // ─── MIBS LIST — phải đặt TRƯỚC GET :id ───────────────────────────────────────
+  @Get('mibs')
+  @ApiOperation({ summary: 'Danh sách các MIB (Level 0) dành cho Admin' })
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  getMibs() {
+    return this.ibService.getMibs();
   }
 
   // ─── LEADERBOARD — phải đặt TRƯỜC GET :id ─────────────────────────────────────
@@ -276,5 +286,25 @@ export class IbController {
     @Body() dto: ResetPasswordDto,
   ) {
     return this.ibService.resetPassword(user.sub, id, dto.newPassword);
+  }
+
+  // ─── MOVE SUBTREE (Admin only) ──────────────────────────────────
+  @Patch(':id/move')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({
+    summary: 'Di chuyển IB node (và toàn bộ subtree con) sang parent IB mới (chỉ Admin)',
+    description: 'Cho phép Admin di chuyển một nhánh IB sang làm con của parent khác. Tự động tính lại level & accountType cho subtree.',
+  })
+  @ApiParam({ name: 'id', description: 'UUID của IB cần di chuyển' })
+  @ApiResponse({ status: 200, description: 'Di chuyển nhánh IB thành công' })
+  @ApiResponse({ status: 400, description: 'Yêu cầu không hợp lệ hoặc phát hiện vòng lặp cycle' })
+  @ApiResponse({ status: 403, description: 'Chỉ Admin mới có quyền di chuyển nhánh IB' })
+  moveIb(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: MoveIbDto,
+  ) {
+    return this.ibService.moveIb(id, dto.targetParentId, user.sub);
   }
 }
