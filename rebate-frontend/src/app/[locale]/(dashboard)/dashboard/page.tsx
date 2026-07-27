@@ -112,13 +112,13 @@ export default function DashboardPage() {
                     cột duy nhất đang hiển thị. Với MIB, rebatePips/markupPips của
                     chính MIB gần như luôn = 0 (MIB không "nhận" pips từ ai), nên lọc
                     theo 2 field đó sẽ luôn ẩn hết dù BE đã trả về maxPips hợp lệ. */}
-                {config && config.assets?.filter(a => a.maxPips > 0).map((asset, idx) => (
+                {config && config.assets?.filter(a => (a.maxPips ?? 0) > 0).map((asset, idx) => (
                   <tr key={`${asset.assetType}-${idx}`} className="hover:bg-amber-50/40 transition-colors">
                     <td className="px-4 py-3 font-bold text-gray-900">{asset.assetType}</td>
-                    <td className="px-4 py-3 text-right text-amber-950 font-extrabold">{asset.maxPips} pips</td>
+                    <td className="px-4 py-3 text-right text-amber-950 font-extrabold">{asset.maxPips ?? 0} pips</td>
                   </tr>
                 ))}
-                {(!config || !config.assets || config.assets.filter(a => a.maxPips > 0).length === 0) && (
+                {(!config || !config.assets || config.assets.filter(a => (a.maxPips ?? 0) > 0).length === 0) && (
                   <tr>
                     <td colSpan={2} className="px-4 py-6 text-center text-gray-500 font-medium">
                       {t('noConfig')}
