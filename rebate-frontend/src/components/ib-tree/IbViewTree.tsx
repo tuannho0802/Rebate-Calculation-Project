@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { IbNode } from '@/types';
 import {
   Loader2, ChevronDown, ChevronRight, User, Users, Shield, Sparkles, Filter, CheckCircle2,
-  Edit3, Save, RotateCcw, Move, AlertCircle
+  Edit3, Save, RotateCcw, Move, AlertCircle, ZoomIn, ZoomOut, Maximize2
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -23,6 +23,49 @@ export function IbViewTree() {
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [nodeChildrenMap, setNodeChildrenMap] = useState<Record<string, TreeNodeItem[]>>({});
   const [loadingNodeIds, setLoadingNodeIds] = useState<Record<string, boolean>>({});
+  const [zoomLevel, setZoomLevel] = useState<number>(1);
+
+  // Canvas Pan (Click & Drag to Scroll)
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
+
+  const handleCanvasMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('.group') || target.closest('button') || target.closest('select') || target.closest('a')) {
+      return;
+    }
+    if (!canvasRef.current) return;
+
+    setIsPanning(true);
+    setPanStart({
+      x: e.clientX,
+      y: e.clientY,
+      scrollLeft: canvasRef.current.scrollLeft,
+      scrollTop: canvasRef.current.scrollTop,
+    });
+  };
+
+  const handleCanvasMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isPanning || !canvasRef.current) return;
+    e.preventDefault();
+    const dx = e.clientX - panStart.x;
+    const dy = e.clientY - panStart.y;
+    canvasRef.current.scrollLeft = panStart.scrollLeft - dx;
+    canvasRef.current.scrollTop = panStart.scrollTop - dy;
+  };
+
+  const handleCanvasMouseUpOrLeave = () => {
+    if (isPanning) {
+      setIsPanning(false);
+    }
+  };
+
+  // Zoom handlers
+  const handleZoomIn = () => setZoomLevel((prev) => Math.min(2.0, Number((prev + 0.15).toFixed(2))));
+  const handleZoomOut = () => setZoomLevel((prev) => Math.max(0.3, Number((prev - 0.15).toFixed(2))));
+  const handleResetZoom = () => setZoomLevel(1);
 
   // 1. Fetch current logged-in user to check for ADMIN role
   const { data: meRes } = useQuery({
@@ -41,7 +84,11 @@ export function IbViewTree() {
     movedIbName: string;
     targetParentName: string;
     oldParentId: string | null;
+    oldLevel: number;
+    newLevel: number;
+    accountType: string;
   } | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
   const [isSavingMove, setIsSavingMove] = useState<boolean>(false);
 
   // 2. Fetch list of MIBs for top-left dropdown (only active MIBs)
@@ -148,16 +195,21 @@ export function IbViewTree() {
       if (movedAssets.length === 0) return true;
 
       for (const movedAsset of movedAssets) {
-        const parentAsset = parentAssets.find((a) => a.assetType === movedAsset.assetType);
-        const parentPips = Number(parentAsset?.rebatePips || parentAsset?.maxPips || 0);
         const movedPips = Number(movedAsset.rebatePips || 0);
+        if (movedPips <= 0) continue;
 
-        if (parentPips < movedPips) {
+        const parentAsset = parentAssets.find((a) => a.assetType === movedAsset.assetType);
+        const parentPips = targetParent.level === 0
+          ? Number(parentAsset?.maxPips || parentAsset?.rebatePips || 0)
+          : Number(parentAsset?.rebatePips || 0);
+
+        if (movedPips > parentPips) {
           return false;
         }
       }
       return true;
-    } catch {
+    } catch (err) {
+      console.error('Failed to validate rebate pips:', err);
       return true;
     }
   };
@@ -204,7 +256,7 @@ export function IbViewTree() {
     const isRebateValid = await validateRebatePips(draggedNode, targetParent);
     if (!isRebateValid) {
       // Thông báo lỗi chuẩn theo đúng yêu cầu
-      toast.error('Số Rebate cấp trên không đủ cấp cho nhánh dưới. Nên chuyển đổi không thành công. Yêu cầu setup lại Rebate');
+      toast.error('Chuyển nhánh thất bại do số Rebate cấp trên không đủ.');
       setDraggedNode(null);
       return;
     }
@@ -293,10 +345,13 @@ export function IbViewTree() {
       movedIbName: draggedNode.name || draggedNode.email,
       targetParentName: targetParent.name || targetParent.email,
       oldParentId,
+      oldLevel: draggedNode.level,
+      newLevel: targetParent.level + 1,
+      accountType: newAccountType,
     });
 
-    // Thông báo thành công chuẩn theo đúng yêu cầu
-    toast.success('Chuyển đổi nhánh thành công.');
+    setShowSuccessModal(true);
+    toast.success('Chuyển nhánh thành công.');
     setDraggedNode(null);
   };
 
@@ -325,13 +380,19 @@ export function IbViewTree() {
         }
 
         setPendingMove(null);
+        setShowSuccessModal(false);
         setIsEditingMode(false);
       } else {
         toast.error('Lỗi khi lưu vị trí di chuyển nhánh IB.');
       }
     } catch (err: any) {
-      const msg = err?.response?.data?.error?.message || err?.message || 'Lỗi kết nối khi lưu di chuyển nhánh';
-      toast.error(`Lỗi: ${msg}`);
+      const msg = err?.response?.data?.message || err?.response?.data?.error?.message || err?.message;
+      if (msg && msg.includes('Rebate')) {
+        toast.error(msg);
+      } else {
+        toast.error('Chuyển nhánh thất bại do số Rebate cấp trên không đủ.');
+      }
+      handleCancelMove();
     } finally {
       setIsSavingMove(false);
     }
@@ -339,6 +400,7 @@ export function IbViewTree() {
 
   const handleCancelMove = () => {
     setPendingMove(null);
+    setShowSuccessModal(false);
     setIsEditingMode(false);
     setNodeChildrenMap({});
     queryClient.invalidateQueries({ queryKey: ['ibChildren'] });
@@ -553,14 +615,74 @@ export function IbViewTree() {
       </div>
 
       {/* Main Org Chart Canvas */}
-      <div className="bg-white p-8 rounded-3xl border border-amber-200/80 shadow-sm overflow-x-auto min-h-[600px] relative">
+      <div
+        ref={canvasRef}
+        onMouseDown={handleCanvasMouseDown}
+        onMouseMove={handleCanvasMouseMove}
+        onMouseUp={handleCanvasMouseUpOrLeave}
+        onMouseLeave={handleCanvasMouseUpOrLeave}
+        className={`bg-white p-6 sm:p-8 rounded-3xl border border-amber-200/80 shadow-sm overflow-auto min-h-[600px] relative select-none ${
+          isPanning ? 'cursor-grabbing' : 'cursor-grab'
+        }`}
+      >
+        {/* Floating Compact Zoom Controls Bar (Fixed at Top Right) */}
+        <div className="sticky top-0 right-0 z-40 float-right -mt-2 -mr-2 pointer-events-none mb-2">
+          <div className="pointer-events-auto inline-flex items-center gap-1 bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl border border-amber-200 shadow-md text-slate-700">
+            {/* Zoom Out Button */}
+            <button
+              onClick={handleZoomOut}
+              disabled={zoomLevel <= 0.3}
+              title="Thu nhỏ sơ đồ gia phả (-15%)"
+              className="p-1.5 hover:bg-amber-100 text-slate-700 rounded-xl transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <ZoomOut className="h-4 w-4" />
+            </button>
+
+            {/* Zoom Percentage Display / Click to Reset */}
+            <button
+              onClick={handleResetZoom}
+              title="Nhấn để đưa về 100%"
+              className="px-2.5 py-1 text-xs font-black text-amber-900 bg-amber-50 hover:bg-amber-100 rounded-xl transition border border-amber-200/80 cursor-pointer min-w-[50px] text-center"
+            >
+              {Math.round(zoomLevel * 100)}%
+            </button>
+
+            {/* Zoom In Button */}
+            <button
+              onClick={handleZoomIn}
+              disabled={zoomLevel >= 2.0}
+              title="Phóng to sơ đồ gia phả (+15%)"
+              className="p-1.5 hover:bg-amber-100 text-slate-700 rounded-xl transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            >
+              <ZoomIn className="h-4 w-4" />
+            </button>
+
+            <div className="h-4 w-[1px] bg-slate-200 mx-0.5" />
+
+            {/* Reset Zoom Button */}
+            <button
+              onClick={handleResetZoom}
+              title="Về kích thước mặc định (100%)"
+              className="p-1.5 hover:bg-amber-100 text-slate-600 rounded-xl transition cursor-pointer"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
         {!selectedMib ? (
           <div className="flex flex-col items-center justify-center py-24 text-slate-400">
             <Users className="h-12 w-12 mb-3 text-amber-400 opacity-60" />
             <p className="font-semibold text-slate-600">Vui lòng chọn MIB để xem sơ đồ gia phả.</p>
           </div>
         ) : (
-          <div className="flex flex-col items-center min-w-max space-y-2 pb-12">
+          <div
+            className="flex flex-col items-center space-y-2 pb-12 transition-transform duration-200 ease-out origin-top"
+            style={{
+              transform: `scale(${zoomLevel})`,
+              minWidth: zoomLevel < 1 ? `${100 / zoomLevel}%` : 'max-content',
+            }}
+          >
             {/* Level 0: MIB ROOT Header */}
             <div className="w-full flex items-center justify-start mb-2 sticky left-4 z-30 pointer-events-none">
               <span className="pointer-events-auto bg-slate-900 text-amber-400 text-xs font-black px-4 py-2 rounded-xl shadow-md border border-slate-700 uppercase tracking-wider">
@@ -636,6 +758,77 @@ export function IbViewTree() {
           </div>
         )}
       </div>
+
+      {/* ─── SUCCESS NOTIFICATION FORM MODAL FOR ADMIN ───────────────────────────── */}
+      {showSuccessModal && pendingMove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl border border-emerald-100 max-w-lg w-full p-6 sm:p-8 space-y-6 relative overflow-hidden">
+            {/* Header Banner */}
+            <div className="flex items-center gap-4 border-b border-slate-100 pb-4">
+              <div className="p-3 bg-emerald-100 text-emerald-700 rounded-2xl">
+                <CheckCircle2 className="h-8 w-8" />
+              </div>
+              <div>
+                <h3 className="text-xl font-black text-slate-900">
+                  Chuyển Nhánh IB Thành Công!
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  Đã kiểm tra số Rebate cấp trên đủ điều kiện
+                </p>
+              </div>
+            </div>
+
+            {/* Details Card */}
+            <div className="space-y-3 bg-slate-50 p-4 rounded-2xl border border-slate-200/80 text-sm">
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">IB di chuyển:</span>
+                <span className="font-extrabold text-slate-900">{pendingMove.movedIbName}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Cấp trên mới (Parent IB):</span>
+                <span className="font-extrabold text-emerald-700">{pendingMove.targetParentName}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Cấp độ (Level) mới:</span>
+                <span className="font-black px-2.5 py-0.5 bg-amber-100 text-amber-900 rounded-lg text-xs">
+                  Level {pendingMove.oldLevel} ➔ Level {pendingMove.newLevel}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                <span className="text-slate-500 font-medium">Loại tài khoản:</span>
+                <span className="font-bold text-slate-800">{pendingMove.accountType}</span>
+              </div>
+              <div className="pt-2 text-xs text-emerald-800 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200/80 flex items-start gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span>
+                  Toàn bộ cấu hình Rebate của các Sub-IB con thuộc nhánh này được <strong>giữ nguyên 100%</strong> (không bị reset về 0).
+                </span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowSuccessModal(false)}
+                className="px-4 py-2.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                Đóng / Xem vị trí trên sơ đồ
+              </button>
+              <button
+                onClick={() => {
+                  setShowSuccessModal(false);
+                  handleSaveMove();
+                }}
+                disabled={isSavingMove}
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-black text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-md transition cursor-pointer disabled:opacity-50"
+              >
+                {isSavingMove ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Xác Nhận & Lưu Vị Trí Mới
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

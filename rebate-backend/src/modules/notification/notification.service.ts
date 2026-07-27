@@ -171,7 +171,18 @@ export class NotificationService {
     changes: Record<string, unknown>,
     adminId?: string,
   ) {
-    const body = `Cấu hình rebate của bạn vừa được Admin cập nhật. Thay đổi: ${JSON.stringify(changes)}`;
+    let summaryText = '';
+    if (changes && Array.isArray(changes.assets)) {
+      const assetNames = (changes.assets as Array<{ asset?: string }>)
+        .map((a) => a.asset)
+        .filter(Boolean)
+        .slice(0, 4);
+      if (assetNames.length > 0) {
+        summaryText = ` (${assetNames.join(', ')}${changes.assets.length > 4 ? '...' : ''})`;
+      }
+    }
+
+    const body = `Cấu hình rebate của bạn${summaryText} vừa được Admin cập nhật. Vui lòng kiểm tra thiết lập chi tiết tại trang Rebate Management.`;
 
     const recipientIds: string[] = [targetIbId];
 
@@ -196,7 +207,7 @@ export class NotificationService {
         type: NotificationType.REBATE_UPDATED,
         title: 'Cấu hình rebate đã bị Admin cập nhật',
         body,
-        metadata: { adminId, targetIbId, changes, scope: notifyScope },
+        metadata: { adminId, targetIbId, scope: notifyScope },
       });
     }
   }

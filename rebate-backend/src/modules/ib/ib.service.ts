@@ -411,6 +411,16 @@ export class IbService {
       });
     }
 
+    if (dto.accountType && dto.accountType !== existing.accountType) {
+      this.notificationService.createSystemNotification({
+        recipientId: id,
+        type: NotificationType.SYSTEM,
+        title: 'Loại tài khoản đã được thay đổi',
+        body: `Tài khoản của bạn đã được chuyển đổi sang loại tài khoản mới: "${dto.accountType}".`,
+        metadata: { oldAccountType: existing.accountType, newAccountType: dto.accountType },
+      });
+    }
+
     return {
       id: updated.id,
       name: updated.name,
@@ -882,7 +892,38 @@ export class IbService {
       });
     }
 
-    // 2. Fetch all nodes in movedIb's subtree for level & accountType update
+    // 2. Rebate Validation: Verify movedIb's rebate <= newParent's rebate max limit
+    const movedIbConfigs = await this.prisma.rebateConfig.findMany({
+      where: { ibId: targetIbId },
+    });
+
+    if (movedIbConfigs.length > 0) {
+      const newParentConfigs = await this.prisma.rebateConfig.findMany({
+        where: { ibId: targetParentId },
+      });
+
+      for (const movedConfig of movedIbConfigs) {
+        const movedPips = Number(movedConfig.rebatePips || 0);
+        if (movedPips > 0) {
+          const parentConfig = newParentConfigs.find(
+            (pc) => pc.assetType === movedConfig.assetType && pc.rebateType === movedConfig.rebateType,
+          );
+
+          const parentLimit = newParent.level === 0
+            ? Number(parentConfig?.maxPips || parentConfig?.rebatePips || 0)
+            : Number(parentConfig?.rebatePips || 0);
+
+          if (movedPips > parentLimit) {
+            throw new BadRequestException({
+              code: 'REBATE_INSUFFICIENT',
+              message: 'Chuyển nhánh thất bại do số Rebate cấp trên không đủ.',
+            });
+          }
+        }
+      }
+    }
+
+    // 3. Fetch all nodes in movedIb's subtree for level & accountType update
     const allSubtreeNodes = await this.getAllSubtreeNodes(targetIbId);
 
     // Calculate level delta
@@ -890,7 +931,7 @@ export class IbService {
     const newLevel = newParent.level + 1;
     const levelDelta = newLevel - oldLevel;
 
-    // 3. Execute DB Transaction
+    // 4. Execute DB Transaction
     await this.prisma.$transaction(async (tx) => {
       // Update targetIb's parentId
       await tx.ibNode.update({
@@ -923,6 +964,21 @@ export class IbService {
         before: { parentId: movedIb.parentId, level: oldLevel },
         after: { parentId: targetParentId, level: newLevel, accountType: newParent.accountType },
       });
+    });
+
+    const actor = await this.prisma.ibNode.findUnique({
+      where: { id: currentUserId },
+      select: { name: true, email: true },
+    });
+    const actorLabel = actor?.name ? `${actor.name} (${actor.email})` : (actor?.email || 'Admin');
+    const newParentLabel = newParent.name ? `${newParent.name} (${newParent.email})` : newParent.email;
+
+    this.notificationService.createSystemNotification({
+      recipientId: targetIbId,
+      type: NotificationType.SYSTEM,
+      title: 'Nhánh hệ thống của bạn đã được di chuyển',
+      body: `${actorLabel} đã di chuyển vị trí nhánh cây gia phả của bạn sang làm tuyến dưới của ${newParentLabel}.`,
+      metadata: { action: 'IB_MOVE_SUBTREE', newParentId: targetParentId, newParentEmail: newParent.email },
     });
 
     return {
