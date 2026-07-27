@@ -583,13 +583,9 @@ export class RebateService {
         });
       }
 
-      const companyCeiling = MAX_PIPS[ov.assetType];
-      if (companyCeiling !== undefined && ov.maxPips > companyCeiling) {
-        throw new UnprocessableEntityException({
-          code: 'MAX_OVERRIDE_INVALID',
-          message: `Trần tuỳ chỉnh (${ov.maxPips}) vượt quá trần công ty (${companyCeiling} pips) cho ${ov.assetType}`,
-        });
-      }
+      // Lưu ý: KHÔNG chặn ov.maxPips theo MAX_PIPS[assetType] ở đây — MAX_PIPS là trần MẶC ĐỊNH,
+      // còn setMibMaxOverride() tồn tại đúng để Admin set trần TUỲ CHỈNH thay thế trần mặc định đó.
+      // Chặn theo MAX_PIPS sẽ làm tính năng override vô nghĩa (không bao giờ override được gì).
 
       const before = await this.prisma.rebateConfig.findUnique({
         where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },

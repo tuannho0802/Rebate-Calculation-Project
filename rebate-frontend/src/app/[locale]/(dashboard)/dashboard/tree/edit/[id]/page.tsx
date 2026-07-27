@@ -17,7 +17,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
   const router = useRouter();
   const { id } = use(params);
   const { user } = useAuthStore();
-  
+
   useEffect(() => {
     try {
       console.log('EditIbRebatePage target IB', { targetId: id, configPath: `/rebate/config/${id}` });
@@ -25,7 +25,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
       // ignore logging errors
     }
   }, [id]);
-  
+
   const [mounted, setMounted] = useState(false);
   const [profile, setProfile] = useState<IbNode | null>(null);
   const [targetIb, setTargetIb] = useState<IbNode | null>(null);
@@ -38,7 +38,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
 
   const [globalMarkup, setGlobalMarkup] = useState<string>('');
   const [rebateValues, setRebateValues] = useState<Record<string, string>>({});
-  
+
   const [assetsToUpdateState, setAssetsToUpdateState] = useState<any[]>([]);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -80,7 +80,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
             mLinks = templatesRes.data.markupLinkTemplates;
             setMarkupLinks(mLinks);
             setAccountTypeTemplates(templatesRes.data.accountTypeTemplates);
-            
+
             templatesRes.data.accountTypeTemplates.forEach((t: any) => {
               t.rows.forEach((r: any) => {
                 tempUnitMap[r.assetType] = r.calcUnit;
@@ -93,7 +93,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
             }
           }
         }
-        
+
         // Get parent config for comparing max values
         // Always use the logged-in user's config because the logged-in user IS the parent of targetIb
         const parentConfigSourceId = loadedProfile?.id;
@@ -108,14 +108,14 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
         if (targetConfigRes?.data?.assets) {
           const initialRebate: Record<string, string> = {};
           let initialMarkup = '';
-          
+
           targetConfigRes.data.assets.forEach((asset: RebateAssetConfig) => {
             initialRebate[asset.assetType] = String(asset.rebatePips);
             if (!initialMarkup) {
               initialMarkup = String(asset.markupPips);
             }
           });
-          
+
           setRebateValues(initialRebate);
           setGlobalMarkup(initialMarkup || '0');
         }
@@ -196,11 +196,24 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
 
   const getAvailableBudget = (asset: AssetType) => {
     if (profile?.level === 0) {
+      // Ưu tiên 1: maxPips THẬT của chính MIB, lấy từ rebateApi.getConfig() đã fetch ở trên
+      // (parentConfigSourceId = loadedProfile.id khi profile là MIB) — đây là nơi phản ánh
+      // đúng giá trị Admin đã set qua setMibMaxOverride(), không được bỏ qua như code cũ.
+      if (parentConfig?.assets) {
+        const ownAsset = parentConfig.assets.find((a) => a.assetType === asset);
+        if (ownAsset && Number(ownAsset.maxPips) > 0) {
+          return Number(ownAsset.maxPips);
+        }
+      }
+
+      // Ưu tiên 2: account type template (nếu MIB chưa có override riêng cho asset này)
       const activeTemplate = accountTypeTemplates.find((t: any) => t.name === profile?.accountType);
       if (activeTemplate && activeTemplate.rows) {
         const row = activeTemplate.rows.find((r: any) => r.assetType === asset);
         if (row) return Number(row.maxCeiling) || 0;
       }
+
+      // Fallback cuối: trần mặc định hard-code, chỉ dùng khi không có config/template nào khác
       return MAX_PIPS[asset] || 0;
     }
 
@@ -295,7 +308,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
               )}
             </div>
           </div>
-          
+
           <button
             onClick={handleSave}
             disabled={updateConfigMutation.isPending || isFormInvalid}
@@ -329,10 +342,10 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
               {Object.values(AssetType).map((asset) => {
                 const combinedMax = getCombinedRebateMax(asset); // Mức trần đã cộng Markup Pips
                 const unit = unitMap[asset] || 'pips';
-                
+
                 const currentVal = rebateValues[asset] || '0';
                 const isRebateInvalid = parsePipsValue(currentVal) > combinedMax;
-                
+
                 return (
                   <tr key={asset} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-6 py-4 font-bold text-gray-900">{asset}</td>
@@ -368,7 +381,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
 
       {isConfirmModalOpen && (
         <>
-          <div 
+          <div
             className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-50 transition-opacity"
             onClick={() => setIsConfirmModalOpen(false)}
           />
@@ -388,7 +401,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
               <div className="p-6">
                 <p className="text-gray-700 font-medium">Bạn có chắc muốn thay đổi không?</p>
                 <p className="text-gray-500 text-sm mt-2">
-                  Nếu Đồng ý thì số Pip ở nhánh đó từ khúc được sửa đổi sẽ bị reset số Pip lại đều bằng không hết. 
+                  Nếu Đồng ý thì số Pip ở nhánh đó từ khúc được sửa đổi sẽ bị reset số Pip lại đều bằng không hết.
                   Và sẽ có thông báo tự động gửi về cho toàn bộ người dùng trong nhánh đó.
                 </p>
                 <div className="flex gap-3 mt-8">
