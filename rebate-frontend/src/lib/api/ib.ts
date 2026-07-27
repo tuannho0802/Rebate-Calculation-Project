@@ -102,7 +102,7 @@ export const ibApi = {
     phone?: string;
     country?: string;
   }): Promise<ApiResponse<IbNode>> => {
-    const response = await apiClient.post<ApiResponse<IbNode>>('/admin/ib/mib', payload);
+    const response = await apiClient.post<ApiResponse<IbNode>>('/admin/users/ib/mib', payload);
     return response.data;
   },
 
@@ -118,7 +118,7 @@ export const ibApi = {
     notes?: string;
     targetParentId: string;
   }): Promise<ApiResponse<IbNode>> => {
-    const response = await apiClient.post<ApiResponse<IbNode>>('/admin/ib/sub', payload);
+    const response = await apiClient.post<ApiResponse<IbNode>>('/admin/users/ib/sub', payload);
     return response.data;
   },
 };
