@@ -16,6 +16,8 @@ export const ERROR_MESSAGES: Record<string, string> = {
   IB_EMAIL_TAKEN:            "Email này đã được sử dụng",
   IB_NOT_IN_SUBTREE:         "Bạn không có quyền xem thông tin IB này",
   IB_MAX_LEVEL_REACHED:      "Không thể tạo thêm cấp dưới",
+  PARENT_NOT_FOUND:          "Không tìm thấy node cha",
+  SCENARIO_TARGET_NOT_IN_SUBTREE: "Bạn không có quyền lưu kịch bản cho các IB ngoài nhánh của mình",
 
   // Rebate
   REBATE_EXCEEDS_MAX:        "Tổng rebate vượt quá giới hạn cho phép",

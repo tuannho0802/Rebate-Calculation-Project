@@ -93,4 +93,32 @@ export const ibApi = {
     const response = await apiClient.patch<ApiResponse<any>>(`/ib/${ibId}/move`, { targetParentId });
     return response.data;
   },
+
+  createMib: async (payload: {
+    email: string;
+    name: string;
+    password: string;
+    accountType?: string;
+    phone?: string;
+    country?: string;
+  }): Promise<ApiResponse<IbNode>> => {
+    const response = await apiClient.post<ApiResponse<IbNode>>('/admin/ib/mib', payload);
+    return response.data;
+  },
+
+  createSubIbByAdmin: async (payload: {
+    email: string;
+    name: string;
+    password: string;
+    accountType?: string;
+    phone?: string;
+    country?: string;
+    bankAccount?: string;
+    paymentInfo?: string;
+    notes?: string;
+    targetParentId: string;
+  }): Promise<ApiResponse<IbNode>> => {
+    const response = await apiClient.post<ApiResponse<IbNode>>('/admin/ib/sub', payload);
+    return response.data;
+  },
 };

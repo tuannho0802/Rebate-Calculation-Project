@@ -9,6 +9,7 @@ import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/store/auth.store';
 import { CreateIbModal } from './CreateIbModal';
+import { AdminCreateUserModal } from './AdminCreateUserModal';
 import { Plus } from 'lucide-react';
 
 export function IbManagementTable() {
@@ -16,10 +17,12 @@ export function IbManagementTable() {
   const router = useRouter();
   const { user } = useAuthStore();
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCreateMibModalOpen, setIsCreateMibModalOpen] = useState(false);
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
   const trimmedQ = q.trim();
   const canSearch = trimmedQ.length === 0 || trimmedQ.length >= 2;
+  const isAdmin = user?.role === 'ADMIN';
   const { data, isFetching, isLoading } = useQuery({
     queryKey: ['ibSearch', trimmedQ, page],
     queryFn: () => ibApi.search(trimmedQ, false, page, 20),
@@ -72,13 +75,32 @@ export function IbManagementTable() {
             </button>
           </div>
         </form>
-        <button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm"
-        >
-          <Plus className="h-4 w-4" />
-          Tạo Sub-IB
-        </button>
+        {isAdmin ? (
+          <div className="flex gap-2">
+            <button
+              onClick={() => setIsCreateMibModalOpen(true)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm"
+            >
+              <Plus className="h-4 w-4" />
+              Tạo MIB mới
+            </button>
+            <button
+              onClick={() => setIsCreateModalOpen(true)}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm"
+            >
+              <Plus className="h-4 w-4" />
+              Tạo Sub-IB
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setIsCreateModalOpen(true)}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-sm"
+          >
+            <Plus className="h-4 w-4" />
+            Tạo Sub-IB
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 p-4">
@@ -144,13 +166,23 @@ export function IbManagementTable() {
         )}
       </div>
       
-      {/* Modal tạo Sub-IB */}
-      {user?.id && (
+      {/* Modal tạo MIB mới (Admin only) */}
+      {isAdmin && isCreateMibModalOpen && (
+        <AdminCreateUserModal onClose={() => setIsCreateMibModalOpen(false)} />
+      )}
+      
+      {/* Modal tạo Sub-IB (Admin chọn node cha hoặc IB tự tạo) */}
+      {user?.id && !isAdmin && (
         <CreateIbModal
           isOpen={isCreateModalOpen}
           onClose={() => setIsCreateModalOpen(false)}
           parentId={user.id}
         />
+      )}
+      
+      {/* Modal tạo Sub-IB cho Admin (đã được xử lý trong AdminCreateUserModal) */}
+      {isAdmin && isCreateModalOpen && (
+        <AdminCreateUserModal onClose={() => setIsCreateModalOpen(false)} />
       )}
     </div>
   );
