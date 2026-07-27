@@ -63,13 +63,14 @@ export class RebateController {
 
   @Put('config/scenario/save')
   @ApiBearerAuth('Bearer')
-  @ApiOperation({ summary: 'Save AI Rebate Engine branch scenario allocations (% and pips) to database' })
+  @ApiOperation({ summary: 'Save AI Rebate Engine branch scenario allocations (% and pips) to database. Every ibId in the payload must be within the caller\'s own subtree (self + direct children), or the caller must be ADMIN.' })
   @ApiResponse({ status: 200, description: 'Scenario saved successfully' })
+  @ApiResponse({ status: 403, description: 'Forbidden — one or more ibId are outside the caller\'s subtree' })
   async saveBranchScenario(
     @CurrentUser() user: any,
     @Body() dto: SaveBranchScenarioDto,
   ) {
-    return this.rebateService.saveBranchScenario(dto, user.sub);
+    return this.rebateService.saveBranchScenario(dto, user.sub, user.role);
   }
 
   @Put('config/mib/:mibId/max-override')

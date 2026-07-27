@@ -1,11 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsNotEmpty, IsNumber, IsString, ValidateNested, Min, Max } from 'class-validator';
+import { IsArray, IsNotEmpty, IsNumber, IsString, IsUUID, ValidateNested, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class BranchScenarioNodeDto {
   @ApiProperty({ description: 'UUID của IB Node' })
-  @IsString()
-  @IsNotEmpty()
+  @IsUUID()
   ibId!: string;
 
   @ApiProperty({ description: 'Tỷ lệ % giữ lại (0 - 100)' })

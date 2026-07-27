@@ -478,13 +478,32 @@ export class RebateService {
     return { results, successCount, failCount, warnings };
   }
 
-  async saveBranchScenario(dto: SaveBranchScenarioDto, currentUserId: string) {
+  async saveBranchScenario(dto: SaveBranchScenarioDto, currentUserId: string, callerRole?: string) {
     if (!dto.nodes || dto.nodes.length === 0) {
       throw new BadRequestException({
         code: 'VALIDATION_ERROR',
         message: 'Danh sách nodes không được để trống',
       });
     }
+
+    // --- Fix IDOR: mọi ibId trong payload phải nằm trong subtree của currentUser
+    // (chính mình + con trực tiếp, dùng chung util getSubtreeIds() với các chỗ khác
+    // trong service), trừ khi caller là ADMIN. Check trước khi transaction để đảm bảo
+    // atomic — không ghi 1 phần nếu 1 node trong payload không hợp lệ.
+    const allowedIds = new Set(await getSubtreeIds(this.prisma, currentUserId, callerRole));
+    const forbiddenIds = dto.nodes.map((n) => n.ibId).filter((id) => !allowedIds.has(id));
+    if (forbiddenIds.length > 0) {
+      throw new ForbiddenException({
+        code: 'SCENARIO_TARGET_NOT_IN_SUBTREE',
+        message: 'Bạn không có quyền lưu kịch bản cho các IB ngoài nhánh của mình',
+        details: { forbiddenIds },
+      });
+    }
+
+    const before = await this.prisma.rebateConfig.findMany({
+      where: { ibId: { in: dto.nodes.map((n) => n.ibId) } },
+      select: { ibId: true, assetType: true, rebateType: true, markupPercent: true, markupPips: true },
+    });
 
     await this.prisma.$transaction(async (tx: any) => {
       for (const node of dto.nodes) {
@@ -497,6 +516,32 @@ export class RebateService {
         });
       }
     });
+
+    // --- Fix: audit log trước đây bị bỏ sót hoàn toàn cho endpoint này ---
+    await this.auditService.log({
+      actorId: currentUserId,
+      action: AUDIT_ACTIONS.REBATE_SCENARIO_SAVE,
+      targetType: 'REBATE_CONFIG_BRANCH',
+      targetId: currentUserId,
+      before: { nodes: before },
+      after: { nodes: dto.nodes },
+    });
+
+    // --- Fix: đồng bộ với updateConfig() — báo Admin khi người thực hiện không phải Admin ---
+    if (callerRole !== 'ADMIN') {
+      const actor = await this.prisma.ibNode.findUnique({
+        where: { id: currentUserId },
+        select: { name: true, email: true },
+      });
+      const actorLabel = actor?.name ? `${actor.name} (${actor.email})` : (actor?.email || 'MIB/IB');
+      await this.notificationService.notifyAdminsOnIbAction({
+        actorId: currentUserId,
+        title: `${actorLabel} đã lưu kịch bản phân bổ Rebate Engine`,
+        body: `${actorLabel} vừa lưu kịch bản phân bổ % và pips cho ${dto.nodes.length} node trong nhánh. Vui lòng kiểm tra lại.`,
+        actionType: 'REBATE_SCENARIO_SAVE',
+        details: { nodeIds: dto.nodes.map((n) => n.ibId), count: dto.nodes.length },
+      });
+    }
 
     return {
       success: true,
