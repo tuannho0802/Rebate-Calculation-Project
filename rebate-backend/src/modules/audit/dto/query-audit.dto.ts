@@ -15,8 +15,13 @@ export class QueryAuditDto {
 
   @IsOptional()
   @IsString()
-  @ApiProperty({ required: false, example: 'REBATE_CONFIG_UPDATE', description: 'Loại thao tác' })
+  @ApiProperty({ required: false, example: 'ADMIN_CREATE', description: 'Loại hành động' })
   action?: string;
+
+  @IsOptional()
+  @IsString()
+  @ApiProperty({ required: false, example: 'ADMIN', description: 'Loại target (ADMIN, IB, TRANSACTION, ...)' })
+  targetType?: string;
 
   @IsOptional()
   @IsDateString()

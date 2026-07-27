@@ -7,6 +7,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ProtectRootAdminGuard } from '../../common/guards/protect-root-admin.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('Admin Users')
 @ApiBearerAuth('Bearer')
@@ -18,8 +19,8 @@ export class AdminController {
 
   @Post()
   @ApiOperation({ summary: 'Tạo Admin mới' })
-  create(@Body() createAdminDto: CreateAdminDto) {
-    return this.adminService.createAdmin(createAdminDto);
+  create(@CurrentUser() user: any, @Body() createAdminDto: CreateAdminDto) {
+    return this.adminService.createAdmin(createAdminDto, user.sub);
   }
 
   @Get()
@@ -30,14 +31,14 @@ export class AdminController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Cập nhật Admin' })
-  update(@Param('id') id: string, @Body() updateAdminDto: UpdateAdminDto) {
-    return this.adminService.updateAdmin(id, updateAdminDto);
+  update(@CurrentUser() user: any, @Param('id') id: string, @Body() updateAdminDto: UpdateAdminDto) {
+    return this.adminService.updateAdmin(id, updateAdminDto, user.sub);
   }
 
   @Delete(':id')
   @UseGuards(ProtectRootAdminGuard)
   @ApiOperation({ summary: 'Khóa (soft delete) Admin' })
-  remove(@Param('id') id: string) {
-    return this.adminService.softDeleteAdmin(id);
+  remove(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.adminService.softDeleteAdmin(id, user.sub);
   }
 }
