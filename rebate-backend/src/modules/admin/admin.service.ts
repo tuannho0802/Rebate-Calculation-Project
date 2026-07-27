@@ -3,12 +3,17 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { UpdateAdminDto } from './dto/update-admin.dto';
 import * as bcrypt from 'bcrypt';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS } from '../audit/audit.constants';
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private auditService: AuditService,
+  ) {}
 
-  async createAdmin(dto: CreateAdminDto) {
+  async createAdmin(dto: CreateAdminDto, actorId: string) {
     const existing = await this.prisma.ibNode.findUnique({
       where: { email: dto.email },
     });
@@ -32,6 +37,15 @@ export class AdminService {
       },
     });
 
+    // Audit log cho việc tạo Admin
+    await this.auditService.log({
+      actorId,
+      action: AUDIT_ACTIONS.ADMIN_CREATE,
+      targetType: 'ADMIN',
+      targetId: admin.id,
+      after: { email: admin.email, name: admin.name },
+    });
+
     const { password, ...result } = admin;
     return result;
   }
@@ -51,7 +65,7 @@ export class AdminService {
     });
   }
 
-  async updateAdmin(id: string, dto: UpdateAdminDto) {
+  async updateAdmin(id: string, dto: UpdateAdminDto, actorId: string) {
     const target = await this.prisma.ibNode.findUnique({ where: { id } });
     if (!target || target.role !== 'ADMIN') {
       throw new NotFoundException({
@@ -72,6 +86,9 @@ export class AdminService {
       }
     }
 
+    // Snapshot before (chỉ log email/name, KHÔNG log password)
+    const before = { email: target.email, name: target.name };
+
     const dataToUpdate: any = {};
     if (dto.email) dataToUpdate.email = dto.email;
     if (dto.name) dataToUpdate.name = dto.name;
@@ -91,10 +108,21 @@ export class AdminService {
         updatedAt: true,
       },
     });
+
+    // Audit log cho việc cập nhật Admin
+    await this.auditService.log({
+      actorId,
+      action: AUDIT_ACTIONS.ADMIN_UPDATE,
+      targetType: 'ADMIN',
+      targetId: id,
+      before,
+      after: { email: updated.email, name: updated.name },
+    });
+
     return updated;
   }
 
-  async softDeleteAdmin(id: string) {
+  async softDeleteAdmin(id: string, actorId: string) {
     const target = await this.prisma.ibNode.findUnique({ where: { id } });
     if (!target || target.role !== 'ADMIN') {
       throw new NotFoundException({
@@ -106,6 +134,15 @@ export class AdminService {
     await this.prisma.ibNode.update({
       where: { id },
       data: { isActive: false },
+    });
+
+    // Audit log cho việc khóa Admin
+    await this.auditService.log({
+      actorId,
+      action: AUDIT_ACTIONS.ADMIN_DEACTIVATE,
+      targetType: 'ADMIN',
+      targetId: id,
+      after: { isActive: false },
     });
 
     return { success: true, message: 'Đã khóa Admin' };

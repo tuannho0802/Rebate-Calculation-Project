@@ -20,3 +20,5 @@ scratch/check-prod.js
 scratch/check-neon.js
 scratch/verify-neon.js
 scratch/test-tx.js
+
+/test*

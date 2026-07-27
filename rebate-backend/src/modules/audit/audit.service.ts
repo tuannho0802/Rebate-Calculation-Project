@@ -59,6 +59,7 @@ export class AuditService {
     if (query.actorId) where.actorId = query.actorId;
     if (query.targetId) where.targetId = query.targetId;
     if (query.action) where.action = query.action;
+    if (query.targetType) where.targetType = query.targetType;
 
     if (query.from || query.to) {
       where.createdAt = {};
