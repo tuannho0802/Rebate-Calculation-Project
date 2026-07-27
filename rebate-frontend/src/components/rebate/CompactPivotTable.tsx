@@ -39,6 +39,8 @@ export interface CompactPivotTableProps {
   onCellEdit?: (ibId: string, assetType: AssetType, newPips: number) => void;
   // Callback truyền kịch bản active lên MibBranchCard để đồng loạt Lưu
   onActiveScenarioChange?: (nodes: Array<{ nodeId: string; pct: string; white_hold: number }>) => void;
+  // IB cần tô sáng cột tương ứng (đến từ deep-link click thông báo ở trang Notification)
+  highlightIbId?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -112,6 +114,7 @@ export function CompactPivotTable({
   draftPips = {},
   onCellEdit,
   onActiveScenarioChange,
+  highlightIbId,
 }: CompactPivotTableProps) {
   const t = useTranslations('RebateManagement');
   const [selectedScenarioIndex, setSelectedScenarioIndex] = useState<number>(0);
@@ -240,7 +243,10 @@ export function CompactPivotTable({
             </th>
 
             {/* Cột MIB — Cố định ở Level 0 */}
-            <th className="px-3 py-2.5 border-r border-slate-200 text-center min-w-[150px] bg-indigo-50/50">
+            <th
+              className={`px-3 py-2.5 border-r border-slate-200 text-center min-w-[150px] bg-indigo-50/50 ${highlightIbId && highlightIbId === rootId ? 'ring-2 ring-inset ring-amber-500 bg-amber-50/70' : ''
+                }`}
+            >
               <div className="flex flex-col items-center justify-center gap-1">
                 <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black text-indigo-800 bg-indigo-100 border border-indigo-200 uppercase tracking-wider">
                   MIB
@@ -253,8 +259,13 @@ export function CompactPivotTable({
 
             {/* Các Cột Dynamic Sub-IB (Level 1, Level 2, ...) */}
             {columns.map(({ level, selectedIbId, options }) => {
+              const isHighlighted = !!highlightIbId && selectedIbId === highlightIbId;
               return (
-                <th key={level} className="px-3 py-2.5 border-r border-slate-200 text-center min-w-[160px]">
+                <th
+                  key={level}
+                  className={`px-3 py-2.5 border-r border-slate-200 text-center min-w-[160px] ${isHighlighted ? 'ring-2 ring-inset ring-amber-500 bg-amber-50/70' : ''
+                    }`}
+                >
                   <div className="flex flex-col items-center justify-center gap-1.5">
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black text-slate-800 bg-slate-200 border border-slate-300 uppercase tracking-wider">
                       LEVEL {level}

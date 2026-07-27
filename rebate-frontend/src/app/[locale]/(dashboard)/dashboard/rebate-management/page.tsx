@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, useSyncExternalStore, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
@@ -15,8 +16,12 @@ import { PivotArrowOverlay } from '@/components/rebate/PivotArrowOverlay';
 import { CompactPivotTable, CompactSelection } from '@/components/rebate/CompactPivotTable';
 import { solveBallAllocation, SolverNodeInput } from '@/lib/ai-rebate-solver';
 
-export default function RebateManagementPage() {
+function RebateManagementPageInner() {
   const t = useTranslations('RebateManagement');
+  const searchParams = useSearchParams();
+  // Deep-link từ trang Notification: /dashboard/rebate-management?ibId=xxx
+  const deepLinkIbId = searchParams.get('ibId');
+  const [highlightIbId, setHighlightIbId] = useState<string | undefined>(deepLinkIbId || undefined);
   const [viewMode, setViewMode] = useState<'flat' | 'pivot' | 'compact'>('flat');
   const [configs, setConfigs] = useState<Record<string, RebateConfig>>({});
   // Lifted-up selection cho CompactPivotTable: [rootId][level] = ibId
@@ -27,7 +32,7 @@ export default function RebateManagementPage() {
   const ITEMS_PER_PAGE = 2;
 
   const mounted = useSyncExternalStore(
-    () => () => {},
+    () => () => { },
     () => true,
     () => false,
   );
@@ -162,6 +167,50 @@ export default function RebateManagementPage() {
     const mibAssetConfig = getAssetConfig(mibId, assetType);
     return mibAssetConfig ? mibAssetConfig.maxPips : null;
   };
+
+  // Deep-link từ Notification: khi có ?ibId=xxx trên URL, tự động:
+  // 1) dựng lại chuỗi tổ tiên (MIB -> ... -> ibId) để set compactSelection đúng nhánh
+  // 2) nhảy tới đúng trang (paginatedGroups) chứa MIB gốc của nhánh đó
+  // 3) tô sáng đúng cột (highlightIbId, đọc bởi CompactPivotTable)
+  const deepLinkAppliedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!deepLinkIbId || allNodes.length === 0) return;
+    if (deepLinkAppliedRef.current === deepLinkIbId) return; // chỉ áp dụng 1 lần / mỗi ibId
+
+    // Dựng đường đi từ root -> ibId dựa trên parentById
+    const path: string[] = [];
+    let current: string | null = deepLinkIbId;
+    const seen = new Set<string>();
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      path.unshift(current);
+      current = parentById[current] ?? null;
+    }
+
+    if (path.length === 0 || !ibNodesById[deepLinkIbId]) {
+      // ibId trên URL không tồn tại trong cây hiện tại (đã bị xoá/đổi quyền xem...)
+      deepLinkAppliedRef.current = deepLinkIbId;
+      return;
+    }
+
+    const rootId = path[0];
+
+    if (path.length > 1) {
+      const selectionForRoot: Record<number, string> = {};
+      for (let level = 1; level < path.length; level += 1) {
+        selectionForRoot[level] = path[level];
+      }
+      setCompactSelection(prev => ({ ...prev, [rootId]: selectionForRoot }));
+    }
+
+    const groupIndex = groups.findIndex(g => g.root.id === rootId);
+    if (groupIndex >= 0) {
+      setCurrentPage(Math.floor(groupIndex / ITEMS_PER_PAGE) + 1);
+    }
+
+    setHighlightIbId(deepLinkIbId);
+    deepLinkAppliedRef.current = deepLinkIbId;
+  }, [deepLinkIbId, allNodes.length, parentById, ibNodesById, groups]);
 
   const handleExportExcel = async () => {
     if (!roots || roots.length === 0) return;
@@ -564,10 +613,19 @@ export default function RebateManagementPage() {
             noIbsText={t('noIbs')}
             onRefreshConfigs={handleRefreshConfigs}
             onOptimisticUpdateConfigs={handleOptimisticUpdateConfigs}
+            highlightIbId={highlightIbId}
           />
         ))
       )}
     </div>
+  );
+}
+
+export default function RebateManagementPage() {
+  return (
+    <Suspense fallback={null}>
+      <RebateManagementPageInner />
+    </Suspense>
   );
 }
 
@@ -585,6 +643,7 @@ interface MibBranchCardProps {
   noIbsText: string;
   onRefreshConfigs: () => void;
   onOptimisticUpdateConfigs: (updates: Record<string, Record<string, number>>) => void;
+  highlightIbId?: string;
 }
 
 function MibBranchCard({
@@ -601,6 +660,7 @@ function MibBranchCard({
   noIbsText,
   onRefreshConfigs,
   onOptimisticUpdateConfigs,
+  highlightIbId,
 }: MibBranchCardProps) {
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState<boolean>(false);
@@ -674,7 +734,7 @@ function MibBranchCard({
       setIsSaving(true);
       try {
         const previousSavedState = savedSnapshotHistory[savedSnapshotHistory.length - 1];
-        
+
         // 🚀 OPTIMISTIC UPDATE REALTIME (0ms): Cập nhật trực tiếp lên màn hình lập tức
         onOptimisticUpdateConfigs(previousSavedState);
 
@@ -826,9 +886,8 @@ function MibBranchCard({
         <div className="flex items-center gap-2">
           <button
             onClick={handleToggleEdit}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-extrabold rounded bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition cursor-pointer ${
-              isEditing ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-400' : ''
-            }`}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-extrabold rounded bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition cursor-pointer ${isEditing ? 'bg-amber-600 hover:bg-amber-700 ring-2 ring-amber-400' : ''
+              }`}
           >
             <Edit3 className="h-3.5 w-3.5" />
             {isEditing ? 'Đang Chỉnh Sửa' : 'Chỉnh Sửa'}
@@ -874,6 +933,7 @@ function MibBranchCard({
           draftPips={draftPips}
           onCellEdit={handleCellEdit}
           onActiveScenarioChange={handleActiveScenarioChange}
+          highlightIbId={highlightIbId}
         />
       )}
     </div>
@@ -971,7 +1031,7 @@ function PivotTable({
                         const allocated = Number(assetConfig.maxPips);
                         const parentId = parentById[ib.id];
                         const parentAssetConfig = parentId ? configs[parentId]?.assets.find(a => a.assetType === asset) : null;
-                        
+
                         const remaining = (() => {
                           if (!parentId) return allocated;
                           if (!parentAssetConfig) return null;

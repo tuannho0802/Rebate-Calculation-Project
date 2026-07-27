@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from '@/i18n/routing';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2, Bell, MailPlus, Trash2, Check, AlertTriangle, MessageSquare, X } from 'lucide-react';
 import { notificationApi } from '@/lib/api/notification';
@@ -10,8 +11,20 @@ import { useAuthStore } from '@/store/auth.store';
 
 const notificationTypeOptions = Object.values(NotificationType);
 
+/**
+ * Suy ra ibId cần điều hướng tới từ metadata.details của notification.
+ * Backend hiện có 2 shape phổ biến: { targetIbId } (REBATE_CONFIG_UPDATE, IB_MOVE_SUBTREE)
+ * và { newIbId } (IB_CREATE). Trả về null nếu không có gì để điều hướng.
+ */
+function getNavigateTargetIbId(meta: Record<string, any>): string | null {
+  const details = meta?.details;
+  if (!details) return null;
+  return details.targetIbId || details.newIbId || null;
+}
+
 export default function NotificationPage() {
   const queryClient = useQueryClient();
+  const router = useRouter();
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'ADMIN';
 
@@ -167,18 +180,33 @@ export default function NotificationPage() {
                 notifications.map((item: Notification) => {
                   const meta = (item.metadata as Record<string, any>) || {};
                   const reviewStatus = meta.reviewStatus;
+                  const navigateTargetId = getNavigateTargetIbId(meta);
+
+                  const handleNavigate = () => {
+                    if (!navigateTargetId) return;
+                    if (!item.isRead) markReadMutation.mutate(item.id);
+                    router.push(`/dashboard/rebate-management?ibId=${navigateTargetId}`);
+                  };
 
                   return (
                     <tr
                       key={item.id}
-                      className={`hover:bg-amber-50/30 transition-colors ${
-                        item.isRead ? '' : 'bg-amber-50/20 font-semibold'
-                      }`}
+                      className={`hover:bg-amber-50/30 transition-colors ${item.isRead ? '' : 'bg-amber-50/20 font-semibold'
+                        }`}
                     >
                       <td className="px-4 py-4 text-slate-900 max-w-md">
-                        <div className="flex items-start gap-2">
+                        <div
+                          className={`flex items-start gap-2 ${navigateTargetId ? 'cursor-pointer group' : ''}`}
+                          onClick={navigateTargetId ? handleNavigate : undefined}
+                          title={navigateTargetId ? 'Bấm để xem chi tiết trong Rebate Management' : undefined}
+                        >
                           <div>
-                            <p className="font-extrabold text-slate-900 text-sm">{item.title}</p>
+                            <p
+                              className={`font-extrabold text-slate-900 text-sm ${navigateTargetId ? 'group-hover:text-amber-700 group-hover:underline' : ''
+                                }`}
+                            >
+                              {item.title}
+                            </p>
                             <p className="text-xs text-slate-600 mt-1 leading-relaxed">{item.body}</p>
 
                             {/* Show details if present */}
@@ -206,9 +234,8 @@ export default function NotificationPage() {
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap">
                         <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${
-                            item.isRead ? 'bg-slate-100 text-slate-600' : 'bg-amber-100 text-amber-900'
-                          }`}
+                          className={`inline-flex rounded-full px-2.5 py-0.5 text-[11px] font-extrabold ${item.isRead ? 'bg-slate-100 text-slate-600' : 'bg-amber-100 text-amber-900'
+                            }`}
                         >
                           {item.isRead ? 'Đã đọc' : 'Chưa đọc'}
                         </span>
