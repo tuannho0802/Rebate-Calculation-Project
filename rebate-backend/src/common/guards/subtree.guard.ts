@@ -55,6 +55,7 @@ export class SubtreeGuard implements CanActivate {
         requester: user.sub,
         userId: user.id,
         target: targetIbId,
+        userLevel: user.level,
         url: request.originalUrl ?? request.url,
         method: request.method,
         params: request.params,
@@ -64,13 +65,22 @@ export class SubtreeGuard implements CanActivate {
       // ignore logging errors
     }
 
-    // IB chỉ được xem 1 cấp dưới trực tiếp (parentId === user.sub)
-    const target = await this.prisma.ibNode.findUnique({
-      where: { id: targetIbId },
-      select: { parentId: true },
-    });
+    let isAuthorized: boolean;
 
-    const isAuthorized = target?.parentId === user.sub;
+    if (user.level === 0) {
+      // MIB (Lv0): được xem TOÀN BỘ nhánh của chính mình (đệ quy mọi cấp con,
+      // cháu, chắt...), miễn nhánh đó bắt nguồn từ chính MIB đang gọi API.
+      // Không cho MIB này xem sang nhánh của MIB khác (vẫn phải là hậu duệ
+      // thật sự của user.sub, không phải chỉ "level thấp hơn").
+      isAuthorized = await this.isDescendantOf(targetIbId, user.sub);
+    } else {
+      // Lv1+: GIỮ NGUYÊN hành vi cũ — chỉ được xem cấp con trực tiếp.
+      const target = await this.prisma.ibNode.findUnique({
+        where: { id: targetIbId },
+        select: { parentId: true },
+      });
+      isAuthorized = target?.parentId === user.sub;
+    }
 
     if (!isAuthorized) {
       try {
@@ -88,10 +98,41 @@ export class SubtreeGuard implements CanActivate {
       }
       throw new ForbiddenException({
         code: 'IB_NOT_IN_SUBTREE',
-        message: 'Bạn không có quyền xem thông tin IB này (chỉ được xem cấp con trực tiếp)',
+        message:
+          user.level === 0
+            ? 'Bạn không có quyền xem thông tin IB này (không thuộc nhánh của bạn)'
+            : 'Bạn không có quyền xem thông tin IB này (chỉ được xem cấp con trực tiếp)',
       });
     }
 
     return true;
+  }
+
+  /**
+   * Đi ngược từ targetId lên theo chuỗi parentId, kiểm tra xem ancestorId có
+   * xuất hiện trên đường đi hay không. Cây IB tối đa 5 cấp (level 0..5) nên
+   * chuỗi đi ngược không bao giờ dài — giới hạn depth để chặn vòng lặp bất
+   * thường trong dữ liệu (phòng hờ, không nên xảy ra với dữ liệu hợp lệ).
+   */
+  private async isDescendantOf(targetId: string, ancestorId: string): Promise<boolean> {
+    let currentId: string | null = targetId;
+    let depth = 0;
+    const MAX_DEPTH = 10;
+
+    while (currentId && depth < MAX_DEPTH) {
+      const node: { parentId: string | null } | null = await this.prisma.ibNode.findUnique({
+        where: { id: currentId },
+        select: { parentId: true },
+      });
+
+      if (!node) return false;
+      if (node.parentId === ancestorId) return true;
+      if (!node.parentId) return false;
+
+      currentId = node.parentId;
+      depth++;
+    }
+
+    return false;
   }
 }

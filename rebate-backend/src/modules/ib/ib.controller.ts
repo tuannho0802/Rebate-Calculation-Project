@@ -11,6 +11,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { MoveIbDto } from './dto/move-ib.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
+import { SubtreeEditGuard } from '../../common/guards/subtree-edit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { ProtectRootAdminGuard } from '../../common/guards/protect-root-admin.guard';
@@ -26,7 +27,7 @@ import {
 @Controller('ib')
 @UseGuards(JwtAuthGuard)
 export class IbController {
-  constructor(private readonly ibService: IbService) {}
+  constructor(private readonly ibService: IbService) { }
 
   @ApiOperation({
     summary: 'Xem thông tin IB đang đăng nhập',
@@ -160,6 +161,7 @@ export class IbController {
       parseInt(page, 10) || 1,
       Math.min(parseInt(limit, 10) || 20, 100),
       user.role,
+      user.level,
     );
   }
 
@@ -198,7 +200,10 @@ export class IbController {
   }
 
   @Put(':id')
+  @ApiBearerAuth('Bearer')
+  @UseGuards(SubtreeEditGuard)
   @ApiOperation({ summary: 'Cập nhật thông tin cơ bản IB' })
+  @ApiResponse({ status: 403, description: 'Bị từ chối — chỉ được sửa cấp dưới trực tiếp của bạn' })
   update(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateIbDto) {
     return this.ibService.updateIb(id, dto, user.sub);
   }
@@ -219,7 +224,7 @@ export class IbController {
 
   @Delete(':id')
   @ApiBearerAuth('Bearer')
-  @UseGuards(ProtectRootAdminGuard, SubtreeGuard)
+  @UseGuards(ProtectRootAdminGuard, SubtreeEditGuard)
   @ApiOperation({
     summary: 'Vô hiệu hóa Sub-IB (soft delete)',
     description: 'Đánh dấu IB là không hoạt động (`isActive = false`). **Không xóa khỏi database.**',
@@ -263,7 +268,7 @@ export class IbController {
     @Param('id') id: string,
     @Query('month') month?: string,
   ) {
-    return this.ibService.getIbPerformance(user.sub, id, month, user.role);
+    return this.ibService.getIbPerformance(user.sub, id, month, user.role, user.level);
   }
 
   // ─── RESET PASSWORD (Lv0 only) ──────────────────────────────────
