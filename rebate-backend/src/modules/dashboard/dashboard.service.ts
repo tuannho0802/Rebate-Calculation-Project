@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { getSubtreeIds } from '../../common/utils/subtree.util';
+import { getDescendantIds } from '../../common/utils/subtree.util';
 
 function parsePeriod(period: string): { start: Date; end: Date; label: string } {
   if (!period || !/^\d{4}-\d{2}$/.test(period)) {
@@ -19,7 +19,7 @@ function changePercent(current: number, prev: number): number | null {
 
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   // ── GET /dashboard/summary (existing, kept for backwards compat) ────────────
   async getSummary(currentUserId: string, callerRole?: string) {
@@ -28,8 +28,12 @@ export class DashboardService {
       const all = await this.prisma.ibNode.findMany({ select: { id: true } });
       childIds = all.map((n) => n.id);
     } else {
-      const children = await this.prisma.ibNode.findMany({ where: { parentId: currentUserId }, select: { id: true } });
-      childIds = children.map((c) => c.id);
+      // FIX (audit toàn diện): trước đây chỉ lấy `parentId: currentUserId`
+      // (Lv1 trực tiếp), khiến MIB có tree sâu hơn 1 cấp bị thiếu/undercount
+      // dữ liệu Lv2/Lv3/N trên Dashboard. Giờ đệ quy toàn bộ hậu duệ, đúng
+      // "MIB View-All" — nhất quán với wallet/payout/export/ib.service đã fix.
+      const descendants = await getDescendantIds(this.prisma, currentUserId);
+      childIds = descendants.filter((id) => id !== currentUserId);
     }
     const subtreeIds = callerRole === 'ADMIN' ? childIds : [currentUserId, ...childIds];
 
@@ -125,8 +129,10 @@ export class DashboardService {
       const all = await this.prisma.ibNode.findMany({ select: { id: true } });
       childIds = all.map((n) => n.id).filter((id) => id !== callerId);
     } else {
-      const children = await this.prisma.ibNode.findMany({ where: { parentId: callerId }, select: { id: true } });
-      childIds = children.map((c) => c.id);
+      // FIX: đệ quy toàn bộ hậu duệ thay vì chỉ Lv1 trực tiếp — xem comment
+      // chi tiết ở getSummary() phía trên.
+      const descendants = await getDescendantIds(this.prisma, callerId);
+      childIds = descendants.filter((id) => id !== callerId);
     }
 
     // Wallet
@@ -217,8 +223,10 @@ export class DashboardService {
       const all = await this.prisma.ibNode.findMany({ select: { id: true } });
       ibIds = all.map((n) => n.id);
     } else {
-      const children = await this.prisma.ibNode.findMany({ where: { parentId: callerId }, select: { id: true } });
-      ibIds = [callerId, ...children.map((c) => c.id)];
+      // FIX: đệ quy toàn bộ hậu duệ thay vì chỉ Lv1 trực tiếp — xem comment
+      // chi tiết ở getSummary() phía trên. getDescendantIds() đã bao gồm
+      // sẵn callerId nên không cần nối thêm.
+      ibIds = await getDescendantIds(this.prisma, callerId);
     }
 
     const txs = await this.prisma.rebateTransaction.findMany({
@@ -284,8 +292,10 @@ export class DashboardService {
       const all = await this.prisma.ibNode.findMany({ select: { id: true } });
       childIds = all.map((n) => n.id).filter((id) => id !== callerId);
     } else {
-      const children = await this.prisma.ibNode.findMany({ where: { parentId: callerId }, select: { id: true } });
-      childIds = children.map((c) => c.id);
+      // FIX: đệ quy toàn bộ hậu duệ thay vì chỉ Lv1 trực tiếp — xem comment
+      // chi tiết ở getSummary() phía trên.
+      const descendants = await getDescendantIds(this.prisma, callerId);
+      childIds = descendants.filter((id) => id !== callerId);
     }
 
     // Get all IBs in subtree with pagination
