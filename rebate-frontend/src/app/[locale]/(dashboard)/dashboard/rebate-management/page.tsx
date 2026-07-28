@@ -165,9 +165,9 @@ function RebateManagementPageInner() {
     });
   };
 
-  const getMibMaxDisplay = (mibId: string, assetType: AssetType) => {
+  const getMibMaxDisplay = (mibId: string, assetType: AssetType): number | null => {
     const mibAssetConfig = getAssetConfig(mibId, assetType);
-    return mibAssetConfig ? mibAssetConfig.maxPips : null;
+    return mibAssetConfig ? (mibAssetConfig.maxPips ?? null) : null;
   };
 
   // Deep-link từ Notification: khi có ?ibId=xxx trên URL, tự động:

@@ -19,7 +19,7 @@ import { Roles } from '../../common/decorators/roles.decorator';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth('Bearer')
 export class NotificationController {
-  constructor(private readonly notificationService: NotificationService) {}
+  constructor(private readonly notificationService: NotificationService) { }
 
   @Get()
   @ApiOperation({ summary: 'Xem danh sách thông báo của mình' })
@@ -68,6 +68,18 @@ export class NotificationController {
     @Body() dto: { status: 'APPROVED' | 'REJECTED'; reason?: string },
   ) {
     return this.notificationService.reviewNotification(user.sub, id, dto.status, dto.reason);
+  }
+
+  @Delete('bulk')
+  @ApiOperation({ summary: 'Xoá nhiều thông báo cùng lúc theo danh sách id' })
+  removeBulk(@CurrentUser() user: any, @Body() dto: { ids: string[] }) {
+    return this.notificationService.removeBulk(user.sub, dto.ids);
+  }
+
+  @Delete('all')
+  @ApiOperation({ summary: 'Xoá toàn bộ thông báo của mình' })
+  removeAll(@CurrentUser() user: any) {
+    return this.notificationService.removeAll(user.sub);
   }
 
   @Delete(':id')

@@ -2,16 +2,22 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationType } from '@prisma/client';
 import { getSubtreeIds } from '../../common/utils/subtree.util';
 import { SendNotificationDto } from './dto/send-notification.dto';
 import { QueryNotificationDto } from './dto/query-notification.dto';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS } from '../audit/audit.constants';
 
 @Injectable()
 export class NotificationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) { }
 
   /**
    * GET /notifications — xem thông báo của mình
@@ -130,6 +136,33 @@ export class NotificationService {
   }
 
   /**
+   * DELETE /notifications/bulk — xoá nhiều thông báo cùng lúc theo danh sách id.
+   * Notification không phải dữ liệu nghiệp vụ (không có ràng buộc/tham chiếu từ
+   * bảng khác) nên xoá thẳng bằng deleteMany, không cần transaction/soft-delete.
+   * Vẫn giữ where: { recipientId: currentUserId } để không xoá nhầm thông báo
+   * của người khác dù id đó có tồn tại thật trong hệ thống.
+   */
+  async removeBulk(currentUserId: string, ids: string[]) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException({ code: 'IDS_REQUIRED', message: 'Cần danh sách id để xoá' });
+    }
+    const result = await this.prisma.notification.deleteMany({
+      where: { id: { in: ids }, recipientId: currentUserId },
+    });
+    return { deleted: result.count };
+  }
+
+  /**
+   * DELETE /notifications/all — xoá toàn bộ thông báo của mình.
+   */
+  async removeAll(currentUserId: string) {
+    const result = await this.prisma.notification.deleteMany({
+      where: { recipientId: currentUserId },
+    });
+    return { deleted: result.count };
+  }
+
+  /**
    * Internal — dùng từ các service khác để tạo system notification
    */
   async createSystemNotification(params: {
@@ -171,18 +204,20 @@ export class NotificationService {
     changes: Record<string, unknown>,
     adminId?: string,
   ) {
-    let summaryText = '';
-    if (changes && Array.isArray(changes.assets)) {
-      const assetNames = (changes.assets as Array<{ asset?: string }>)
-        .map((a) => a.asset)
-        .filter(Boolean)
-        .slice(0, 4);
-      if (assetNames.length > 0) {
-        summaryText = ` (${assetNames.join(', ')}${changes.assets.length > 4 ? '...' : ''})`;
-      }
-    }
+    // Fix: trước đây "changes.assets" chỉ được dùng để nhúng chữ vào body (text),
+    // không hề lưu vào metadata dưới dạng mảng có cấu trúc — nên FE không thể biết
+    // chính xác asset nào để highlight. Giờ lưu thêm "changedAssets" có cấu trúc.
+    const changedAssets = (Array.isArray((changes as any)?.assets)
+      ? ((changes as any).assets as Array<{ asset?: string; rebatePips?: number; markupPips?: number }>)
+      : []
+    )
+      .filter((a) => !!a.asset)
+      .map((a) => ({ assetType: a.asset, rebatePips: a.rebatePips, markupPips: a.markupPips }));
 
-    const body = `Cấu hình rebate của bạn${summaryText} vừa được Admin cập nhật. Vui lòng kiểm tra thiết lập chi tiết tại trang Rebate Management.`;
+    const assetNames = changedAssets.map((a) => a.assetType).slice(0, 4);
+    const summaryText = assetNames.length > 0
+      ? ` (${assetNames.join(', ')}${changedAssets.length > 4 ? '...' : ''})`
+      : '';
 
     const recipientIds: string[] = [targetIbId];
 
@@ -202,12 +237,31 @@ export class NotificationService {
     }
 
     for (const recipientId of [...new Set(recipientIds)]) {
+      // Fix: trước đây câu chữ luôn nói "của bạn" kể cả với các ancestor nhận
+      // thông báo do CẤP DƯỚI của họ bị sửa (case cascade) — gây hiểu nhầm.
+      // Giờ tách rõ: recipient chính là targetIbId (tự mình bị sửa) hay chỉ là
+      // upline nhận thông báo cascade (cấp dưới của họ bị sửa).
+      const isSelf = recipientId === targetIbId;
+      const title = isSelf
+        ? 'Cấu hình rebate của bạn đã bị Admin cập nhật'
+        : 'Cấu hình rebate của cấp dưới trong nhánh bạn đã bị Admin cập nhật';
+      const body = isSelf
+        ? `Cấu hình rebate của bạn${summaryText} vừa được Admin cập nhật. Vui lòng kiểm tra thiết lập chi tiết.`
+        : `Cấu hình rebate${summaryText} của 1 tài khoản trong nhánh của bạn vừa được Admin cập nhật. Vui lòng kiểm tra lại.`;
+
       await this.createSystemNotification({
         recipientId,
         type: NotificationType.REBATE_UPDATED,
-        title: 'Cấu hình rebate đã bị Admin cập nhật',
+        title,
         body,
-        metadata: { adminId, targetIbId, scope: notifyScope },
+        metadata: {
+          adminId,
+          targetIbId,
+          scope: notifyScope,
+          // Bọc trong "details" để đồng nhất cấu trúc với mọi loại notification
+          // khác (Admin/MIB/IB đều đọc chung 1 shape ở FE).
+          details: { targetIbId, changedAssets },
+        },
       });
     }
   }
@@ -251,6 +305,23 @@ export class NotificationService {
       },
     });
 
+    // Fix: quyết định duyệt/từ chối của Admin — bản thân nó là 1 hành vi nhạy
+    // cảm — trước đây chỉ nằm trong Notification.metadata (JSON tự do, không
+    // filter được), giờ ghi thêm vào AuditLog trung tâm.
+    await this.auditService.log({
+      actorId: adminId,
+      action: status === 'APPROVED' ? AUDIT_ACTIONS.ADMIN_REVIEW_APPROVED : AUDIT_ACTIONS.ADMIN_REVIEW_REJECTED,
+      targetType: 'NOTIFICATION',
+      targetId: notificationId,
+      before: { reviewStatus: currentMeta.reviewStatus ?? 'PENDING' },
+      after: {
+        reviewStatus: status,
+        reason: reason || null,
+        originalActionType: currentMeta.actionType,
+        originalActorId: currentMeta.actorId,
+      },
+    });
+
     // Send feedback notification to the MIB/IB
     if (targetUserId) {
       if (status === 'APPROVED') {
@@ -266,9 +337,8 @@ export class NotificationService {
           recipientId: targetUserId,
           type: NotificationType.SYSTEM,
           title: 'Chỉnh sửa của bạn bị báo lỗi / chưa đạt yêu cầu',
-          body: `Admin đã kiểm tra và báo lỗi thao tác "${notification.title}" của bạn. Yêu cầu: ${
-            reason || 'Vui lòng kiểm tra lại thiết lập và chia hoa hồng xem đã khớp với hệ thống hay chưa.'
-          }`,
+          body: `Admin đã kiểm tra và báo lỗi thao tác "${notification.title}" của bạn. Yêu cầu: ${reason || 'Vui lòng kiểm tra lại thiết lập và chia hoa hồng xem đã khớp với hệ thống hay chưa.'
+            }`,
           metadata: { originalNotificationId: notificationId, status: 'REJECTED', reason },
         });
       }

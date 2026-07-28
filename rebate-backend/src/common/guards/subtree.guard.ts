@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class SubtreeGuard implements CanActivate {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
@@ -12,11 +12,21 @@ export class SubtreeGuard implements CanActivate {
       return false;
     }
 
+    // Nếu là ADMIN -> cho qua (kiểm tra TRƯỚC khi cần targetIbId, vì Admin
+    // không bị giới hạn subtree dù endpoint có xác định được targetIbId hay không)
+    if (user.role === 'ADMIN') return true;
+
     const targetIbId = request.params.id || request.params.ibId || request.query.ibId;
     if (!targetIbId) {
+      // FIX (hardening): trước đây "không xác định được targetIbId" mặc định
+      // CHO QUA (fail-open) — nguy hiểm vì nếu sau này có endpoint mới gắn
+      // SubtreeGuard mà lỡ đặt id trong request body (thay vì params/query),
+      // request sẽ lọt qua kiểm tra quyền mà không ai nhận ra. Giờ đổi thành
+      // fail-closed: không xác định được target -> từ chối, trừ khi là ADMIN
+      // (đã return true ở trên).
       try {
         // eslint-disable-next-line no-console
-        console.debug('SubtreeGuard: no targetIbId found, allowing access by default', {
+        console.warn('SubtreeGuard: no targetIbId found in params/query — denying by default (fail-closed)', {
           url: request.originalUrl ?? request.url,
           method: request.method,
           params: request.params,
@@ -27,11 +37,11 @@ export class SubtreeGuard implements CanActivate {
       } catch (e) {
         // ignore logging errors
       }
-      return true;
+      throw new ForbiddenException({
+        code: 'SUBTREE_TARGET_UNRESOLVED',
+        message: 'Không xác định được đối tượng cần kiểm tra quyền truy cập',
+      });
     }
-
-    // Nếu là ADMIN -> cho qua
-    if (user.role === 'ADMIN') return true;
 
     // A user can always access their own data
     if (user.sub === targetIbId) {

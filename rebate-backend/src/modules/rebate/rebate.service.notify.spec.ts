@@ -141,7 +141,9 @@ describe('RebateService — updateConfig() changedAssets notification (fix)', ()
             expect.objectContaining({
                 recipientId: 'lv2-1',
                 metadata: expect.objectContaining({
-                    changedAssets: [{ assetType: AssetType.FOREX, rebateType: 'STP_REBATE' }],
+                    details: expect.objectContaining({
+                        changedAssets: [{ assetType: AssetType.FOREX, rebateType: 'STP_REBATE' }],
+                    }),
                 }),
             }),
         );

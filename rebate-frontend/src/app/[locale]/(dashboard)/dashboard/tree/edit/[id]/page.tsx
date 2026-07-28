@@ -1,7 +1,8 @@
 'use client';
 
-import { use, useState, useEffect } from 'react';
+import { Suspense, use, useState, useEffect } from 'react';
 import { useRouter } from '@/i18n/routing';
+import { useSearchParams } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import { rebateApi } from '@/lib/api/rebate';
 import { rebateTemplateApi } from '@/lib/api/rebateTemplates';
@@ -15,11 +16,19 @@ import { toast } from 'sonner';
 
 import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
 
-export default function EditIbRebatePage({ params }: { params: Promise<{ id: string }> }) {
+function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
   const { user } = useAuthStore();
   const { activeAssetTypes } = useDisabledAssetTypes();
+
+  // Deep-link từ Notification (Case 2 — cấp dưới bị chỉnh sửa): quyền xem/sửa
+  // trang này vẫn do BE quyết định như cũ (chỉ cấp dưới trực tiếp trong subtree
+  // của người đang đăng nhập), ở đây chỉ đọc thêm asset nào cần tô sáng.
+  const searchParams = useSearchParams();
+  const highlightAssets = new Set(
+    (searchParams.get('highlightAssets') || '').split(',').filter(Boolean),
+  );
 
   useEffect(() => {
     try {
@@ -41,6 +50,12 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
 
   const [globalMarkup, setGlobalMarkup] = useState<string>('');
   const [rebateValues, setRebateValues] = useState<Record<string, string>>({});
+  // FIX VĐ1 (27/07/2026): lưu lại giá trị rebatePips GỐC (lúc load từ BE) để
+  // diff với giá trị hiện tại lúc Lưu — chỉ gửi lên BE đúng những asset THẬT
+  // SỰ bị đổi, thay vì luôn gửi cả 18 AssetType mỗi lần bấm Lưu (gây ghi DB
+  // thừa + vô tình reset markupPercent của IB cha cho asset không liên quan,
+  // xem mục "1.1" trong rebate.service.ts#updateConfig()).
+  const [initialRebateValues, setInitialRebateValues] = useState<Record<string, string>>({});
 
   const [assetsToUpdateState, setAssetsToUpdateState] = useState<any[]>([]);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
@@ -120,6 +135,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
           });
 
           setRebateValues(initialRebate);
+          setInitialRebateValues(initialRebate);
           setGlobalMarkup(initialMarkup || '0');
         }
 
@@ -199,24 +215,22 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
 
   const getAvailableBudget = (asset: AssetType) => {
     if (profile?.level === 0) {
-      // Ưu tiên 1: maxPips THẬT của chính MIB, lấy từ rebateApi.getConfig() đã fetch ở trên
-      // (parentConfigSourceId = loadedProfile.id khi profile là MIB) — đây là nơi phản ánh
-      // đúng giá trị Admin đã set qua setMibMaxOverride(), không được bỏ qua như code cũ.
+      // Ưu tiên 1: maxPips THẬT của chính MIB, lấy từ rebateApi.getConfig() đã fetch ở trên.
+      // BE (getConfig) giờ đã tự fallback về MAX_PIPS[asset] khi DB có maxPips <= 0 cho MIB,
+      // nên ở đây có thể tin thẳng giá trị BE trả về mà không cần > 0 nữa.
       if (parentConfig?.assets) {
         const ownAsset = parentConfig.assets.find((a) => a.assetType === asset);
-        if (ownAsset && Number(ownAsset.maxPips) > 0) {
+        if (ownAsset) {
           return Number(ownAsset.maxPips);
         }
       }
 
-      // Ưu tiên 2: account type template (nếu MIB chưa có override riêng cho asset này)
-      const activeTemplate = accountTypeTemplates.find((t: any) => t.name === profile?.accountType);
-      if (activeTemplate && activeTemplate.rows) {
-        const row = activeTemplate.rows.find((r: any) => r.assetType === asset);
-        if (row) return Number(row.maxCeiling) || 0;
-      }
+      // KHÔNG còn nhánh "account type template" ở đây — dự án hiện chưa có (và không có
+      // kế hoạch có) UI nào cho phép set accountType của chính MIB khớp với 1 template,
+      // nên nhánh đó trước đây luôn là dead code, gây hiểu nhầm là bug. Nếu về sau có nhu
+      // cầu đó thật, hãy thêm lại kèm UI tương ứng.
 
-      // Fallback cuối: trần mặc định hard-code, chỉ dùng khi không có config/template nào khác
+      // Fallback cuối cùng (chỉ khi parentConfig chưa kịp load): trần mặc định công ty.
       return MAX_PIPS[asset] || 0;
     }
 
@@ -228,9 +242,11 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
     return 0;
   };
 
+  // "Rebate Max của IB" hiển thị = đúng budget khả dụng, KHÔNG cộng thêm addedMarkupPips.
+  // addedMarkupPips chỉ là % markup của Loại tài khoản, ảnh hưởng cột "Chia cho cấp dưới"
+  // (xem markupPips gửi lên khi Lưu bên dưới), không phải là trần thật của IB.
   const getCombinedRebateMax = (asset: AssetType) => {
-    const available = getAvailableBudget(asset);
-    return available + addedMarkupPips;
+    return getAvailableBudget(asset);
   };
 
   const isAnyRebateInvalid = activeAssetTypes.some(asset => parsePipsValue(rebateValues[asset] || '0') > getCombinedRebateMax(asset));
@@ -239,22 +255,40 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
   const handleSave = () => {
     const assetsToUpdate: RebateAssetConfig[] = [];
 
+    const accountTypeChanged = !!targetIb && targetIb.accountType !== subIbAccountType;
+
     activeAssetTypes.forEach((asset) => {
       const rebateVal = rebateValues[asset] || '0';
       const parsedRebate = parsePipsValue(rebateVal);
-      const rMax = getCombinedRebateMax(asset); // Validation limit & combined max
+      const initialRebate = parsePipsValue(initialRebateValues[asset] || '0');
+      const rebateChanged = parsedRebate !== initialRebate;
+      const needsMarkupRefresh = accountTypeChanged && parsedRebate > 0;
 
+      // FIX VĐ1 (27/07/2026): trước đây luôn gửi CẢ 18 AssetType lên BE mỗi lần
+      // Lưu, dù thường chỉ 1 asset thực sự bị đổi. Hệ quả: (a) ghi DB thừa cho
+      // 17 dòng không liên quan, (b) mục "1.1" trong updateConfig() vô tình
+      // reset markupPercent của IB cha cho TẤT CẢ asset đó, kể cả asset không
+      // ai đụng tới. Giờ chỉ gửi asset thật sự cần cập nhật.
+      if (!rebateChanged && !needsMarkupRefresh) return;
+
+      // KHÔNG gửi maxPips lên BE nữa — BE tự tính childMaxPips (xem updateConfig()),
+      // gửi lên chỉ tạo lại đường hở để giá trị tạm tính client-side (addedMarkupPips...)
+      // bị ghi đè vĩnh viễn vào DB (đây chính là root cause VĐ2/VĐ3 cũ).
       assetsToUpdate.push({
         assetType: asset,
         rebateType: RebateType.STP_REBATE,
         rebatePips: parsedRebate,
         markupPips: addedMarkupPips,
-        maxPips: rMax,
         markupPercent: 100,
       });
     });
 
-    if (assetsToUpdate.length > 0) {
+    // FIX VĐ1 (kèm theo): trước đây điều kiện này luôn đúng vì assetsToUpdate
+    // luôn chứa cả 18 asset. Giờ assetsToUpdate có thể rỗng (không asset nào
+    // đổi rebatePips) trong khi người dùng CHỈ đổi Loại tài khoản (accountType)
+    // — trường hợp đó vẫn cần mở modal xác nhận để handleConfirmSave() thực sự
+    // gọi updateAccountTypeMutation, nếu không Lưu sẽ không làm gì cả.
+    if (assetsToUpdate.length > 0 || accountTypeChanged) {
       setAssetsToUpdateState(assetsToUpdate);
       setIsConfirmModalOpen(true);
     }
@@ -336,24 +370,32 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
             <thead className="bg-gray-50 text-gray-700 font-semibold border-b border-gray-100">
               <tr>
                 <th className="px-6 py-4">Tên sản phẩm</th>
-                <th className="px-6 py-4">Rebate Max của IB</th>
+                <th className="px-6 py-4">Hoa hồng được nhận cho MIB và IB</th>
                 <th className="px-6 py-4 w-64">Chia cho cấp dưới</th>
                 <th className="px-6 py-4">Đơn vị</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
               {activeAssetTypes.map((asset) => {
-                const combinedMax = getCombinedRebateMax(asset); // Mức trần đã cộng Markup Pips
+                const combinedMax = getCombinedRebateMax(asset); // Trần thật (KHÔNG cộng Markup Pips)
                 const unit = unitMap[asset] || 'pips';
 
                 const currentVal = rebateValues[asset] || '0';
                 const isRebateInvalid = parsePipsValue(currentVal) > combinedMax;
 
+                const isHighlighted = highlightAssets.has(asset);
+
                 return (
-                  <tr key={asset} className="hover:bg-gray-50/50 transition-colors">
+                  <tr
+                    key={asset}
+                    className={`transition-colors ${isHighlighted
+                      ? 'ring-2 ring-inset ring-amber-500 bg-amber-50/70'
+                      : 'hover:bg-gray-50/50'
+                      }`}
+                  >
                     <td className="px-6 py-4 font-bold text-gray-900">{asset}</td>
                     <td className="px-6 py-4 text-amber-950 font-bold">
-                      Rebate Max: {combinedMax}
+                      Hoa hồng được nhận: {combinedMax}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col">
@@ -429,5 +471,13 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
         </>
       )}
     </div>
+  );
+}
+
+export default function EditIbRebatePage({ params }: { params: Promise<{ id: string }> }) {
+  return (
+    <Suspense fallback={null}>
+      <EditIbRebatePageInner params={params} />
+    </Suspense>
   );
 }

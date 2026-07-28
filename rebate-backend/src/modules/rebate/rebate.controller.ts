@@ -24,7 +24,7 @@ export class RebateController {
   constructor(
     private readonly rebateService: RebateService,
     private readonly rebateSimulatorService: RebateSimulatorService,
-  ) {}
+  ) { }
 
   @Get('config/:ibId')
   @ApiBearerAuth('Bearer')
@@ -156,10 +156,11 @@ export class RebateController {
   @ApiResponse({ status: 200, description: 'Templates saved successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden — not in subtree' })
   async saveTemplates(
+    @CurrentUser() user: any,
     @Param('ibId') ibId: string,
     @Body() dto: SaveRebateTemplatesDto,
   ) {
-    return this.rebateService.saveTemplates(ibId, dto);
+    return this.rebateService.saveTemplates(ibId, dto, user.sub);
   }
 
   @Get('calculate')
@@ -217,7 +218,6 @@ export class RebateController {
       },
     };
   }
-
   @Get('disabled-asset-types')
   @ApiOperation({ summary: 'Get list of locked / disabled asset types' })
   @ApiResponse({ status: 200, description: 'Returns array of disabled AssetType enum values' })
@@ -238,4 +238,3 @@ export class RebateController {
     return this.rebateService.updateDisabledAssetTypes(dto.disabledAssetTypes, user.sub);
   }
 }
-

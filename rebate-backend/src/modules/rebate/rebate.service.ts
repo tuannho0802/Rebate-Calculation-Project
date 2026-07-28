@@ -39,23 +39,84 @@ export class RebateService {
     private readonly notificationService: NotificationService,
   ) { }
 
-  async getConfig(ibId: string) {
-    const configs = await this.prisma.rebateConfig.findMany({
-      where: { ibId },
-      orderBy: { updatedAt: 'desc' },
-    });
+  /**
+   * NGUỒN DUY NHẤT để tính "trần" (maxPips) THỰC TẾ áp dụng cho một IB.
+   * Dùng CHUNG cho cả đường đọc (getConfig) LẪN đường ghi/validate
+   * (updateConfig) — bắt buộc, để tránh tái phát bug "2 nơi tính trần
+   * khác nhau" (VĐ3 gốc, rồi lặp lại ở updateConfig() ngày 27/07/2026:
+   * UI hiện trần fallback đúng nhưng lúc Lưu lại validate theo giá trị
+   * raw trong DB chưa fallback → REBATE_EXCEEDS_PARENT sai, xem Test B).
+   *
+   * Quy tắc: CHỈ fallback về MAX_PIPS[assetType] (trần công ty) khi là
+   * MIB (level 0) VÀ maxPips trong DB <= 0 (chưa từng được set / bị
+   * reset). Với non-MIB, maxPips = 0 là trạng thái HỢP LỆ ("cấp trên
+   * chưa cấp gì cho asset này"), KHÔNG được fallback — nếu không child
+   * sẽ tưởng nhầm mình có full budget.
+   */
+  private resolveEffectiveMaxPips(rawMaxPips: number, isMib: boolean, assetType: AssetType): number {
+    return isMib && rawMaxPips <= 0 ? (MAX_PIPS[assetType] || 0) : rawMaxPips;
+  }
 
-    return {
-      ibId,
-      assets: configs.map((c: any) => ({
+  async getConfig(ibId: string) {
+    const [configs, ib] = await Promise.all([
+      this.prisma.rebateConfig.findMany({
+        where: { ibId },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { level: true } }),
+    ]);
+
+    // Fallback về "Trần công ty" (MAX_PIPS[assetType]) khi maxPips <= 0 —
+    // CHỈ áp dụng cho MIB (level 0). Với non-MIB, maxPips = 0 là trạng thái
+    // hợp lệ ("cấp trên chưa cấp/cấp 0 pips cho asset này"), KHÔNG được che
+    // bằng trần mặc định, nếu không child sẽ tưởng mình có full budget.
+    const isMib = ib?.level === 0;
+
+    const existingAssets = configs.map((c: any) => {
+      const rawMaxPips = Number(c.maxPips);
+      const maxPips = this.resolveEffectiveMaxPips(rawMaxPips, isMib, c.assetType as AssetType);
+      return {
         assetType: c.assetType,
         rebateType: c.rebateType,
         rebatePips: Number(c.rebatePips),
         markupPips: Number(c.markupPips),
         markupPercent: Number(c.markupPercent),
-        maxPips: Number(c.maxPips),
+        maxPips,
         updatedAt: c.updatedAt,
-      })),
+      };
+    });
+
+    if (!isMib) {
+      return {
+        ibId,
+        assets: existingAssets,
+        updatedAt: configs.length > 0 ? configs[0].updatedAt : new Date(),
+      };
+    }
+
+    // FIX (27/07/2026) — "bootstrap gap": MIB không có dòng rebateConfig nào
+    // trong DB trừ khi Admin từng override, hoặc chính MIB đã tự cấu hình.
+    // Trước đây điều này khiến getConfig() trả về assets=[] hoàn toàn cho MIB
+    // dù MIB là root của cả 1 nhánh (Dashboard hiện "Chưa có cấu hình Rebate
+    // nào được kích hoạt"). Giờ với MIB, đảm bảo MỌI AssetType đều xuất hiện —
+    // asset chưa có dòng thật thì trả về "ảo" với maxPips = trần công ty mặc định,
+    // giống hệt như thể đã có sẵn (không ghi gì xuống DB, chỉ synth ở response).
+    const existingAssetTypes = new Set(existingAssets.map((a) => a.assetType));
+    const syntheticAssets = Object.values(AssetType)
+      .filter((at) => !existingAssetTypes.has(at))
+      .map((at) => ({
+        assetType: at,
+        rebateType: 'STP_REBATE' as any,
+        rebatePips: 0,
+        markupPips: 0,
+        markupPercent: 100,
+        maxPips: MAX_PIPS[at] || 0,
+        updatedAt: null as any,
+      }));
+
+    return {
+      ibId,
+      assets: [...existingAssets, ...syntheticAssets],
       updatedAt: configs.length > 0 ? configs[0].updatedAt : new Date(),
     };
   }
@@ -133,7 +194,14 @@ export class RebateService {
     };
   }
 
-  async saveTemplates(ibId: string, dto: SaveRebateTemplatesDto) {
+  async saveTemplates(ibId: string, dto: SaveRebateTemplatesDto, actorId: string) {
+    // Snapshot before khi ghi audit — chỉ lấy tên (không lấy full rows/share để tránh
+    // log quá nặng, nhưng đủ để biết "trước đây có gì, đã đổi thành gì")
+    const [beforeAccountTemplates, beforeMarkupTemplates] = await Promise.all([
+      this.prisma.accountTypeTemplate.findMany({ where: { ownerId: ibId }, select: { name: true } }),
+      this.prisma.markupLinkTemplate.findMany({ where: { ownerId: ibId }, select: { name: true, share: true } }),
+    ]);
+
     await this.prisma.$transaction(async (tx: any) => {
       await tx.markupLinkTemplate.deleteMany({ where: { ownerId: ibId } });
       await tx.accountTypeTemplate.deleteMany({ where: { ownerId: ibId } });
@@ -153,6 +221,22 @@ export class RebateService {
           share: link.share,
         })),
       });
+    });
+
+    // Fix: audit log trước đây bị bỏ sót hoàn toàn cho endpoint này
+    await this.auditService.log({
+      actorId,
+      action: AUDIT_ACTIONS.REBATE_TEMPLATES_UPDATE,
+      targetType: 'REBATE_TEMPLATES',
+      targetId: ibId,
+      before: {
+        accountTypeTemplates: beforeAccountTemplates.map((t) => t.name),
+        markupLinkTemplates: beforeMarkupTemplates,
+      },
+      after: {
+        accountTypeTemplates: dto.accountTypeTemplates.map((t) => t.name),
+        markupLinkTemplates: dto.markupLinkTemplates.map((t) => ({ name: t.name, share: t.share })),
+      },
     });
 
     return this.getTemplates(ibId);
@@ -186,12 +270,21 @@ export class RebateService {
       for (const assetConfig of updateDto.assets) {
         const { assetType, rebateType = 'STP_REBATE', rebatePips, markupPips, markupPercent } = assetConfig;
         const parentIbId = targetIb?.parentId;
-        const parentConfig = (parentIbId && parentIbId !== targetIbId)
+        const hasParent = !!(parentIbId && parentIbId !== targetIbId);
+        const parentConfig = hasParent
           ? await tx.rebateConfig.findUnique({
             where: { ibId_assetType_rebateType: { ibId: parentIbId, assetType, rebateType: rebateType as any } },
             include: { ib: true },
           })
           : null;
+        // Level 1 luôn có cha là MIB (level 0) theo đúng cấu trúc cây — suy luận
+        // trực tiếp từ targetIb.level thay vì phụ thuộc parentConfig.ib.level, để
+        // xử lý đúng cả trường hợp MIB CHƯA TỪNG có dòng rebateConfig nào trong DB
+        // (bootstrap gap: MIB không có dòng riêng nếu Admin chưa từng override VÀ
+        // MIB chưa từng tự cấu hình chính mình — mục 1.1 bên dưới bỏ qua khi
+        // parentConfig null. Fix 27/07/2026, xem hand-off "MIB không hiện trên
+        // Dashboard dù là root").
+        const parentIsMib = hasParent && targetIb?.level === 1;
 
         // 1. Lấy config hiện tại -> before
         const existing = await tx.rebateConfig.findUnique({
@@ -218,12 +311,26 @@ export class RebateService {
           });
         }
 
-        if (parentConfig) {
-          const parentRebateMax = parentConfig.ib.level === 0
-            ? Number(parentConfig.maxPips) + Number(markupPips || 0)
-            : Number(parentConfig.rebatePips || 0);
+        if (hasParent) {
+          // FIX Test B (27/07/2026): trước đây đọc thẳng parentConfig.maxPips
+          // raw từ DB (có thể = 0 nếu MIB chưa từng được set), khiến validate
+          // ở đây khác với số đang hiển thị trên UI (vốn đã fallback về trần
+          // công ty MAX_PIPS[assetType] bên getConfig()). Giờ dùng chung 1
+          // nguồn duy nhất qua resolveEffectiveMaxPips(). parentConfig có thể
+          // là null (MIB chưa từng có dòng nào — bootstrap gap) → coi như raw=0,
+          // vẫn fallback đúng về MAX_PIPS[assetType] khi parentIsMib.
+          const effectiveParentMaxPips = this.resolveEffectiveMaxPips(
+            parentConfig ? Number(parentConfig.maxPips) : 0,
+            parentIsMib,
+            assetType,
+          );
+
+          const parentRebateMax = parentIsMib
+            ? effectiveParentMaxPips + Number(markupPips || 0)
+            : Number(parentConfig?.rebatePips || 0);
 
           const parentMarkupMax = 100;
+
 
           if (rebatePips > parentRebateMax) {
             throw new UnprocessableEntityException({
@@ -240,7 +347,8 @@ export class RebateService {
             });
           }
         } else {
-          const limit = (existing && Number(existing.maxPips) > 0) ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 100);
+          const rawExistingMaxPips = existing ? Number(existing.maxPips) : 0;
+          const limit = rawExistingMaxPips > 0 ? rawExistingMaxPips : (MAX_PIPS[assetType] || 100);
           if (rebatePips > limit) {
             throw new UnprocessableEntityException({
               code: 'REBATE_EXCEEDS_MAX',
@@ -255,8 +363,17 @@ export class RebateService {
           }
         }
 
-        const targetShare = markupPercent !== undefined ? markupPercent : markupPips;
-        const parentKeptPercent = Math.max(0, 100 - targetShare);
+        // FIX (27/07/2026): trước đây biến `targetShare` bị dùng cho 2 việc khác
+        // nhau cùng lúc — (a) tính % cấp cha giữ lại (parentKeptPercent), và (b) bị
+        // gán thẳng vào cột `markupPips` khi lưu (dòng update/create bên dưới). Vì
+        // FE luôn gửi markupPercent=100 (hardcode ở handleSave), `markupPips` trong
+        // DB bị ghi đè thành 100 cho MỌI asset, đè mất giá trị markupPips THẬT mà FE
+        // gửi lên (vd addedMarkupPips theo Loại tài khoản). Giờ tách rõ 2 khái niệm:
+        // `parentSharePercent` CHỈ dùng để tính % cấp cha giữ lại; `markupPips` (biến
+        // gốc từ request, destructure ở đầu vòng lặp) mới là giá trị đúng để lưu vào
+        // cột `markupPips` trong DB (xem đoạn upsert bên dưới).
+        const parentSharePercent = markupPercent !== undefined ? markupPercent : 100;
+        const parentKeptPercent = Math.max(0, 100 - parentSharePercent);
 
         // 1.1 Cập nhật % Markup giữ lại cho IB cha (cấp trên)
         if (parentConfig && currentUserId !== targetIbId) {
@@ -287,22 +404,20 @@ export class RebateService {
 
         // Max của mọi level >= 1 luôn = đúng số pips vừa nhận từ cấp trên (rebatePips),
         // KHÔNG lấy trần gốc của MIB. Đây là nguyên tắc cascade: 20 -> 15 -> 10 -> 5 -> 0,
-        // mỗi mốc là max của chính level đó. Chỉ giữ lại đường override tường minh
-        // (assetConfig.maxPips) cho các trường hợp đặc biệt nếu caller có truyền vào.
-        const explicitMaxPips = (assetConfig as any).maxPips !== undefined && Number((assetConfig as any).maxPips) > 0
-          ? Number((assetConfig as any).maxPips)
-          : undefined;
-
+        // mỗi mốc là max của chính level đó.
+        // XOÁ HẲN explicitMaxPips — KHÔNG tin field maxPips từ request body của FE nữa
+        // (dù FE có gửi lên hay không), vì đây chính là đường khiến addedMarkupPips
+        // (VĐ2) hoặc bất kỳ giá trị tạm tính client-side nào bị ghi đè vĩnh viễn vào DB.
         const childMaxPips = targetIb?.level === 0
-          ? (existing && Number(existing.maxPips) > 0 ? Number(existing.maxPips) : (MAX_PIPS[assetType] || 0))
-          : (explicitMaxPips ?? rebatePips);
+          ? this.resolveEffectiveMaxPips(existing ? Number(existing.maxPips) : 0, true, assetType)
+          : rebatePips;
 
         // 2. Update -> after
         const updated = await tx.rebateConfig.upsert({
           where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
           update: {
             rebatePips,
-            markupPips: targetShare,
+            markupPips: Number(markupPips || 0),
             markupPercent: childRetainedPercent,
             maxPips: childMaxPips,
           },
@@ -311,7 +426,7 @@ export class RebateService {
             assetType,
             rebateType: rebateType as any,
             rebatePips,
-            markupPips: targetShare,
+            markupPips: Number(markupPips || 0),
             markupPercent: childRetainedPercent,
             maxPips: childMaxPips,
           },
@@ -381,8 +496,13 @@ export class RebateService {
           metadata: {
             updatedBy: currentUserId,
             actorEmail: actor?.email,
-            targetIbId,
-            changedAssets: updateDto.assets.map((a) => ({ assetType: a.assetType, rebateType: a.rebateType })),
+            // Bọc trong "details" để đồng nhất với cấu trúc metadata mà Admin nhận
+            // (notifyAdminsOnIbAction) — FE dùng chung 1 helper để tìm điểm điều
+            // hướng thay vì phải biết trước ai gửi loại notification nào.
+            details: {
+              targetIbId,
+              changedAssets: updateDto.assets.map((a) => ({ assetType: a.assetType, rebateType: a.rebateType })),
+            },
           },
         });
       }
@@ -551,7 +671,7 @@ export class RebateService {
         actorId: currentUserId,
         title: `${actorLabel} đã lưu kịch bản phân bổ Rebate Engine`,
         body: `${actorLabel} vừa lưu kịch bản phân bổ % và pips cho ${dto.nodes.length} node trong nhánh. Vui lòng kiểm tra lại.`,
-        actionType: 'REBATE_SCENARIO_SAVE',
+        actionType: AUDIT_ACTIONS.REBATE_SCENARIO_SAVE,
         details: { nodeIds: dto.nodes.map((n) => n.ibId), count: dto.nodes.length },
       });
     }
@@ -575,6 +695,13 @@ export class RebateService {
       });
     }
 
+    // Fix: FE luôn gửi lên TOÀN BỘ danh sách asset (kể cả những cái không đổi),
+    // nên trước đây vòng lặp này update DB + ghi audit + gửi notification cho
+    // TẤT CẢ, dù chỉ 1 asset thực sự thay đổi -> 1 lần bấm Lưu ra hàng chục bản
+    // ghi audit thừa + hàng chục notification trùng lặp cho cùng 1 người.
+    // Giờ so sánh với giá trị cũ trước, asset nào KHÔNG đổi thì bỏ qua hoàn toàn.
+    const changedOverrides: { assetType: AssetType; rebateType: string; maxPips: number }[] = [];
+
     for (const ov of overrides) {
       if (ov.maxPips < 0) {
         throw new UnprocessableEntityException({
@@ -590,8 +717,12 @@ export class RebateService {
       const before = await this.prisma.rebateConfig.findUnique({
         where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
       });
+      const beforeMaxPips = before ? Number(before.maxPips) : null;
 
-
+      if (beforeMaxPips === ov.maxPips) {
+        continue; // Không đổi gì -> bỏ qua hoàn toàn, không update/audit/notify
+      }
+      changedOverrides.push(ov);
 
       const updated = await this.prisma.rebateConfig.upsert({
         where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
@@ -611,21 +742,38 @@ export class RebateService {
         data: {
           rebateConfigId: updated.id,
           changedById,
-          before: { maxPips: before ? Number(before.maxPips) : null },
+          before: { maxPips: beforeMaxPips },
           after: { maxPips: ov.maxPips },
         },
       });
 
-      await this.resetSubtreeAssets(mibId, ov.assetType, ov.rebateType, changedById);
+      // Fix: trước đây chỉ ghi vào RebateConfigHistory (bảng riêng, không filter
+      // được qua GET /audit/logs) — giờ ghi thêm vào AuditLog trung tâm để nhất
+      // quán với mọi thao tác nhạy cảm khác của Admin.
+      await this.auditService.log({
+        actorId: changedById,
+        action: AUDIT_ACTIONS.REBATE_MAX_OVERRIDE,
+        targetType: 'REBATE_CONFIG',
+        targetId: updated.id,
+        before: { mibId, assetType: ov.assetType, rebateType: ov.rebateType, maxPips: beforeMaxPips },
+        after: { mibId, assetType: ov.assetType, rebateType: ov.rebateType, maxPips: ov.maxPips },
+      });
+    }
+
+    // Fix: trước đây gọi resetSubtreeAssets() BÊN TRONG vòng lặp, 1 lần / asset ->
+    // N asset thay đổi = N lần quét subtree + N notification riêng biệt cho cùng
+    // 1 người. Giờ gom lại: quét subtree 1 lần, gửi ĐÚNG 1 notification / người,
+    // liệt kê đủ mọi asset đã đổi trong "changedAssets".
+    if (changedOverrides.length > 0) {
+      await this.resetSubtreeAssetsBatch(mibId, changedOverrides, changedById);
     }
 
     return this.getConfig(mibId);
   }
 
-  private async resetSubtreeAssets(
+  private async resetSubtreeAssetsBatch(
     rootId: string,
-    assetType: AssetType,
-    rebateType: string,
+    changedAssets: { assetType: AssetType; rebateType: string }[],
     changedById: string,
   ) {
     const subtree: any[] = await this.prisma.$queryRaw`
@@ -638,32 +786,46 @@ export class RebateService {
       )
       SELECT id FROM subtree WHERE id != ${rootId}
     `;
+    const descendantIds = subtree.map((s) => s.id);
 
-    const allIdsToNotify = [rootId, ...(subtree).map((s) => s.id)];
-
-    if (subtree.length > 0) {
-      const descendantIds = subtree.map(s => s.id);
-      await this.prisma.rebateConfig.updateMany({
-        where: {
-          ibId: { in: descendantIds },
-          assetType,
-          rebateType: rebateType as any,
-        },
-        data: {
-          rebatePips: 0,
-          markupPips: 0,
-          maxPips: 0,
-        }
-      });
+    if (descendantIds.length > 0) {
+      // Prisma updateMany không hỗ trợ where theo nhiều cặp (assetType, rebateType)
+      // khác nhau cùng lúc trong 1 câu lệnh -> vẫn cần loop ở TẦNG DB, nhưng đây là
+      // update thẳng (không audit/không notify riêng lẻ), khác hẳn vòng lặp cũ.
+      for (const { assetType, rebateType } of changedAssets) {
+        await this.prisma.rebateConfig.updateMany({
+          where: { ibId: { in: descendantIds }, assetType, rebateType: rebateType as any },
+          data: { rebatePips: 0, markupPips: 0, maxPips: 0 },
+        });
+      }
     }
 
+    const changedAssetsList = changedAssets.map((a) => ({ assetType: a.assetType, rebateType: a.rebateType }));
+    const assetNames = changedAssetsList.map((a) => a.assetType).slice(0, 4);
+    const summaryText = assetNames.length > 0
+      ? ` (${assetNames.join(', ')}${changedAssetsList.length > 4 ? '...' : ''})`
+      : '';
+
+    const allIdsToNotify = [rootId, ...descendantIds];
+
     for (const id of allIdsToNotify) {
-      this.notificationService.createSystemNotification({
+      const isRoot = id === rootId;
+      // Fix: mỗi recipient ở đây đều đang được báo về THAY ĐỔI TRÊN CHÍNH CONFIG
+      // CỦA HỌ (MIB bị đổi trần trực tiếp, hoặc cấp dưới bị reset config do trần
+      // MIB tuyến trên hạ xuống) — nên targetIbId luôn là chính id của recipient
+      // đó (Case 1 tự-mình ở FE), KHÔNG phải rootId dùng chung cho mọi người.
+      await this.notificationService.createSystemNotification({
         recipientId: id,
         type: 'REBATE_UPDATED' as any,
-        title: 'Sửa đổi Rebate',
-        body: 'Vui lòng bạn hãy vô kiểm tra lại Rebate hiện tại của mình',
-        metadata: { assetType, action: 'RESET' },
+        title: isRoot ? 'Trần Rebate (MaxPips) của bạn đã được Admin cập nhật' : 'Rebate của bạn đã bị điều chỉnh',
+        body: isRoot
+          ? `Admin vừa cập nhật trần Rebate${summaryText} cho MIB của bạn. Vui lòng kiểm tra lại Rebate hiện tại của mình.`
+          : `Trần Rebate${summaryText} của MIB tuyến trên vừa thay đổi khiến cấu hình của bạn bị reset về mức hợp lệ. Vui lòng kiểm tra lại Rebate hiện tại của mình.`,
+        metadata: {
+          action: 'RESET',
+          changedById,
+          details: { targetIbId: id, changedAssets: changedAssetsList },
+        },
       });
     }
   }
@@ -916,4 +1078,4 @@ export class RebateService {
       data: Array.isArray(updatedConfig.value) ? (updatedConfig.value as AssetType[]) : [],
     };
   }
-}
+}

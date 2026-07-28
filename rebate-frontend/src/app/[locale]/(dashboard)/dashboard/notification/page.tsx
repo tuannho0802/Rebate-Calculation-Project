@@ -12,14 +12,48 @@ import { useAuthStore } from '@/store/auth.store';
 const notificationTypeOptions = Object.values(NotificationType);
 
 /**
- * Suy ra ibId cần điều hướng tới từ metadata.details của notification.
- * Backend hiện có 2 shape phổ biến: { targetIbId } (REBATE_CONFIG_UPDATE, IB_MOVE_SUBTREE)
- * và { newIbId } (IB_CREATE). Trả về null nếu không có gì để điều hướng.
+ * Suy ra URL cần điều hướng tới từ metadata.details của notification.
+ * Backend hiện có 3 shape phổ biến trong details: { targetIbId } (REBATE_CONFIG_UPDATE,
+ * IB_MOVE_SUBTREE), { newIbId } (IB_CREATE), { nodeIds: [] } (REBATE_SCENARIO_SAVE).
+ * Trả về null nếu không có gì để điều hướng.
+ *
+ * Quy tắc điều hướng:
+ * - Admin: luôn vào Rebate Management (hành vi cũ, KHÔNG đổi) — Admin có quyền xem
+ *   toàn hệ thống nên không cần phân biệt "của ai".
+ * - MIB/IB: PHẢI phân biệt — trang đích và quyền xem vẫn do BE (SubtreeGuard) quyết
+ *   định như cũ, ở đây chỉ dựng URL, không cấp thêm quyền gì:
+ *   - Case 1: targetId chính là bản thân người đang đăng nhập -> "/dashboard"
+ *     (trang overview cấu hình của chính mình).
+ *   - Case 2: targetId là người khác (chỉ có thể là cấp dưới trực tiếp, vì SubtreeGuard
+ *     chỉ cho MIB/IB xem con trực tiếp của mình) -> "/dashboard/tree/edit/:id" — đúng
+ *     trang quản lý/xem chi tiết cấp dưới đã dùng sẵn trong hệ thống.
  */
-function getNavigateTargetIbId(meta: Record<string, any>): string | null {
+function buildNotificationNavigateUrl(
+  meta: Record<string, any>,
+  currentUserId: string | undefined,
+  isAdmin: boolean,
+): string | null {
   const details = meta?.details;
   if (!details) return null;
-  return details.targetIbId || details.newIbId || null;
+
+  const targetId: string | null =
+    details.targetIbId || details.newIbId || details.nodeIds?.[0] || null;
+  if (!targetId) return null;
+
+  if (isAdmin) {
+    return `/dashboard/rebate-management?ibId=${targetId}`;
+  }
+
+  const changedAssets: string[] = Array.isArray(details.changedAssets)
+    ? details.changedAssets.map((a: any) => a?.assetType).filter(Boolean)
+    : [];
+  const qs = changedAssets.length > 0 ? `?highlightAssets=${changedAssets.join(',')}` : '';
+
+  if (currentUserId && targetId === currentUserId) {
+    return `/dashboard${qs}`;
+  }
+
+  return `/dashboard/tree/edit/${targetId}${qs}`;
 }
 
 export default function NotificationPage() {
@@ -40,6 +74,9 @@ export default function NotificationPage() {
   // Reject Reason Modal state
   const [rejectNotificationId, setRejectNotificationId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+
+  // Bulk-select để xoá nhiều thông báo cùng lúc
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   const params = {
     page,
@@ -81,6 +118,22 @@ export default function NotificationPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
+  const removeBulkMutation = useMutation({
+    mutationFn: (ids: string[]) => notificationApi.removeBulk(ids),
+    onSuccess: () => {
+      setSelectedIds([]);
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+
+  const removeAllMutation = useMutation({
+    mutationFn: () => notificationApi.removeAll(),
+    onSuccess: () => {
+      setSelectedIds([]);
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+
   const reviewMutation = useMutation({
     mutationFn: ({ id, status, reason }: { id: string; status: 'APPROVED' | 'REJECTED'; reason?: string }) =>
       notificationApi.reviewNotification(id, { status, reason }),
@@ -107,6 +160,32 @@ export default function NotificationPage() {
       status: 'REJECTED',
       reason: rejectReason || 'Vui lòng kiểm tra lại thông số và cài đặt hoa hồng trên hệ thống.',
     });
+  };
+
+  const isAllOnPageSelected = notifications.length > 0 && notifications.every((n: Notification) => selectedIds.includes(n.id));
+
+  const toggleSelectAllOnPage = () => {
+    if (isAllOnPageSelected) {
+      const pageIds = new Set(notifications.map((n: Notification) => n.id));
+      setSelectedIds((prev) => prev.filter((id) => !pageIds.has(id)));
+    } else {
+      setSelectedIds((prev) => [...new Set([...prev, ...notifications.map((n: Notification) => n.id)])]);
+    }
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.length === 0) return;
+    if (!window.confirm(`Xoá ${selectedIds.length} thông báo đã chọn? Không thể hoàn tác.`)) return;
+    removeBulkMutation.mutate(selectedIds);
+  };
+
+  const handleDeleteAll = () => {
+    if (!window.confirm('Xoá TOÀN BỘ thông báo của bạn? Hành động này không thể hoàn tác.')) return;
+    removeAllMutation.mutate();
   };
 
   return (
@@ -154,6 +233,26 @@ export default function NotificationPage() {
               <MailPlus className="h-4 w-4" />
               Đánh dấu đã đọc tất cả
             </button>
+            {selectedIds.length > 0 && (
+              <button
+                type="button"
+                onClick={handleDeleteSelected}
+                disabled={removeBulkMutation.isPending}
+                className="inline-flex items-center gap-2 rounded-2xl bg-rose-600 px-4 py-2.5 text-xs font-extrabold text-white transition hover:bg-rose-700 shadow-sm disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                Xoá đã chọn ({selectedIds.length})
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleDeleteAll}
+              disabled={removeAllMutation.isPending || notifications.length === 0}
+              className="inline-flex items-center gap-2 rounded-2xl border border-rose-300 bg-white px-4 py-2.5 text-xs font-extrabold text-rose-700 transition hover:bg-rose-50 shadow-sm disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />
+              Xoá tất cả
+            </button>
           </div>
         </div>
 
@@ -161,6 +260,15 @@ export default function NotificationPage() {
           <table className="min-w-full divide-y divide-slate-100 text-left text-sm">
             <thead className="bg-amber-50/60 font-extrabold text-slate-800 border-b border-amber-200/60 text-xs">
               <tr>
+                <th className="px-4 py-3.5 font-bold w-10">
+                  <input
+                    type="checkbox"
+                    checked={isAllOnPageSelected}
+                    onChange={toggleSelectAllOnPage}
+                    className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                    aria-label="Chọn tất cả thông báo trong trang này"
+                  />
+                </th>
                 <th className="px-4 py-3.5 font-bold">Nội dung thông báo</th>
                 <th className="px-4 py-3.5 font-bold">Loại</th>
                 <th className="px-4 py-3.5 font-bold">Thời gian</th>
@@ -171,7 +279,7 @@ export default function NotificationPage() {
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
                     <Loader2 className="mx-auto h-6 w-6 animate-spin text-amber-600 mb-2" />
                     <span>Đang tải thông báo...</span>
                   </td>
@@ -180,12 +288,12 @@ export default function NotificationPage() {
                 notifications.map((item: Notification) => {
                   const meta = (item.metadata as Record<string, any>) || {};
                   const reviewStatus = meta.reviewStatus;
-                  const navigateTargetId = getNavigateTargetIbId(meta);
+                  const navigateUrl = buildNotificationNavigateUrl(meta, user?.id, isAdmin);
 
                   const handleNavigate = () => {
-                    if (!navigateTargetId) return;
+                    if (!navigateUrl) return;
                     if (!item.isRead) markReadMutation.mutate(item.id);
-                    router.push(`/dashboard/rebate-management?ibId=${navigateTargetId}`);
+                    router.push(navigateUrl);
                   };
 
                   return (
@@ -194,15 +302,24 @@ export default function NotificationPage() {
                       className={`hover:bg-amber-50/30 transition-colors ${item.isRead ? '' : 'bg-amber-50/20 font-semibold'
                         }`}
                     >
+                      <td className="px-4 py-4 align-top">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(item.id)}
+                          onChange={() => toggleSelectOne(item.id)}
+                          className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                          aria-label={`Chọn thông báo ${item.title}`}
+                        />
+                      </td>
                       <td className="px-4 py-4 text-slate-900 max-w-md">
                         <div
-                          className={`flex items-start gap-2 ${navigateTargetId ? 'cursor-pointer group' : ''}`}
-                          onClick={navigateTargetId ? handleNavigate : undefined}
-                          title={navigateTargetId ? 'Bấm để xem chi tiết trong Rebate Management' : undefined}
+                          className={`flex items-start gap-2 ${navigateUrl ? 'cursor-pointer group' : ''}`}
+                          onClick={navigateUrl ? handleNavigate : undefined}
+                          title={navigateUrl ? 'Bấm để xem chi tiết' : undefined}
                         >
                           <div>
                             <p
-                              className={`font-extrabold text-slate-900 text-sm ${navigateTargetId ? 'group-hover:text-amber-700 group-hover:underline' : ''
+                              className={`font-extrabold text-slate-900 text-sm ${navigateUrl ? 'group-hover:text-amber-700 group-hover:underline' : ''
                                 }`}
                             >
                               {item.title}
@@ -302,7 +419,7 @@ export default function NotificationPage() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
                     Chưa có thông báo nào trong hộp thư.
                   </td>
                 </tr>
