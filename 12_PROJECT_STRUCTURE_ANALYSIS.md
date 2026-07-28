@@ -6,6 +6,16 @@
 > **Thời điểm phân tích:** 2026-07-15 (cập nhật)
 
 ## Changelog
+- **2026-07-28 (rà soát toàn bộ qua repo clone thật, không dựa vào file upload thủ công nữa)**:
+  - Sửa **RỦI RO**: R5/R5b/G10 mô tả sai hàm `cascadeMaxPipsToSubtree()` (không tồn tại) — viết
+    lại theo đúng `resolveEffectiveMaxPips()` + cascade tuyến tính `maxPips(con) = rebatePips`.
+    Thêm R7 (fix "VĐ1" — FE trước đây gửi thừa 17/18 asset mỗi lần Lưu) và G12 (fix "bootstrap
+    gap" — MIB chưa có dòng rebateConfig nào vẫn thấy đủ asset trên Dashboard).
+  - Sửa **BACKEND MODULES**: bổ sung 5 route thiếu hoàn toàn ở module `rebate`
+    (`config/scenario/save`, `simulate` GET+POST, `disabled-asset-types` GET+PUT).
+  - Sửa **DATABASE SCHEMA**: bổ sung 2 model thiếu (`SystemConfig`, `AuditLogDismissal`).
+  - Xem chi tiết tương ứng tại `01_API_CONTRACT.md`, `02_DATA_MODELS.md`, `04_BACKEND_GUIDE.md`,
+    `06_ERROR_CODES.md` (mỗi file có changelog riêng cho đúng phần mình sửa).
 - **2026-07-15**:
   - Rewrite **BACKEND MODULES**: bổ sung `PUT /api/rebate/config/bulk` (ADMIN) và `PUT /api/rebate/config/mib/:mibId/max-override` (ADMIN); sửa route templates thành `/api/rebate/ib/:ibId/templates`; thêm `GET /api/ib/:id/tree` (Chain View, ADMIN). Gỡ `PATCH /api/ib/:id/restore` (đã gỡ khỏi BE 2026-07-14).
   - Rewrite **FRONTEND PAGES**: thêm `/rebate-management` (3 view Flat/Pivot/Compact), `/admin`, `/trash`, `/account`.
@@ -154,7 +164,7 @@ Rebate project/                          ← Root workspace
 |--------|--------------------|-----------------|--------------------|
 | **auth** | Xác thực người dùng, phát hành JWT | `POST /api/auth/login`<br>`POST /api/auth/refresh`<br>`POST /api/auth/logout`<br>`POST /api/auth/change-password` | `ib_nodes`, `refresh_tokens` |
 | **ib** | Quản lý cây phân cấp IB (CRUD + tree) | `GET /api/ib/me`<br>`GET /api/ib/tree`<br>`GET /api/ib/:id/tree` (ADMIN, Chain View)<br>`GET /api/ib/search`<br>`GET /api/ib/leaderboard`<br>`GET /api/ib/:id`<br>`POST /api/ib`<br>`PUT /api/ib/:id`<br>`DELETE /api/ib/:id`<br>`GET /api/ib/:id/children`<br>`GET /api/ib/:id/performance`<br>`PATCH /api/ib/:id/reset-password`<br>`GET /api/ib/:id/profile`<br>`PATCH /api/ib/:id/profile` | `ib_nodes`, `rebate_configs`, `rebate_transactions`, `audit_logs`, `notifications` |
-| **rebate** | Cấu hình rebate theo asset, tính toán & cascade phân phối | `GET /api/rebate/config/:ibId`<br>`PUT /api/rebate/config/:ibId`<br>`PUT /api/rebate/config/bulk` (ADMIN)<br>`PUT /api/rebate/config/mib/:mibId/max-override` (ADMIN)<br>`GET /api/rebate/config/:ibId/history`<br>`GET /api/rebate/ib/:ibId/templates`<br>`PUT /api/rebate/ib/:ibId/templates`<br>`GET /api/rebate/calculate` | `rebate_configs`, `rebate_config_history`, `account_type_templates`, `markup_link_templates` |
+| **rebate** | Cấu hình rebate theo asset, tính toán, AI Simulator & cascade phân phối | `GET /api/rebate/config/:ibId`<br>`PUT /api/rebate/config/:ibId`<br>`PUT /api/rebate/config/bulk` (ADMIN)<br>`PUT /api/rebate/config/scenario/save`<br>`PUT /api/rebate/config/mib/:mibId/max-override` (ADMIN)<br>`GET /api/rebate/config/:ibId/history`<br>`GET /api/rebate/ib/:ibId/templates`<br>`PUT /api/rebate/ib/:ibId/templates`<br>`GET /api/rebate/calculate`<br>`GET /api/rebate/simulate`<br>`POST /api/rebate/simulate`<br>`GET /api/rebate/disabled-asset-types`<br>`PUT /api/rebate/disabled-asset-types` (ADMIN) | `rebate_configs`, `rebate_config_history`, `account_type_templates`, `markup_link_templates`, `system_configs` |
 | **transaction** | Ghi nhận giao dịch rebate (single & batch) | `POST /api/transactions`<br>`POST /api/transactions/batch`<br>`GET /api/transactions/:id`<br>`DELETE /api/transactions/:id` | `rebate_transactions`, `wallets`, `audit_logs`, `notifications` |
 | **wallet** | Quản lý số dư ví của IB | `GET /api/wallet/:ibId` | `wallets` |
 | **payout** | Yêu cầu và duyệt rút tiền | `POST /api/payouts`<br>`GET /api/payouts`<br>`GET /api/payouts/pending`<br>`PATCH /api/payouts/:id/approve`<br>`PATCH /api/payouts/:id/reject` | `payouts`, `wallets`, `audit_logs`, `notifications` |
@@ -200,6 +210,8 @@ Rebate project/                          ← Root workspace
 | **AccountTypeTemplate** (`account_type_templates`) | `ownerId`, `name`, `rows` Json | n-1: IbNode |
 | **MarkupLinkTemplate** (`markup_link_templates`) | `ownerId`, `name`, `share` D(10,4) | n-1: IbNode |
 | **RefreshToken** (`refresh_tokens`) | `token` unique, `ibId`, `expiresAt` | n-1: IbNode |
+| **SystemConfig** (`system_configs`) | `key` PK string, `value` Json | Không quan hệ. Key duy nhất đang dùng: `DISABLED_ASSET_TYPES` |
+| **AuditLogDismissal** (`audit_log_dismissals`) | `auditLogId` FK, `userId` FK, `dismissedAt` | n-1: AuditLog; n-1: IbNode. Unique: `(auditLogId, userId)` |
 
 ### Enums
 
@@ -277,9 +289,10 @@ Rebate project/                          ← Root workspace
 | R2 | `wallet.service.ts: credit()` | Race condition khi cập nhật ví. | 🟡 **CÒN**: Dùng `SELECT FOR UPDATE`. |
 | R3 | `payout.service.ts: approvePayout()` | Race condition trong giao dịch rút tiền. | 🟡 **CÒN**: SELECT FOR UPDATE trong cùng transaction. |
 | R4 | `payout.service.ts: requestPayout()` | Thông báo tới MIB. | 🟡 **CÒN**: filter theo phạm vi quyền hạn. |
-| R5 | `rebate.service.ts: updateConfig()` / `cascadeMaxPipsToSubtree()` | Cập nhật cấu hình cascade. | ✅ **ĐÃ GIẢM RR** (2026-07-15): hợp nhất 1 công thức duy nhất `maxPips(con) = max(0, parent.maxPips - parent.rebatePips)` qua `cascadeMaxPipsToSubtree()` (cả `setMibMaxOverride` & `updateConfig` gọi chung). |
-| R5b | `rebate.service.ts: bulkUpdateConfig()` | Race condition khi cascade nhiều item cùng subtree. | ✅ **ĐÃ GIẢM RR** (2026-07-15): sort `items` theo `level ASC` (parent→child) trước khi loop → cascade đọc `maxPips`/`rebatePips` mới nhất. |
+| R5 | `rebate.service.ts: updateConfig()` | Cập nhật cấu hình + gán `maxPips` cho cấp dưới. | ✅ **ĐÃ GIẢM RR** (sửa lại mô tả 2026-07-28): không có hàm `cascadeMaxPipsToSubtree()`. Công thức thật là cascade **tuyến tính**: `maxPips(con, level ≥ 1) = rebatePips` vừa nhận từ cấp trên (không phải hiệu số `parent.maxPips - parent.rebatePips`). Trần hiệu lực dùng chung 1 nguồn duy nhất qua `resolveEffectiveMaxPips()` cho cả đọc (`getConfig`) và ghi/validate (`updateConfig`). Xem `04_BACKEND_GUIDE.md`. |
+| R5b | `rebate.service.ts: bulkUpdateConfig()` | Race condition khi cascade nhiều item cùng subtree. | ✅ **ĐÃ GIẢM RR** (2026-07-15, vẫn đúng 2026-07-28): sort `items` theo `level ASC` (parent→child) trước khi loop → cascade đọc `maxPips`/`rebatePips` mới nhất. |
 | **R6** | `IbNode.accountType` (`schema.prisma`) | **KHÔNG có FK** tới `account_type_templates` / `markup_link_templates` — chỉ là `String`. Nếu MIB đổi tên template, `accountType` của sub-IB không tự cập nhật → data lệch. | 🔴 **CHƯA XỬ LÝ** (CRITICAL data integrity): chờ quyết định thiết kế lại (thêm FK hoặc bỏ field, đọc template từ relation). Backlink: `02_DATA_MODELS.md`, `09_CODE_STANDARDS.md` §B.5. |
+| **R7** | `rebate-frontend/.../tree/edit/[id]/page.tsx: handleSave()` | Trước 2026-07-27: mỗi lần Lưu luôn gửi cả 18 `AssetType` lên `PUT /rebate/config/:ibId`, kể cả asset không đổi gì — ghi DB thừa + vô tình reset `markupPercent` của IB cha cho asset không liên quan (mục "1.1" trong `updateConfig()`). | ✅ **ĐÃ FIX** (27/07/2026, "VĐ1"): chỉ gửi asset có `rebatePips` thật sự đổi, hoặc asset đang có phân bổ (`rebatePips > 0`) khi đổi Loại tài khoản (cần refresh `markupPips`). Dữ liệu **cũ** bị ghi thừa trước ngày fix (`markupPips`/`markupPercent` "rác" trên asset `rebatePips = 0`) **không tự sửa** — cần dọn tay nếu cần. |
 
 ### 🟢 NHẬN XÉT TỐT / ĐÃ XỬ LÝ ĐÚNG
 
@@ -287,8 +300,9 @@ Rebate project/                          ← Root workspace
 |---|--------|---------|
 | G3 | `common/guards/subtree.guard.ts` | ✅ Đã cập nhật 2026-07-14: Kiểm tra 1 cấp trực tiếp thay vì dùng CTE đệ quy. |
 | G9 | `common/guards/protect-root-admin.guard.ts` | ✅ Đã cập nhật 2026-07-14: Bảo vệ Root Admin khỏi thao tác nguy hiểm. |
-| G10 | `rebate.service.ts: cascadeMaxPipsToSubtree()` | ✅ 2026-07-15: cascade formula thống nhất, xử lý tuần tự theo `level ASC`. |
+| G10 | `rebate.service.ts: resolveEffectiveMaxPips()` + `updateConfig()` | ✅ Sửa lại mô tả 2026-07-28 (không có `cascadeMaxPipsToSubtree()`): 1 nguồn duy nhất tính trần hiệu lực dùng chung cho đọc/ghi; cascade tuyến tính theo `rebatePips`; `bulkUpdateConfig()` xử lý tuần tự theo `level ASC`. |
 | G11 | `PivotArrowOverlay.tsx` | ✅ 2026-07-15: SVG overlay không trễ khi scroll (hệ tọa độ nội dung, không scroll listener), hover key composite không lan hàng. |
+| G12 | `rebate.service.ts: getConfig()` | ✅ 27/07/2026: fix "bootstrap gap" — MIB chưa từng có dòng `rebateConfig` nào trong DB vẫn thấy đủ 18 `AssetType` trên Dashboard (synth "ảo" với `maxPips = MAX_PIPS[assetType]`, không ghi DB), thay vì `assets: []` như trước. |
 
 ---
 

@@ -4,7 +4,23 @@
 > Mọi thay đổi phải cập nhật file này trước khi code.
 
 ## Changelog
-- **2026-07-15 (cascade formula mới — rebate.service.ts)**:
+- **2026-07-28 (lần 2 — đối chiếu trực tiếp `rebate.controller.ts`, phát hiện qua việc clone repo thật)**:
+  - **Thêm mới hoàn toàn 5 endpoint** chưa từng có trong docs dù đã tồn tại sẵn trên BE:
+    `PUT /rebate/config/scenario/save`, `GET /rebate/simulate`, `POST /rebate/simulate`,
+    `GET /rebate/disabled-asset-types`, `PUT /rebate/disabled-asset-types`. Xem mục "Rebate
+    Scenario / Simulator / Disabled Assets Endpoints" bên dưới.
+  - Nguồn: đối chiếu từng route decorator (`@Get/@Put/@Post`) trong `rebate.controller.ts` với
+    toàn bộ mục "Rebate Config Endpoints" hiện có trong file này — phát hiện thiếu do lần rà
+    soát 2026-07-28 (lần 1) chỉ dựa trên các file `.ts` được upload thủ công, chưa có repo thật.
+  - Đã đối chiếu thêm với `04_BACKEND_GUIDE.md`, `06_ERROR_CODES.md`, `12_PROJECT_STRUCTURE_ANALYSIS.md` — cả 3 đều có các mục sai/thiếu tương tự (cascade formula sai, mã lỗi ảo/thiếu, danh sách endpoint thiếu 5 route trên), đã sửa đồng bộ.
+- **2026-07-28 (rà soát toàn bộ + đối chiếu trực tiếp source code hiện tại — nhiều mục cũ đã SAI)**:
+  - **Sửa quan trọng — công thức cascade `maxPips` SAI trong docs cũ**: mục "2026-07-15 (cascade formula mới)" bên dưới mô tả `maxPips(con) = max(0, parent.maxPips - parent.rebatePips)` qua một hàm `cascadeMaxPipsToSubtree()`. Hàm này **không tồn tại** trong code hiện tại. Công thức THẬT (trong `updateConfig()`): `maxPips(con, level ≥ 1) = rebatePips` (đúng bằng số pips vừa nhận từ cấp trên — nguyên tắc cascade tuyến tính 20→15→10→5→0, không phải hiệu số). Xem `04_BACKEND_GUIDE.md` đã sửa lại.
+  - **Sửa quan trọng — `PUT /rebate/config/mib/:mibId/max-override` KHÔNG còn giới hạn `<= MAX_PIPS[assetType]`**: dòng "MỚI 2026-07-15" bên dưới nói override phải `<= MAX_PIPS[assetType]` — code hiện tại **cố tình bỏ giới hạn này** (comment trong `setMibMaxOverride()`: *"KHÔNG chặn theo MAX_PIPS — MAX_PIPS là trần MẶC ĐỊNH, override tồn tại đúng để thay thế trần đó, chặn theo MAX_PIPS sẽ làm tính năng override vô nghĩa"*). Override chỉ còn validate `maxPips >= 0`.
+  - **Sửa quan trọng — override không "cascade" theo công thức, mà RESET toàn bộ subtree về 0**: khi Admin đổi trần MIB cho 1 asset, mọi IB con/cháu/chắt trong nhánh bị set `rebatePips = markupPips = maxPips = 0` cho đúng asset đó (buộc re-cấu hình lại từ đầu), KHÔNG phải tính lại theo công thức trừ. Xem `resetSubtreeAssetsBatch()`.
+  - **Sửa** `GET /rebate/config/:ibId`: với **MIB (level 0)**, response giờ LUÔN trả đủ **mọi `AssetType`** kể cả khi MIB chưa từng có dòng nào trong DB (asset chưa cấu hình trả về "ảo" với `maxPips = MAX_PIPS[assetType]`, không lưu gì xuống DB). Trước đây MIB chưa từng được Admin override sẽ nhận `assets: []` hoàn toàn dù đã là root của cả nhánh. Với non-MIB, hành vi giữ nguyên (chỉ trả dòng có thật).
+  - **Sửa** `PUT /rebate/config/:ibId`: xác nhận lại — BE **không bao giờ tin `maxPips` do FE gửi** (luôn tự tính lại phía server, field này chỉ mang tính tham khảo nếu FE có gửi). Field `markupPips` NGƯỢC LẠI được lưu đúng giá trị FE gửi (trước đây có 1 bug đã fix khiến `markupPips` bị ghi đè nhầm bằng `markupPercent`, luôn ra 100 — đã sửa 27/07/2026, xem `04_BACKEND_GUIDE.md`).
+  - **Thêm mới hoàn toàn**: 3 endpoint `GET /dashboard/overview`, `GET /dashboard/rebate-summary`, `GET /dashboard/ib-performance` — trước đây docs chỉ có `GET /dashboard/summary` với response shape sai hoàn toàn so với code thật. Cả 4 endpoint dashboard giờ tuân theo đúng 1 quy tắc phân quyền xem dữ liệu (`resolveScopedIbIds()`): `ADMIN` → toàn hệ thống; `MIB (level 0)` → đệ quy toàn bộ nhánh (View-All); `Lv1+` → CHỈ con trực tiếp (parent-strict), không đệ quy xuống cháu/chắt. Xem mục "Dashboard Endpoints" bên dưới.
+- **2026-07-15 (cascade formula mới — rebate.service.ts)** — ⚠️ **ĐÃ SUPERSEDED, xem mục 2026-07-28 ở trên. Giữ lại nguyên văn dưới đây chỉ để tham khảo lịch sử, KHÔNG còn đúng với code hiện tại:**
   - Ghi rõ ràng vào docs: `PUT /rebate/config/mib/:mibId/max-override` giờ validate `maxPips <= MAX_PIPS[assetType]` (trần công ty). Trước đây không có giới hạn này. `MAX_OVERRIDE_INVALID` (422) nếu vượt.
   - Ghi rõ: `maxPips` trong response `GET /rebate/config/:ibId` hiện phản ánh công thức cascade mới: `maxPips(con) = max(0, parent.maxPips - parent.rebatePips)`. Con trực tiếp của MIB nhận `maxPips = mibMaxPips - mibRebatePips` (không còn bị giữ nguyên 0 như trước).
   - Xoá ghi chú cũ "markupPips=0 của MIB gây label sai" — đã fix ở FE layer, không liên quan BE API.
@@ -340,9 +356,14 @@ Lấy cấu hình rebate của một IB.
 **Dùng ở đâu:**
 - Là endpoint GET dùng chung để load cả:
   - cấu hình Rebate Management của 1 IB, và
-  - bảng "Trần hoa hồng theo MIB" ở FE Admin.
+  - bảng "Trần hoa hồng theo MIB" ở FE Admin, và
+  - Dashboard cá nhân (`/dashboard`) — hiện 1 cột duy nhất "Hoa hồng được nhận cho MIB và IB" (đổi tên từ "Max Pips", đọc trực tiếp field `maxPips`).
 - Không có endpoint GET riêng cho màn "Trần hoa hồng theo MIB"; FE đọc `assets[].maxPips` từ
   chính response của endpoint này.
+
+**Công thức `maxPips` (nguồn: `rebate.service.ts::resolveEffectiveMaxPips()` + `updateConfig()`):**
+- Với **non-MIB (level ≥ 1)**: `maxPips` = đúng số `rebatePips` mà IB đó vừa nhận từ cấp trên ở lần `PUT` gần nhất. Cascade tuyến tính theo từng mốc: MIB trần 20 → cấp Lv1 15 pips → Lv1 tự động có `maxPips = 15` → Lv1 cấp Lv2 10 pips → Lv2 có `maxPips = 10`, v.v. **KHÔNG** phải hiệu số `parent.maxPips - parent.rebatePips` (công thức này đã bị bỏ, xem Changelog 2026-07-28). `maxPips = 0` là trạng thái HỢP LỆ, nghĩa là "cấp trên chưa cấp gì cho asset này" — FE không được tự suy diễn thành lỗi hay fallback sang giá trị khác.
+- Với **MIB (level 0)**: nếu dòng DB có `maxPips > 0` (do Admin từng `max-override`) thì dùng nguyên giá trị đó; nếu `maxPips <= 0` **hoặc dòng đó chưa từng tồn tại trong DB** thì fallback về `MAX_PIPS[assetType]` (trần công ty, hard-code trong `rebate.service.ts`, KHÔNG lưu xuống DB — chỉ tính khi trả response). Riêng với MIB, response LUÔN chứa **đủ mọi `AssetType`** (kể cả asset chưa từng được cấu hình) — nếu không có dòng thật trong DB, BE tự sinh dòng "ảo" với `rebatePips: 0, markupPips: 0, markupPercent: 100, maxPips: MAX_PIPS[assetType], updatedAt: null`. Đây là fix cho bug "MIB không hiện gì trên Dashboard dù là root của cả nhánh" (27/07/2026) — trước đó MIB chưa từng được Admin override sẽ có `rebateConfig` rỗng hoàn toàn trong DB, khiến `assets: []`.
 
 **Response 200 (ĐÃ SỬA — có `rebateType` và `updatedAt` per-asset, docs cũ thiếu 2 field này):**
 ```json
@@ -374,6 +395,7 @@ Lấy cấu hình rebate của một IB.
   }
 }
 ```
+> Với MIB, `updatedAt` của asset "ảo" (chưa cấu hình) là `null`, không phải ISO string — FE cần xử lý cả 2 trường hợp khi hiển thị.
 
 ---
 
@@ -384,8 +406,21 @@ Set trần hoa hồng tuỳ chỉnh cho 1 MIB cụ thể theo từng `assetType`
 - Chỉ role `ADMIN` mới gọi được endpoint này.
 - `mibId` phải là node `level = 0`; nếu không sẽ lỗi `NOT_A_MIB`.
 - `maxPips` phải `>= 0`; nếu không sẽ lỗi `MAX_OVERRIDE_INVALID`.
-- **MỚI 2026-07-15:** `maxPips` phải `<= MAX_PIPS[assetType]` (trần công ty). Ví dụ D_FOREX không thể đặt maxPips > 12. Lỗi `MAX_OVERRIDE_INVALID` (422) nếu vượt.
+- **KHÔNG bị giới hạn bởi `MAX_PIPS[assetType]`** (trần công ty mặc định) — đây là do thiết kế
+  cố ý: override tồn tại đúng để Admin thay thế trần mặc định đó, nên không thể tự chặn theo
+  chính giá trị mà nó thay thế. *(Sửa 2026-07-28 — docs cũ ghi nhầm là có giới hạn này, xem
+  Changelog.)*
 - `rebateType` là field **bắt buộc** trong từng phần tử `overrides[]`.
+- Asset nào có `maxPips` gửi lên **giống hệt** giá trị hiện tại trong DB sẽ bị bỏ qua hoàn toàn
+  (không update/audit/notify) — tránh spam audit log + notification khi FE gửi nguyên cả danh
+  sách asset dù chỉ 1 cái thực sự đổi.
+
+**⚠️ Hiệu ứng phụ quan trọng — RESET toàn bộ subtree, không phải "cascade theo công thức":**
+Với mỗi asset thực sự thay đổi, **toàn bộ IB con/cháu/chắt trong nhánh của MIB đó** bị set
+`rebatePips = 0, markupPips = 0, maxPips = 0` cho đúng asset đó (xem
+`resetSubtreeAssetsBatch()`). Đây KHÔNG phải tính lại theo công thức trừ hay tỉ lệ — là XOÁ
+SẠCH về 0, buộc mọi Sub-IB phải được cấu hình lại từ đầu. Admin cần hiểu rõ hệ quả này trước
+khi đổi trần MIB trên môi trường có dữ liệu thật.
 
 **Request:**
 ```json
@@ -401,7 +436,8 @@ Set trần hoa hồng tuỳ chỉnh cho 1 MIB cụ thể theo từng `assetType`
 ```
 
 **Response 200:**
-- Service trả về lại `getConfig(mibId)` sau khi upsert MIB và cascade `maxPips` xuống subtree.
+- Service trả về lại `getConfig(mibId)` sau khi upsert MIB và **reset** subtree (không cascade
+  công thức xuống subtree như docs cũ mô tả).
 - Vì dùng response envelope chuẩn, shape thật là:
 
 ```json
@@ -456,6 +492,19 @@ Cập nhật cấu hình rebate (chỉ IB cấp trên mới được update cho 
 > `(ibId, assetType, rebateType)` là unique key để upsert — nếu FE gửi `rebateType` khác với
 > config hiện có cho cùng `assetType`, BE sẽ tạo **thêm 1 config mới** thay vì update config cũ.
 > FE cần cẩn thận khi cho phép đổi `rebateType` trên UI.
+
+**Xác thực server-side với từng field (nguồn: `updateConfig()`) — quan trọng, hay bị hiểu nhầm:**
+- `maxPips`: DTO **không có field này** ở request — dù FE có cố gửi lên cũng bị bỏ qua hoàn
+  toàn. BE luôn tự tính: `maxPips(con) = rebatePips` vừa nhận (xem công thức ở mục
+  `GET /rebate/config/:ibId`). Đây là fix cho lỗ hổng cũ (VĐ2/VĐ3): FE từng tính sẵn
+  `maxPips` cộng thêm `addedMarkupPips` rồi gửi lên, BE từng tin và ghi đè sai.
+- `markupPips`: **CÓ được lưu đúng giá trị FE gửi** — khác với `maxPips`. Trước 27/07/2026 có
+  1 bug khiến field này bị ghi đè nhầm bằng giá trị của `markupPercent` (luôn ra `100` cho mọi
+  asset, phá cả báo cáo export lẫn "Trình tính hoa hồng" mô phỏng) — đã fix, xem
+  `04_BACKEND_GUIDE.md`.
+- `rebatePips` phải nằm trong "trần" của cấp cha (`REBATE_EXCEEDS_PARENT` nếu vượt) — trần cấp
+  cha được tính qua cùng 1 hàm `resolveEffectiveMaxPips()` dùng chung với `GET`, kể cả khi cấp
+  cha là MIB chưa từng có dòng `rebateConfig` nào trong DB (bootstrap gap, fix 27/07/2026).
 
 **Response 200:**
 ```json
@@ -598,6 +647,121 @@ Tính toán rebate theo volume giao dịch.
     }
   }
 }
+```
+
+---
+
+---
+
+## Rebate Scenario / Simulator / Disabled Assets Endpoints (MỚI HOÀN TOÀN 2026-07-28 — trước đây thiếu hoàn toàn khỏi docs, phát hiện qua đối chiếu trực tiếp `rebate.controller.ts`)
+
+### PUT /rebate/config/scenario/save
+Lưu kết quả phân bổ (%/pips) của "AI Rebate Engine" xuống DB cho nhiều node cùng lúc — dùng
+sau khi người dùng chạy simulate và chọn 1 kịch bản ưng ý ở FE.
+
+**Auth:** `JwtAuthGuard`. Mọi `ibId` trong `nodes[]` phải nằm trong subtree của người gọi (chính
+mình + con trực tiếp, dùng chung `getSubtreeIds()`), **trừ khi** caller là `ADMIN`.
+
+**Request:**
+```json
+{
+  "nodes": [
+    { "ibId": "uuid", "markupPercent": 60, "markupPips": 6 }
+  ]
+}
+```
+> `markupPercent`: 0–100. `markupPips`: `>= 0`. Cả 2 field bắt buộc cho mỗi node.
+
+**Response 200:**
+```json
+{ "success": true, "data": { "success": true, "message": "Đã lưu kịch bản phân bổ vào cơ sở dữ liệu thành công" } }
+```
+**Error đặc thù:** `VALIDATION_ERROR` (400, nếu `nodes` rỗng), `SCENARIO_TARGET_NOT_IN_SUBTREE` (403).
+Lưu ý: endpoint này **ghi đè `markupPercent`/`markupPips` cho MỌI `rebate_configs` hiện có của
+`ibId`** (`updateMany({ where: { ibId } })`), không giới hạn theo `assetType`/`rebateType` cụ
+thể nào — khác hẳn `PUT /rebate/config/:ibId` (chỉ ghi đúng asset được gửi lên).
+
+---
+
+### GET /rebate/simulate
+Chạy thuật toán AI Rebate Simulator cho 1 nhánh IB có sẵn trong DB (tự đọc cấu trúc cây +
+config hiện tại), trả về các kịch bản phân bổ % và pips khả dĩ, sắp theo độ cân bằng (variance).
+
+**Auth:** `JwtAuthGuard` + `SubtreeGuard`.
+
+**Query params:**
+```
+?ibId=uuid              // bắt buộc — IB ở cuối hoặc trong nhánh cần mô phỏng
+?markupPips=10          // optional — mặc định đọc từ accountType của ibId nếu không truyền
+```
+
+**Response 200:** shape `SimulationResult` (xem `RebateScenario`/`ScenarioNodeItem` trong
+`02_DATA_MODELS.md` / `types/index.ts` phía FE — không lặp lại đầy đủ ở đây vì shape khá lớn).
+
+---
+
+### POST /rebate/simulate
+Giống `GET /rebate/simulate` nhưng nhận cấu trúc cây **tuỳ chỉnh** trực tiếp trong body thay vì
+đọc từ DB — dùng để thử kịch bản "what-if" không cần dữ liệu thật đã lưu.
+
+**Auth:** `JwtAuthGuard` (không có `SubtreeGuard` — endpoint này không đọc/ghi dữ liệu của ai,
+chỉ tính toán thuần trên payload người gọi tự cung cấp).
+
+**Request:**
+```json
+{
+  "treeNodes": [
+    { "nodeId": "node-1", "nodeName": "MIB Node", "level": 0, "assets": { "GOLD": 30, "FOREX": 22 } }
+  ],
+  "markupPips": 10,
+  "selectedAssets": ["GOLD", "FOREX"]
+}
+```
+> `assets`: map `AssetType` → tổng số pips rebate đang giữ tại node đó. `selectedAssets` optional
+> — nếu bỏ trống, thuật toán chạy trên toàn bộ asset có trong `assets` của mọi node.
+
+**Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "totalScenarios": 3,
+    "scenarios": [ /* RebateScenario[] */ ]
+  }
+}
+```
+
+---
+
+### GET /rebate/disabled-asset-types
+Lấy danh sách `AssetType` đang bị Admin khoá (ẩn khỏi UI chọn asset ở FE, không xoá config đã
+có sẵn của asset đó).
+
+**Auth:** `JwtAuthGuard` — **không** giới hạn role, mọi user đăng nhập đều xem được danh sách
+này (cần thiết để FE tự ẩn asset bị khoá khỏi mọi dropdown/table).
+
+**Response 200:**
+```json
+{ "success": true, "data": ["BITCOIN", "CRYPTO"] }
+```
+
+---
+
+### PUT /rebate/disabled-asset-types
+Cập nhật toàn bộ danh sách `AssetType` bị khoá (ghi đè hoàn toàn, không phải thêm/xoá từng phần
+tử).
+
+**Auth:** `JwtAuthGuard` + `RolesGuard` + `@Roles('ADMIN')`. IB thường gọi nhận
+`FORBIDDEN_ROLES_ONLY` (403).
+
+**Request:**
+```json
+{ "disabledAssetTypes": ["BITCOIN", "CRYPTO"] }
+```
+
+**Response 200:**
+```json
+{ "success": true, "data": ["BITCOIN", "CRYPTO"] }
 ```
 
 ---
@@ -801,39 +965,149 @@ enum RebateType {
 
 ## Dashboard Endpoints
 
-### GET /dashboard/summary
-Lấy tổng quan thông số Dashboard của IB hiện tại và toàn bộ subtree.
+> **Quy tắc phân quyền dùng CHUNG cho cả 4 endpoint dưới đây** (nguồn:
+> `dashboard.service.ts::resolveScopedIbIds()`, fix 28/07/2026):
+> - `ADMIN` → toàn bộ hệ thống (mọi `IbNode`, trừ chính Admin).
+> - `MIB` (level 0) → **đệ quy toàn bộ hậu duệ** trong nhánh của mình (View-All, mọi cấp).
+> - `Lv1+` (level ≥ 1) → **CHỈ con trực tiếp** (parent-strict), **KHÔNG** đệ quy xuống cháu/chắt.
+>
+> Cả 4 endpoint đều **tự-phục-vụ** (self-service) — không nhận `ibId` qua param, BE tự suy ra
+> phạm vi từ JWT (`user.sub`, `user.role`, `user.level`). Kết quả trả về LUÔN loại trừ chính
+> người gọi khỏi danh sách scoped IDs; 2 endpoint tổng hợp số liệu "của tôi + mạng lưới"
+> (`summary`, `rebate-summary`) tự nối lại `callerId` sau khi gọi helper; 2 endpoint bảng
+> "downline" (`overview`, `ib-performance`) thì không.
 
-**Response 200:**
+### GET /dashboard/summary
+Tổng quan nhanh: thống kê IB trong subtree, giao dịch hôm nay/tháng này, top 5 IB tháng này,
+biểu đồ 6 tháng gần nhất.
+
+**Response 200 (ĐÃ SỬA — docs cũ sai gần như toàn bộ shape):**
 ```json
 {
   "success": true,
   "data": {
-    "ibStats": {
-      "totalInSubtree": 150
-    },
+    "ibStats": { "totalActive": 12, "totalInactive": 2, "totalInSubtree": 14 },
     "transactionStats": {
-      "todayCount": 45,
-      "monthLots": 1200.5
+      "todayCount": 45, "todayLots": 120.5, "todayRebateUsd": 340.12,
+      "monthCount": 900, "monthLots": 1200.5, "monthRebateUsd": 5400.75
     },
     "topIbsThisMonth": [
-      {
-        "ib": {
-          "id": "uuid",
-          "email": "top-ib@example.com",
-          "level": 2
-        },
-        "lots": 450.5
-      }
+      { "id": "uuid", "email": "top-ib@example.com", "name": "Nguyen Van A", "monthLots": 450.5, "monthRebateUsd": 1200.3 }
     ],
-    "generatedAt": "2024-01-15T10:30:00Z"
+    "chartData": [
+      { "month": "2026-02", "totalRebate": 4200.5, "totalLots": 980.2 },
+      { "month": "2026-03", "totalRebate": 4800.1, "totalLots": 1050.7 }
+    ],
+    "generatedAt": "2026-07-28T10:30:00Z"
   }
 }
 ```
+> `chartData` luôn có đúng 6 phần tử (6 tháng gần nhất, kể cả tháng hiện tại).
 
-**Error codes đặc thù:** `INVALID_PERIOD` (400) nếu tham số kỳ báo cáo sai định dạng.
+**Error codes đặc thù:** không có mã lỗi riêng — chỉ lỗi auth chung (`401`) nếu thiếu/hết hạn token.
 
 ---
+
+### GET /dashboard/overview
+Dữ liệu cho khối "Tổng quan mạng lưới": ví, rebate tháng này so tháng trước, số IB trong
+subtree (tổng/đang hoạt động 30 ngày), lots tháng này, top 5 IB theo rebate tháng này.
+
+**Response 200 (MỚI — chưa từng có trong docs cũ):**
+```json
+{
+  "success": true,
+  "data": {
+    "wallet": { "balance": 1250.75, "currency": "USD" },
+    "rebate": { "thisMonth": 3200.5, "lastMonth": 2800.1, "changePercent": 14.29 },
+    "subtree": { "totalIbs": 14, "activeIbs": 9 },
+    "lots": { "thisMonth": 890.25 },
+    "topIbs": [
+      { "email": "lv1-a@test.com", "rebate": 1200.3, "lots": 340.5 }
+    ]
+  }
+}
+```
+> `rebate.changePercent` = `null` nếu tháng trước có tổng = 0 (tránh chia cho 0). `wallet` luôn
+> là ví của chính người gọi (không đổi theo scope). `activeIbs` = số IB trong scope có ít nhất 1
+> giao dịch trong 30 ngày gần nhất.
+
+---
+
+### GET /dashboard/rebate-summary
+Thống kê rebate theo kỳ (tháng), gộp theo asset / rebate type / level.
+
+**Query params:**
+```
+?period=2026-07   // bắt buộc, định dạng YYYY-MM
+```
+
+**Response 200 (MỚI — chưa từng có trong docs cũ):**
+```json
+{
+  "success": true,
+  "data": {
+    "period": "2026-07",
+    "total": 5400.75123456,
+    "byAsset": [
+      { "assetType": "GOLD", "rebate": 2200.5, "lots": 300.2 },
+      { "assetType": "FOREX", "rebate": 1800.1, "lots": 500.7 }
+    ],
+    "byRebateType": [
+      { "rebateType": "STP_REBATE", "rebate": 5100.25 }
+    ],
+    "byLevel": [
+      { "level": 0, "rebate": 1200.0 },
+      { "level": 1, "rebate": 4200.75 }
+    ]
+  }
+}
+```
+> `total`/`rebate` giữ nguyên độ chính xác `.toFixed(8)` từ DB (Decimal) — FE tự format khi
+> hiển thị, không round trước khi tính tổng lần nữa. `byAsset` sắp giảm dần theo `rebate`,
+> `byLevel` sắp tăng dần theo `level`.
+
+**Error codes đặc thù:** `INVALID_PERIOD` (400) nếu `period` sai định dạng `YYYY-MM`.
+
+---
+
+### GET /dashboard/ib-performance
+Bảng hiệu suất từng IB trong phạm vi được xem, theo kỳ, có phân trang và so sánh % với kỳ trước.
+
+**Query params:**
+```
+?period=2026-07   // bắt buộc, định dạng YYYY-MM
+?page=1           // optional, default 1
+?limit=20         // optional, default 20, tối đa 100
+```
+
+**Response 200 (MỚI — chưa từng có trong docs cũ):**
+```json
+{
+  "success": true,
+  "data": {
+    "period": "2026-07",
+    "items": [
+      {
+        "id": "uuid", "email": "lv1-a@test.com", "name": "Dong Ho Nguyen", "level": 1,
+        "lots": 340.5, "rebate": 1200.3, "txCount": 28,
+        "lotsChangePercent": 8.4, "rebateChangePercent": -2.1
+      }
+    ],
+    "total": 14, "page": 1, "limit": 20
+  }
+}
+```
+> `lotsChangePercent`/`rebateChangePercent` = `null` nếu kỳ trước không có dữ liệu (chia 0). Nếu
+> scope rỗng (vd Lv1+ chưa có con nào), trả `items: [], total: 0` — không lỗi.
+
+**Error codes đặc thù:** `INVALID_PERIOD` (400) nếu `period` sai định dạng `YYYY-MM`.
+
+---
+
+**Dùng ở đâu (FE):** cả 4 endpoint được gọi từ component dùng chung
+`components/dashboard/NetworkOverviewSection.tsx` (React Query), hiển thị trên `/dashboard`
+cho cả 3 role — chỉ khác `scopeTitle`/`scopeHint` hiển thị, không có logic phân quyền riêng ở
+FE (BE tự scope đúng). Xem `05_FRONTEND_GUIDE.md`.
 
 ## Notification Endpoints
 

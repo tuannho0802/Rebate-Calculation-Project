@@ -1,7 +1,19 @@
 # Backend Development Guide (NestJS + Prisma + Neon)
 
 ## Changelog
+- **2026-07-28 (rà soát toàn bộ + đối chiếu trực tiếp `rebate.service.ts` hiện tại)**:
+  - **Sửa quan trọng**: mục "Rebate Calculation Logic" bên dưới trước đây mô tả hàm
+    `cascadeMaxPipsToSubtree()` với công thức `maxPips(con) = max(0, parent.maxPips - parent.rebatePips)`.
+    Hàm này **không tồn tại** trong code hiện tại và công thức đó **sai**. Đã viết lại toàn bộ
+    mục này theo đúng 4 hàm thật: `resolveEffectiveMaxPips()`, `getConfig()` (đọc + synth cho MIB),
+    `updateConfig()` (ghi + validate + cascade tuyến tính `maxPips(con) = rebatePips`),
+    `setMibMaxOverride()` + `resetSubtreeAssetsBatch()` (reset subtree về 0, không phải cascade trừ),
+    và `smartCascadeCheckAndReset()` (chỉ reset nhánh nào thực sự vi phạm, bảo toàn phần còn lại).
+  - Xem `01_API_CONTRACT.md` (mục changelog 2026-07-28) và `06_ERROR_CODES.md` để biết chi tiết
+    request/response và mã lỗi tương ứng.
 - **2026-07-15**:
+  - ⚠️ **ĐÃ SUPERSEDED bởi mục 2026-07-28 ở trên** — công thức `cascadeMaxPipsToSubtree()` mô tả
+    dưới đây không còn đúng với code hiện tại. Giữ nguyên văn chỉ để tham khảo lịch sử:
   - Cập nhật mục **Rebate Calculation Logic** — thay thế code mẫu cũ (`calculateDistribution`
     dùng `markupPips` làm cap) bằng công thức cascade **DUY NHẤT** thật trong
     `cascadeMaxPipsToSubtree()`: `maxPips(con) = max(0, parent.maxPips - parent.rebatePips)`.
@@ -253,47 +265,109 @@ export default server;
 
 ## Rebate Calculation Logic
 
-> **Công thức cascade DUY NHẤT** (áp dụng toàn hệ thống từ 2026-07-15). Mọi ghi `maxPips`
-> xuống subtree đều đi qua `cascadeMaxPipsToSubtree()` — cả `setMibMaxOverride()` (ADMIN set
-> trần MIB) và `updateConfig()` (IB set config cho con trực tiếp) đều gọi chung hàm này.
+> Toàn bộ logic "trần" (maxPips) và cascade nằm trong `rebate.service.ts`. Không có hàm
+> `cascadeMaxPipsToSubtree()` nào cả — đó là tên hàm từ 1 bản thiết kế cũ chưa từng khớp với
+> code thật. 5 khối logic thật sự tồn tại, mô tả theo đúng thứ tự luồng dữ liệu bên dưới.
+
+### 1. `resolveEffectiveMaxPips()` — nguồn DUY NHẤT tính "trần" hiệu lực
 
 ```typescript
 // src/modules/rebate/rebate.service.ts
-
-// CÔNG THỨC: maxPips(con) = max(0, parent.maxPips - parent.rebatePips)
-//   "Ngân sách còn lại" của con = trần của cha trừ đi phần cha tự giữ (rebatePips).
-//   Con trực tiếp của MIB: maxPips = mibMaxPips - mibRebatePips (không còn bị giữ 0).
-// Subtree được xử lý tuần tự theo level ASC (cha luôn upsert xong trước khi tới con)
-// nên parentConfig luôn đọc được giá trị maxPips/rebatePips MỚI NHẤT.
-
-private async cascadeMaxPipsToSubtree(
-  rootId: string, assetType: AssetType, rebateType: string, changedById: string,
-) {
-  const subtree = await this.prisma.$queryRaw`/* WITH RECURSIVE subtree ... ORDER BY level ASC */`;
-
-  for (const node of subtree) {
-    const parentConfig = await this.prisma.rebateConfig.findUnique({
-      where: { ibId_assetType_rebateType: { ibId: node.parentId!, assetType, rebateType } },
-    });
-    const parentRemaining = parentConfig
-      ? Number(parentConfig.maxPips) - Number(parentConfig.rebatePips)
-      : 0;
-    const newMaxPips = Math.max(0, parentRemaining); // ← công thức cascade duy nhất
-
-    await this.prisma.rebateConfig.upsert({
-      where: { ibId_assetType_rebateType: { ibId: node.id, assetType, rebateType } },
-      update: { maxPips: newMaxPips },
-      create: { /* maxPips: newMaxPips, rebatePips: 0, markupPips: 0, ... */ },
-    });
-
-    // Nếu config cũ vượt newMaxPips → ghi AuditLog REBATE_CONFIG_OVER_CEILING_DETECTED
-  }
+private resolveEffectiveMaxPips(rawMaxPips: number, isMib: boolean, assetType: AssetType): number {
+  return isMib && rawMaxPips <= 0 ? (MAX_PIPS[assetType] || 0) : rawMaxPips;
 }
+```
+Dùng CHUNG cho cả đường đọc (`getConfig`) lẫn đường ghi/validate (`updateConfig`) — bắt buộc,
+để tránh bug "2 nơi tính trần khác nhau" (UI hiện 1 giá trị, lúc Lưu lại validate theo giá trị
+khác). Quy tắc: **chỉ** fallback về `MAX_PIPS[assetType]` (trần công ty mặc định) khi là **MIB
+(level 0)** và `rawMaxPips <= 0` (chưa từng được set/bị reset). Với non-MIB, `maxPips = 0` là
+trạng thái **hợp lệ** ("cấp trên chưa cấp pips nào cho asset này") — không được fallback, nếu
+không child sẽ tưởng nhầm mình có full budget.
 
+### 2. `getConfig()` — đường đọc, kèm "bootstrap gap" synthesis cho MIB
+
+```typescript
+async getConfig(ibId: string) {
+  const [configs, ib] = await Promise.all([
+    this.prisma.rebateConfig.findMany({ where: { ibId }, orderBy: { updatedAt: 'desc' } }),
+    this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { level: true } }),
+  ]);
+  const isMib = ib?.level === 0;
+
+  const existingAssets = configs.map((c) => ({
+    ...c,
+    maxPips: this.resolveEffectiveMaxPips(Number(c.maxPips), isMib, c.assetType),
+  }));
+
+  if (!isMib) return { ibId, assets: existingAssets, updatedAt: /* ... */ };
+
+  // MIB có thể CHƯA TỪNG có dòng rebateConfig nào (nếu Admin chưa từng override và
+  // MIB chưa tự cấu hình chính mình) — vẫn là root hợp lệ của cả nhánh. Để Dashboard
+  // không hiện trống trơn, mọi AssetType chưa có dòng thật được synth "ảo" với
+  // maxPips = MAX_PIPS[assetType], KHÔNG ghi gì xuống DB, chỉ trả về ở response.
+  const syntheticAssets = Object.values(AssetType)
+    .filter((at) => !existingAssets.some((a) => a.assetType === at))
+    .map((at) => ({ assetType: at, rebatePips: 0, markupPips: 0, markupPercent: 100, maxPips: MAX_PIPS[at] || 0 }));
+
+  return { ibId, assets: [...existingAssets, ...syntheticAssets], updatedAt: /* ... */ };
+}
+```
+Với non-MIB, hành vi giữ nguyên như trước: chỉ trả dòng có thật trong DB, không synth thêm.
+
+### 3. `updateConfig()` — đường ghi + validate + gán `maxPips` mới
+
+Cho mỗi asset trong `updateDto.assets`:
+
+- **Validate trần**: nếu `targetIb` có cha (`hasParent`), `parentRebateMax` = trần hiệu lực của
+  cha (qua `resolveEffectiveMaxPips`, cộng thêm `markupPips` nếu cha là MIB) — hoặc `rebatePips`
+  hiện tại của cha nếu cha không phải MIB. `rebatePips` gửi lên **không được vượt** giá trị này
+  (`REBATE_EXCEEDS_PARENT`). Nếu không có cha (chính targetIb là MIB tự sửa), giới hạn là
+  `existing.maxPips` (nếu > 0) hoặc `MAX_PIPS[assetType]` (`REBATE_EXCEEDS_MAX`).
+- **Gán `maxPips` mới cho targetIb** — đây là công thức cascade THẬT (tuyến tính, không phải
+  công thức trừ):
+  ```typescript
+  const childMaxPips = targetIb.level === 0
+    ? this.resolveEffectiveMaxPips(existing ? Number(existing.maxPips) : 0, true, assetType) // MIB giữ nguyên trần của chính nó
+    : rebatePips; // level >= 1: maxPips = ĐÚNG số pips vừa nhận từ cấp trên
+  ```
+  Nói cách khác, chuỗi cascade là **20 → 15 → 10 → 5 → 0** (mỗi mốc = đúng số pips cấp trên vừa
+  chia xuống), **không phải** `parent.maxPips - parent.rebatePips` như tài liệu cũ mô tả.
+- **BE không bao giờ tin `maxPips` do FE gửi** — field này bị bỏ qua hoàn toàn, luôn tự tính lại
+  theo công thức trên. `markupPips` thì ngược lại, được lưu đúng giá trị FE gửi (tách riêng khỏi
+  `markupPercent` — xem fix 27/07/2026 trong code, tránh bug cũ khiến `markupPips` bị ghi đè
+  nhầm thành giá trị của `markupPercent`).
+- Sau khi ghi xong (transaction), nếu có thay đổi thật (`hasChange`), gọi tiếp
+  `smartCascadeCheckAndReset()` (mục 5 bên dưới) cho các asset vừa đổi.
+
+### 4. `setMibMaxOverride()` + `resetSubtreeAssetsBatch()` — Admin đổi trần MIB
+
+```typescript
+// Validate: CHỈ chặn maxPips < 0. KHÔNG chặn theo MAX_PIPS[assetType] — MAX_PIPS là trần
+// MẶC ĐỊNH, override tồn tại đúng để THAY THẾ trần đó; chặn theo MAX_PIPS sẽ làm override
+// vô nghĩa (không bao giờ override được gì).
+if (ov.maxPips < 0) throw new UnprocessableEntityException({ code: 'MAX_OVERRIDE_INVALID' });
+```
+Khi Admin đổi trần MIB cho 1 asset, hàm **không** cascade theo công thức trừ — nó **RESET toàn
+bộ subtree về 0** cho đúng asset đó (`rebatePips = markupPips = maxPips = 0`), buộc mọi
+IB/Sub-IB trong nhánh phải cấu hình lại từ đầu. Mỗi asset chỉ update/audit/notify nếu giá trị
+THẬT SỰ đổi so với trước (dedupe theo `beforeMaxPips === ov.maxPips` → bỏ qua); toàn bộ subtree
+chỉ bị quét 1 lần / lượt override (không phải 1 lần / asset) và mỗi người chỉ nhận **đúng 1**
+notification tổng hợp liệt kê tất cả asset bị ảnh hưởng.
+
+### 5. `smartCascadeCheckAndReset()` — reset có chọn lọc sau khi IB cấp trên tự sửa config
+
+Khác với mục 4 (Admin đổi trần MIB → reset cứng toàn subtree), khi 1 IB thường tự sửa config
+cho con trực tiếp (`updateConfig()`), hệ thống chỉ **reset đúng những nhánh con thực sự vi
+phạm**: nếu `rebatePips` mới của cấp trên **nhỏ hơn** mức mà cấp dưới đã từng chia tiếp xuống
+nữa, nhánh đó (và đệ quy xuống các cháu/chắt bị ảnh hưởng) bị set về 0 cho đúng asset đó. Nếu
+mức mới vẫn `>=` mức đã chia, toàn bộ nhánh con được **bảo toàn nguyên vẹn** — không có gì bị
+động vào. Mỗi người dùng bị ảnh hưởng chỉ nhận đúng 1 thông báo tổng hợp.
+
+```
 // Tính tiền rebate thực tế (GET /rebate/calculate) — không đổi:
-//   self       = rebatePips * lots
-//   total      = (rebatePips + markupPips) * lots
-//   distributed= tổng rebatePips của các ancestor (CTE walk-up)
+//   self        = rebatePips * lots
+//   total       = (rebatePips + markupPips) * lots
+//   distributed = tổng rebatePips của các ancestor (CTE walk-up)
 ```
 
 ---
