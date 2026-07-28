@@ -194,7 +194,14 @@ export class RebateService {
     };
   }
 
-  async saveTemplates(ibId: string, dto: SaveRebateTemplatesDto) {
+  async saveTemplates(ibId: string, dto: SaveRebateTemplatesDto, actorId: string) {
+    // Snapshot before khi ghi audit — chỉ lấy tên (không lấy full rows/share để tránh
+    // log quá nặng, nhưng đủ để biết "trước đây có gì, đã đổi thành gì")
+    const [beforeAccountTemplates, beforeMarkupTemplates] = await Promise.all([
+      this.prisma.accountTypeTemplate.findMany({ where: { ownerId: ibId }, select: { name: true } }),
+      this.prisma.markupLinkTemplate.findMany({ where: { ownerId: ibId }, select: { name: true, share: true } }),
+    ]);
+
     await this.prisma.$transaction(async (tx: any) => {
       await tx.markupLinkTemplate.deleteMany({ where: { ownerId: ibId } });
       await tx.accountTypeTemplate.deleteMany({ where: { ownerId: ibId } });
@@ -214,6 +221,22 @@ export class RebateService {
           share: link.share,
         })),
       });
+    });
+
+    // Fix: audit log trước đây bị bỏ sót hoàn toàn cho endpoint này
+    await this.auditService.log({
+      actorId,
+      action: AUDIT_ACTIONS.REBATE_TEMPLATES_UPDATE,
+      targetType: 'REBATE_TEMPLATES',
+      targetId: ibId,
+      before: {
+        accountTypeTemplates: beforeAccountTemplates.map((t) => t.name),
+        markupLinkTemplates: beforeMarkupTemplates,
+      },
+      after: {
+        accountTypeTemplates: dto.accountTypeTemplates.map((t) => t.name),
+        markupLinkTemplates: dto.markupLinkTemplates.map((t) => ({ name: t.name, share: t.share })),
+      },
     });
 
     return this.getTemplates(ibId);
@@ -643,7 +666,7 @@ export class RebateService {
         actorId: currentUserId,
         title: `${actorLabel} đã lưu kịch bản phân bổ Rebate Engine`,
         body: `${actorLabel} vừa lưu kịch bản phân bổ % và pips cho ${dto.nodes.length} node trong nhánh. Vui lòng kiểm tra lại.`,
-        actionType: 'REBATE_SCENARIO_SAVE',
+        actionType: AUDIT_ACTIONS.REBATE_SCENARIO_SAVE,
         details: { nodeIds: dto.nodes.map((n) => n.ibId), count: dto.nodes.length },
       });
     }
@@ -706,6 +729,18 @@ export class RebateService {
           before: { maxPips: before ? Number(before.maxPips) : null },
           after: { maxPips: ov.maxPips },
         },
+      });
+
+      // Fix: trước đây chỉ ghi vào RebateConfigHistory (bảng riêng, không filter
+      // được qua GET /audit/logs) — giờ ghi thêm vào AuditLog trung tâm để nhất
+      // quán với mọi thao tác nhạy cảm khác của Admin.
+      await this.auditService.log({
+        actorId: changedById,
+        action: AUDIT_ACTIONS.REBATE_MAX_OVERRIDE,
+        targetType: 'REBATE_CONFIG',
+        targetId: updated.id,
+        before: { mibId, assetType: ov.assetType, rebateType: ov.rebateType, maxPips: before ? Number(before.maxPips) : null },
+        after: { mibId, assetType: ov.assetType, rebateType: ov.rebateType, maxPips: ov.maxPips },
       });
 
       await this.resetSubtreeAssets(mibId, ov.assetType, ov.rebateType, changedById);

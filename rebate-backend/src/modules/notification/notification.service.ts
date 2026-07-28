@@ -8,10 +8,15 @@ import { NotificationType } from '@prisma/client';
 import { getSubtreeIds } from '../../common/utils/subtree.util';
 import { SendNotificationDto } from './dto/send-notification.dto';
 import { QueryNotificationDto } from './dto/query-notification.dto';
+import { AuditService } from '../audit/audit.service';
+import { AUDIT_ACTIONS } from '../audit/audit.constants';
 
 @Injectable()
 export class NotificationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditService: AuditService,
+  ) { }
 
   /**
    * GET /notifications — xem thông báo của mình
@@ -251,6 +256,23 @@ export class NotificationService {
       },
     });
 
+    // Fix: quyết định duyệt/từ chối của Admin — bản thân nó là 1 hành vi nhạy
+    // cảm — trước đây chỉ nằm trong Notification.metadata (JSON tự do, không
+    // filter được), giờ ghi thêm vào AuditLog trung tâm.
+    await this.auditService.log({
+      actorId: adminId,
+      action: status === 'APPROVED' ? AUDIT_ACTIONS.ADMIN_REVIEW_APPROVED : AUDIT_ACTIONS.ADMIN_REVIEW_REJECTED,
+      targetType: 'NOTIFICATION',
+      targetId: notificationId,
+      before: { reviewStatus: currentMeta.reviewStatus ?? 'PENDING' },
+      after: {
+        reviewStatus: status,
+        reason: reason || null,
+        originalActionType: currentMeta.actionType,
+        originalActorId: currentMeta.actorId,
+      },
+    });
+
     // Send feedback notification to the MIB/IB
     if (targetUserId) {
       if (status === 'APPROVED') {
@@ -266,9 +288,8 @@ export class NotificationService {
           recipientId: targetUserId,
           type: NotificationType.SYSTEM,
           title: 'Chỉnh sửa của bạn bị báo lỗi / chưa đạt yêu cầu',
-          body: `Admin đã kiểm tra và báo lỗi thao tác "${notification.title}" của bạn. Yêu cầu: ${
-            reason || 'Vui lòng kiểm tra lại thiết lập và chia hoa hồng xem đã khớp với hệ thống hay chưa.'
-          }`,
+          body: `Admin đã kiểm tra và báo lỗi thao tác "${notification.title}" của bạn. Yêu cầu: ${reason || 'Vui lòng kiểm tra lại thiết lập và chia hoa hồng xem đã khớp với hệ thống hay chưa.'
+            }`,
           metadata: { originalNotificationId: notificationId, status: 'REJECTED', reason },
         });
       }
