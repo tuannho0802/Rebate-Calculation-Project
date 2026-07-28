@@ -216,7 +216,19 @@ export class IbService {
     };
   }
 
-  async create(currentUserId: string, currentUserLevel: number, createIbDto: CreateIbDto) {
+  async create(currentUserId: string, currentUserLevel: number, createIbDto: CreateIbDto, callerRole?: string) {
+    // FIX (đảm bảo Admin không tham gia cây IB): Admin chỉ được tạo Sub-IB
+    // qua route riêng của Admin (POST /admin/users/ib/sub, chọn tường minh
+    // node cha), KHÔNG được dùng route tự-phục-vụ này (parentId ngầm định
+    // = chính người gọi) — vì Admin không bao giờ được là 1 node trong cây
+    // IB (không tham gia nhánh, không có cấp dưới trực thuộc).
+    if (callerRole === 'ADMIN') {
+      throw new ForbiddenException({
+        code: 'ADMIN_NOT_ALLOWED_IN_TREE',
+        message: 'Admin không tham gia vào cây IB — dùng route Admin tạo Sub-IB (chọn node cha tường minh) thay vì tự tạo dưới chính mình.',
+      });
+    }
+
     if (currentUserLevel >= 5) {
       throw new UnprocessableEntityException({
         code: 'IB_MAX_LEVEL_REACHED',
@@ -900,11 +912,21 @@ export class IbService {
 
     const newParent = await this.prisma.ibNode.findUnique({
       where: { id: targetParentId },
-      select: { id: true, email: true, name: true, level: true, accountType: true, parentId: true },
+      select: { id: true, email: true, name: true, level: true, accountType: true, parentId: true, role: true },
     });
 
     if (!newParent) {
       throw new NotFoundException({ code: 'TARGET_PARENT_NOT_FOUND', message: 'Không tìm thấy parent IB đích' });
+    }
+
+    // FIX (đảm bảo Admin không tham gia cây IB): chặn di chuyển 1 nhánh
+    // sang làm con của tài khoản Admin — Admin không bao giờ được là 1
+    // node trong cây IB (kể cả khi level trùng 0 với MIB).
+    if (newParent.role === 'ADMIN') {
+      throw new BadRequestException({
+        code: 'PARENT_CANNOT_BE_ADMIN',
+        message: 'Không thể di chuyển nhánh IB sang làm con của tài khoản Admin',
+      });
     }
 
     // 1. Cycle Detection: Verify targetParentId is not a child/descendant of targetIbId

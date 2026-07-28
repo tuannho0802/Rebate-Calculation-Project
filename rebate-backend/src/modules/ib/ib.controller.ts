@@ -196,7 +196,7 @@ export class IbController {
     @CurrentUser() user: any,
     @Body() createIbDto: CreateIbDto,
   ) {
-    return this.ibService.create(user.sub, user.level, createIbDto);
+    return this.ibService.create(user.sub, user.level, createIbDto, user.role);
   }
 
   @Put(':id')
