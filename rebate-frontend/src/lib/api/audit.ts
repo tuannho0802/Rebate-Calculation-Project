@@ -39,4 +39,21 @@ export const auditApi = {
     const response = await apiClient.delete<ApiResponse<any>>(`/audit/logs/${id}`);
     return response.data;
   },
+
+  deleteBulk: async (ids: string[]): Promise<ApiResponse<{ deleted: number; permanent: boolean; message: string }>> => {
+    const response = await apiClient.delete<ApiResponse<any>>('/audit/logs/bulk', { data: { ids } });
+    return response.data;
+  },
+
+  deleteAll: async (params?: {
+    actorId?: string;
+    targetId?: string;
+    action?: string;
+    targetType?: string;
+    from?: string;
+    to?: string;
+  }): Promise<ApiResponse<{ deleted: number; permanent: boolean; message: string }>> => {
+    const response = await apiClient.delete<ApiResponse<any>>('/audit/logs/all', { params });
+    return response.data;
+  },
 };

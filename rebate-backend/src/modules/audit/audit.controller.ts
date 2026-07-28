@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards, Delete, Param } from '@nestjs/common';
+import { Controller, Get, Query, UseGuards, Delete, Param, Body } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuditService } from './audit.service';
 import { QueryAuditDto } from './dto/query-audit.dto';
@@ -17,6 +17,22 @@ export class AuditController {
   @ApiOperation({ summary: 'Xem nhật ký thao tác (Admin: toàn hệ thống, MIB: toàn subtree của mình)' })
   getLogs(@CurrentUser() user: any, @Query() query: QueryAuditDto) {
     return this.auditService.getLogs(user.sub, query, user.role);
+  }
+
+  @Delete('logs/bulk')
+  @UseGuards(JwtAuthGuard, Lv0Guard)
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Xoá/ẩn nhiều dòng nhật ký cùng lúc (Admin: xoá thật, MIB: ẩn khỏi view của mình)' })
+  deleteBulk(@CurrentUser() user: any, @Body() dto: { ids: string[] }) {
+    return this.auditService.deleteBulk(user.sub, dto.ids, user.role);
+  }
+
+  @Delete('logs/all')
+  @UseGuards(JwtAuthGuard, Lv0Guard)
+  @ApiBearerAuth('Bearer')
+  @ApiOperation({ summary: 'Xoá/ẩn toàn bộ nhật ký khớp filter hiện tại (Admin: xoá thật, MIB: ẩn khỏi view của mình)' })
+  deleteAll(@CurrentUser() user: any, @Query() query: QueryAuditDto) {
+    return this.auditService.deleteAll(user.sub, query, user.role);
   }
 
   @Delete('logs/:id')

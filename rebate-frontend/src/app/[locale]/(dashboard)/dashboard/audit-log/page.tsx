@@ -70,6 +70,10 @@ export default function AuditLogPage() {
   const [targetType, setTargetType] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
 
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const hasSelectedItems = selectedIds.size > 0;
+
   // Cache children IDs để check con trực tiếp
   const [childrenCache, setChildrenCache] = useState<Record<string, string[]>>({});
   const [canNavigateMap, setCanNavigateMap] = useState<Record<string, boolean>>({});
@@ -108,6 +112,32 @@ export default function AuditLogPage() {
     },
     onError: () => {
       setFeedback('Không thể ẩn dòng nhật ký này');
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: (ids: string[]) => auditApi.deleteBulk(ids),
+    onSuccess: (response) => {
+      setFeedback(response.data.message);
+      // Clear selection after success
+      setSelectedIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ['auditLogs', params] });
+    },
+    onError: () => {
+      setFeedback('Không thể thực hiện thao tác');
+    },
+  });
+
+  const allDeleteMutation = useMutation({
+    mutationFn: () => auditApi.deleteAll(params),
+    onSuccess: (response) => {
+      setFeedback(response.data.message);
+      // Clear selection after success
+      setSelectedIds(new Set());
+      queryClient.invalidateQueries({ queryKey: ['auditLogs', params] });
+    },
+    onError: () => {
+      setFeedback('Không thể thực hiện thao tác');
     },
   });
 
@@ -156,6 +186,7 @@ export default function AuditLogPage() {
   const auditLogs = auditLogsRes?.data?.items || [];
   const meta = auditLogsRes?.meta;
   const totalPages = meta ? Math.ceil(meta.total / meta.limit) : 1;
+  const isAllOnPageSelected = auditLogs.length > 0 && auditLogs.every((item: any) => selectedIds.has(item.id));
 
   // Get navigate URL cho target (Admin: vào rebate-management, MIB: vào dashboard hoặc tree/edit nếu con trực tiếp)
   const getNavigateUrl = (targetType: string, targetId: string): string | null => {
@@ -214,6 +245,52 @@ export default function AuditLogPage() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            {hasSelectedItems && (
+              <div className="flex items-center gap-2 rounded-2xl bg-rose-50 border border-rose-200 px-3 py-2">
+                <span className="text-xs font-bold text-rose-700">Đã chọn {selectedIds.size} dòng</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isAdmin) {
+                      const ok = window.confirm(
+                        `Bạn sắp XOÁ VĨNH VIỄN ${selectedIds.size} dòng nhật ký. Hành động này KHÔNG THỂ khôi phục. Tiếp tục?`
+                      );
+                      if (!ok) return;
+                    }
+                    bulkDeleteMutation.mutate([...selectedIds]);
+                  }}
+                  disabled={bulkDeleteMutation.isPending}
+                  className="inline-flex items-center gap-1 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold px-3 py-1.5 transition disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  {isAdmin ? 'Xoá vĩnh viễn' : 'Ẩn khỏi danh sách của tôi'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(new Set())}
+                  className="p-1 text-rose-500 hover:text-rose-700"
+                  title="Bỏ chọn"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                const confirmMsg = isAdmin
+                  ? 'Bạn sắp XOÁ VĨNH VIỄN toàn bộ nhật ký khớp bộ lọc hiện tại. Hành động này KHÔNG THỂ khôi phục. Tiếp tục?'
+                  : 'Ẩn toàn bộ nhật ký khớp bộ lọc hiện tại khỏi danh sách của bạn?';
+                const ok = window.confirm(confirmMsg);
+                if (!ok) return;
+                allDeleteMutation.mutate();
+              }}
+              disabled={allDeleteMutation.isPending || auditLogs.length === 0}
+              className="inline-flex items-center gap-2 rounded-2xl bg-rose-100 px-4 py-2.5 text-xs font-extrabold text-rose-700 transition hover:bg-rose-200 shadow-sm disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              {isAdmin ? 'Xoá vĩnh viễn tất cả' : 'Ẩn tất cả khỏi danh sách của tôi'}
+            </button>
             <button
               type="button"
               onClick={() => refetch()}
@@ -268,6 +345,24 @@ export default function AuditLogPage() {
           <table className="min-w-full divide-y divide-slate-100 text-left text-sm">
             <thead className="bg-slate-50/60 font-extrabold text-slate-800 border-b border-slate-200/60 text-xs">
               <tr>
+                <th className="px-4 py-3.5 font-bold w-10">
+                  <input
+                    type="checkbox"
+                    checked={isAllOnPageSelected}
+                    onChange={(e) => {
+                      setSelectedIds((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) {
+                          auditLogs.forEach((item: any) => next.add(item.id));
+                        } else {
+                          auditLogs.forEach((item: any) => next.delete(item.id));
+                        }
+                        return next;
+                      });
+                    }}
+                    className="h-4 w-4 rounded border-slate-300"
+                  />
+                </th>
                 <th className="px-4 py-3.5 font-bold">Thời gian</th>
                 <th className="px-4 py-3.5 font-bold">Người thực hiện</th>
                 <th className="px-4 py-3.5 font-bold">Hành động</th>
@@ -278,7 +373,7 @@ export default function AuditLogPage() {
             <tbody className="divide-y divide-slate-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-400">
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
                     <Loader2 className="mx-auto h-6 w-6 animate-spin text-slate-600 mb-2" />
                     <span>Đang tải nhật ký hành động...</span>
                   </td>
@@ -299,6 +394,21 @@ export default function AuditLogPage() {
                       key={item.id}
                       className="hover:bg-slate-50/30 transition-colors"
                     >
+                      <td className="px-4 py-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(item.id)}
+                          onChange={(e) => {
+                            setSelectedIds((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(item.id);
+                              else next.delete(item.id);
+                              return next;
+                            });
+                          }}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                      </td>
                       <td className="px-4 py-4 whitespace-nowrap text-slate-600 text-xs">
                         {new Date(item.createdAt).toLocaleString('vi-VN')}
                       </td>
@@ -359,7 +469,7 @@ export default function AuditLogPage() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
                     Chưa có nhật ký hành động nào trong khoảng thời gian này.
                   </td>
                 </tr>
