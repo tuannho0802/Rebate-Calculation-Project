@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { getSubtreeIds } from '../../common/utils/subtree.util';
+import { getDescendantIds } from '../../common/utils/subtree.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QueryAuditDto } from './dto/query-audit.dto';
 
@@ -51,9 +51,8 @@ export class AuditService {
     const where: any = {};
     
     if (callerRole !== 'ADMIN') {
-      const children = await this.prisma.ibNode.findMany({ where: { parentId: currentUserId }, select: { id: true } });
-      const targetIds = [currentUserId, ...children.map((c) => c.id)];
-      where.actorId = { in: targetIds };
+      const myDescendantIds = await getDescendantIds(this.prisma, currentUserId);
+      where.actorId = { in: myDescendantIds };
     }
 
     if (query.actorId) where.actorId = query.actorId;
@@ -75,9 +74,19 @@ export class AuditService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
+    // Lấy danh sách audit log đã bị user này ẩn
+    const dismissedLogIds = await this.prisma.auditLogDismissal.findMany({
+      where: { userId: currentUserId },
+      select: { auditLogId: true },
+    });
+    const dismissedIds = dismissedLogIds.map((d) => d.auditLogId);
+
     const [items, total] = await Promise.all([
       this.prisma.auditLog.findMany({
-        where,
+        where: {
+          ...where,
+          id: dismissedIds.length ? { notIn: dismissedIds } : undefined,
+        },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -87,12 +96,32 @@ export class AuditService {
           },
         },
       }),
-      this.prisma.auditLog.count({ where }),
+      this.prisma.auditLog.count({ where: dismissedIds.length ? { ...where, id: { notIn: dismissedIds } } : where }),
     ]);
 
     return {
       data: items,
       meta: { page, limit, total },
     };
+  }
+
+  /**
+   * Ẩn một audit log khỏi danh sách của riêng user này (KHÔNG xoá thật dữ liệu).
+   */
+  async dismissLog(currentUserId: string, auditLogId: string) {
+    const log = await this.prisma.auditLog.findUnique({ where: { id: auditLogId } });
+    if (!log) throw new NotFoundException({ code: 'AUDIT_LOG_NOT_FOUND' });
+
+    // Không cần check subtree ở đây — nếu user đã thấy được log này qua
+    // getLogs() (nghĩa là nó nằm trong phạm vi quyền xem của họ), họ được
+    // phép ẩn nó khỏi danh sách CỦA CHÍNH HỌ. Việc ẩn không ảnh hưởng gì
+    // tới người khác (Admin, hoặc MIB khác nếu có overlap quyền xem).
+    await this.prisma.auditLogDismissal.upsert({
+      where: { auditLogId_userId: { auditLogId, userId: currentUserId } },
+      create: { auditLogId, userId: currentUserId },
+      update: {},
+    });
+
+    return { message: 'Đã ẩn khỏi danh sách của bạn' };
   }
 }

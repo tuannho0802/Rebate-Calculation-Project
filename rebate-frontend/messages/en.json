@@ -11,6 +11,7 @@
     "transaction": "Transaction",
     "export": "Export",
     "notifications": "Notifications",
+    "auditLog": "Audit Log",
     "rebateManagement": "Rebate Management",
     "adminManagement": "Admin Management",
     "trash": "Trash Can",

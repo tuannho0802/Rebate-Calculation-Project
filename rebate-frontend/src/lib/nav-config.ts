@@ -8,6 +8,7 @@ import {
   TableProperties,
   Trash2,
   Network,
+  ScrollText,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -33,6 +34,7 @@ export const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard/ib-view', labelKey: 'ibView', icon: Network, roles: ['ADMIN', 'IB'], mibOnly: true },
   { href: '/dashboard/rebate', labelKey: 'config', icon: Settings, roles: ['ADMIN'] },
   { href: '/dashboard/notification', labelKey: 'notifications', icon: Bell },
+  { href: '/dashboard/audit-log', labelKey: 'auditLog', icon: ScrollText, roles: ['ADMIN', 'IB'], mibOnly: true },
   { href: '/dashboard/rebate-management', labelKey: 'rebateManagement', icon: TableProperties, roles: ['ADMIN'] },
   { href: '/dashboard/admin', labelKey: 'adminManagement', icon: UserCog, roles: ['ADMIN'] },
   { href: '/dashboard/trash', labelKey: 'trash', icon: Trash2, roles: ['ADMIN'] },

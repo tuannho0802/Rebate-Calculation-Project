@@ -30,6 +30,7 @@ model IbNode {
   transactions         RebateTransaction[]   @relation("TransactionOwner")
   createdTransactions  RebateTransaction[]   @relation("TransactionCreator")
   auditLogs            AuditLog[]            @relation("AuditActor")
+  auditLogDismissals   AuditLogDismissal[]
   refreshTokens        RefreshToken[]
   accountTypeTemplates AccountTypeTemplate[]
   markupLinkTemplates  MarkupLinkTemplate[]
@@ -118,6 +119,8 @@ model AuditLog {
   after      Json?
   ipAddress  String?
   createdAt  DateTime @default(now())
+
+  dismissals AuditLogDismissal[]
 
   @@index([actorId])
   @@index([targetId])
@@ -278,5 +281,18 @@ model SystemConfig {
   updatedAt DateTime @updatedAt
 
   @@map("system_configs")
+}
+
+model AuditLogDismissal {
+  id          String   @id @default(uuid())
+  auditLogId  String
+  auditLog    AuditLog @relation(fields: [auditLogId], references: [id])
+  userId      String
+  user        IbNode   @relation(fields: [userId], references: [id])
+  dismissedAt DateTime @default(now())
+
+  @@unique([auditLogId, userId])
+  @@index([userId])
+  @@map("audit_log_dismissals")
 }
 
