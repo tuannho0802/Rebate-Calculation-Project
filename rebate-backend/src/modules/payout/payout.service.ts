@@ -6,7 +6,7 @@ import { NotificationService } from '../notification/notification.service';
 import { AUDIT_ACTIONS } from '../audit/audit.constants';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PayoutStatus, NotificationType } from '@prisma/client';
-import { getSubtreeIds } from '../../common/utils/subtree.util';
+import { getSubtreeIds, getDescendantIds, isDescendantOf } from '../../common/utils/subtree.util';
 import { QueryPayoutDto } from './dto/query-payout.dto';
 
 @Injectable()
@@ -16,7 +16,7 @@ export class PayoutService {
     private readonly walletService: WalletService,
     private readonly auditService: AuditService,
     private readonly notificationService: NotificationService,
-  ) {}
+  ) { }
 
   async requestPayout(ibId: string, amount: Decimal, paymentMethod: string, note?: string) {
     if (amount.lessThan(10)) {
@@ -88,11 +88,25 @@ export class PayoutService {
     return payout;
   }
 
-  async approvePayout(payoutId: string, processedBy: string) {
+  async approvePayout(payoutId: string, processedBy: string, callerRole?: string) {
     const payout = await this.prisma.payout.findUnique({ where: { id: payoutId } });
     if (!payout) throw new NotFoundException({ code: 'PAYOUT_NOT_FOUND' });
     if (payout.status !== PayoutStatus.PENDING) {
       throw new UnprocessableEntityException({ code: 'PAYOUT_NOT_PENDING' });
+    }
+
+    // BUG CŨ: hàm này trước đây KHÔNG kiểm tra payout.ibId có thuộc quyền
+    // quản lý của processedBy hay không -> bất kỳ MIB nào cũng duyệt được
+    // (giải ngân tiền) cho payout của IB thuộc cây MIB khác. Route chỉ có
+    // Lv0Guard (chặn Lv1+) nên tới đây caller chắc chắn là ADMIN hoặc MIB.
+    if (callerRole !== 'ADMIN' && payout.ibId !== processedBy) {
+      const isOwnDescendant = await isDescendantOf(this.prisma, payout.ibId, processedBy);
+      if (!isOwnDescendant) {
+        throw new ForbiddenException({
+          code: 'IB_NOT_IN_SUBTREE',
+          message: 'Payout này không thuộc nhánh của bạn',
+        });
+      }
     }
 
     const wallet = await this.walletService.getOrCreate(payout.ibId);
@@ -137,11 +151,22 @@ export class PayoutService {
     return updated;
   }
 
-  async rejectPayout(payoutId: string, processedBy: string, rejectedReason: string) {
+  async rejectPayout(payoutId: string, processedBy: string, rejectedReason: string, callerRole?: string) {
     const payout = await this.prisma.payout.findUnique({ where: { id: payoutId } });
     if (!payout) throw new NotFoundException({ code: 'PAYOUT_NOT_FOUND' });
     if (payout.status !== PayoutStatus.PENDING) {
       throw new UnprocessableEntityException({ code: 'PAYOUT_NOT_PENDING' });
+    }
+
+    // Cùng fix ownership check như approvePayout() — xem comment ở đó.
+    if (callerRole !== 'ADMIN' && payout.ibId !== processedBy) {
+      const isOwnDescendant = await isDescendantOf(this.prisma, payout.ibId, processedBy);
+      if (!isOwnDescendant) {
+        throw new ForbiddenException({
+          code: 'IB_NOT_IN_SUBTREE',
+          message: 'Payout này không thuộc nhánh của bạn',
+        });
+      }
     }
 
     const updated = await this.prisma.payout.update({
@@ -172,6 +197,29 @@ export class PayoutService {
     return updated;
   }
 
+  async getPayoutById(payoutId: string, callerId: string, callerLevel: number, callerRole?: string) {
+    const payout = await this.prisma.payout.findUnique({ where: { id: payoutId } });
+    if (!payout) throw new NotFoundException({ code: 'PAYOUT_NOT_FOUND' });
+
+    if (callerRole !== 'ADMIN' && payout.ibId !== callerId) {
+      if (callerLevel === 0) {
+        // MIB: View-All trong chính nhánh của mình.
+        const isOwnDescendant = await isDescendantOf(this.prisma, payout.ibId, callerId);
+        if (!isOwnDescendant) {
+          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'Payout này không thuộc nhánh của bạn' });
+        }
+      } else {
+        // Lv1+: Parent-Strict — chỉ xem payout của con trực tiếp hoặc chính mình.
+        const target = await this.prisma.ibNode.findUnique({ where: { id: payout.ibId }, select: { parentId: true } });
+        if (!target || target.parentId !== callerId) {
+          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'Payout này không thuộc subtree của bạn' });
+        }
+      }
+    }
+
+    return payout;
+  }
+
   async listPayouts(callerId: string, callerLevel: number, query: QueryPayoutDto, callerRole?: string) {
     const { status, ibId, page = 1, limit = 20 } = query;
     const where: any = {};
@@ -188,8 +236,20 @@ export class PayoutService {
       }
       where.ibId = callerId;
     } else {
-      // Lv0 (MIB): xem toàn bộ trong hệ thống của mình, filter thêm nếu có
-      if (ibId) where.ibId = ibId;
+      // Lv0 (MIB): View-All nhưng CHỈ trong CHÍNH nhánh của mình.
+      // BUG CŨ: `if (ibId) where.ibId = ibId` không hề kiểm tra ibId đó có
+      // thuộc cây của MIB hay không; và khi KHÔNG truyền ibId, where={}
+      // rỗng hoàn toàn -> trả về payout của TOÀN BỘ hệ thống (mọi MIB
+      // khác). Đã fix: luôn giới hạn trong đúng subtree của MIB.
+      const myDescendantIds = await getDescendantIds(this.prisma, callerId);
+      if (ibId) {
+        if (!myDescendantIds.includes(ibId)) {
+          throw new ForbiddenException({ code: 'FORBIDDEN' });
+        }
+        where.ibId = ibId;
+      } else {
+        where.ibId = { in: myDescendantIds };
+      }
     }
 
     const [items, total] = await Promise.all([
@@ -205,8 +265,18 @@ export class PayoutService {
     return { data: items, meta: { page, limit, total } };
   }
 
-  async getPendingPayouts(page: number, limit: number) {
-    const where = { status: PayoutStatus.PENDING };
+  async getPendingPayouts(page: number, limit: number, callerId: string, callerRole?: string) {
+    const where: any = { status: PayoutStatus.PENDING };
+
+    // BUG CŨ: route chỉ có Lv0Guard (check role/level), service này KHÔNG
+    // lọc theo cây của caller -> bất kỳ MIB nào cũng thấy pending payout
+    // của TẤT CẢ MIB khác trong hệ thống. Đã fix: MIB chỉ thấy trong nhánh
+    // của chính mình; ADMIN vẫn xem toàn hệ thống (CRUD-All).
+    if (callerRole !== 'ADMIN') {
+      const myDescendantIds = await getDescendantIds(this.prisma, callerId);
+      where.ibId = { in: myDescendantIds };
+    }
+
     const [items, total] = await Promise.all([
       this.prisma.payout.findMany({
         where,

@@ -273,13 +273,17 @@ export class IbController {
 
   // ─── RESET PASSWORD (Lv0 only) ──────────────────────────────────
   @Patch(':id/reset-password')
-  @UseGuards(Lv0Guard, SubtreeGuard)
+  @UseGuards(Lv0Guard, SubtreeEditGuard)
   @ApiOperation({
-    summary: 'Reset mật khẩu cho Sub-IB (chỉ Lv0)',
+    summary: 'Reset mật khẩu cho Sub-IB trực tiếp (chỉ Lv0)',
     description:
-      'Cho phép MIB (Lv0) reset mật khẩu của bất kỳ IB nào trong cây.\n\n' +
-      '**SubtreeGuard** vẫn được áp dụng — bảo vệ cross-tree (hệ thống nhiều MIB độc lập).\n' +
-      '**Lv0Guard** chặn Lv1+ trước khi đến SubtreeGuard.',
+      'Cho phép MIB (Lv0) reset mật khẩu cho CON TRỰC TIẾP của mình (Parent-Strict).\n\n' +
+      '**SubtreeEditGuard** — hành động GHI nên không áp dụng ngoại lệ MIB View-All, ' +
+      'kể cả MIB cũng chỉ được thao tác với cấp dưới trực tiếp (khác SubtreeGuard dùng ' +
+      'cho route VIEW, có ngoại lệ đệ quy cho MIB).\n' +
+      '**Lv0Guard** chặn Lv1+ trước khi đến SubtreeEditGuard.\n\n' +
+      '_Trước đây dùng SubtreeGuard, cho MIB reset mật khẩu bất kỳ ai trong cả cây (đệ quy) — ' +
+      'nếu đây là chủ đích nghiệp vụ (MIB cần "cứu hộ" toàn nhánh), đổi lại SubtreeGuard._',
   })
   @ApiParam({ name: 'id', description: 'UUID của IB cần reset mật khẩu' })
   @ApiResponse({ status: 200, description: 'Reset mật khẩu thành công' })

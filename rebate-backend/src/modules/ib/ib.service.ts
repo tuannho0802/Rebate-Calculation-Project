@@ -546,17 +546,14 @@ export class IbService {
     // KHÔNG được sửa sang nhánh của MIB khác (fix: trước đây bypass thẳng
     // không hề kiểm tra target có thuộc nhánh mình hay không).
     // Lv1+: chỉ được sửa con trực tiếp (parentId === callerId) hoặc chính mình
+    // FIX: đây là hành động GHI (sửa profile), phải Parent-Strict — MIB
+    // KHÔNG có ngoại lệ Edit-All (chỉ View-All), trước đây bị cho phép sửa
+    // đệ quy cả cháu/chắt qua isDescendantOf, không nhất quán với
+    // updateIb() (route PUT :id) vốn đã đúng dùng SubtreeEditGuard.
     if (callerRole !== 'ADMIN' && callerId !== targetIbId) {
-      if (callerLevel === 0) {
-        const isOwnDescendant = await this.isDescendantOf(targetIbId, callerId);
-        if (!isOwnDescendant) {
-          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc nhánh của bạn' });
-        }
-      } else {
-        const target = await this.prisma.ibNode.findUnique({ where: { id: targetIbId }, select: { parentId: true } });
-        if (!target || target.parentId !== callerId) {
-          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn' });
-        }
+      const target = await this.prisma.ibNode.findUnique({ where: { id: targetIbId }, select: { parentId: true } });
+      if (!target || target.parentId !== callerId) {
+        throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn — chỉ được sửa cấp dưới trực tiếp' });
       }
     }
 

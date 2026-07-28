@@ -1,6 +1,6 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { getSubtreeIds } from '../../common/utils/subtree.util';
+import { getSubtreeIds, isDescendantOf } from '../../common/utils/subtree.util';
 import { Decimal } from '@prisma/client/runtime/library';
 import { NotificationService } from '../notification/notification.service';
 import { NotificationType } from '@prisma/client';
@@ -10,7 +10,7 @@ export class WalletService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
-  ) {}
+  ) { }
 
   async getOrCreate(ibId: string, tx: any = this.prisma) {
     let wallet = await tx.wallet.findUnique({
@@ -53,14 +53,29 @@ export class WalletService {
       return this.getOrCreate(ibId);
     }
 
-    if (callerId !== ibId && callerLevel > 0) {
-      // Lv1+: chỉ xem con trực tiếp
-      const target = await this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { parentId: true } });
-      if (!target || target.parentId !== callerId) {
-        throw new ForbiddenException({
-          code: 'IB_NOT_IN_SUBTREE',
-          message: 'IB này không thuộc subtree của bạn',
-        });
+    if (callerId !== ibId) {
+      if (callerLevel === 0) {
+        // MIB (Lv0): View-All — chỉ trong CHÍNH nhánh của mình (đệ quy),
+        // KHÔNG được xem cross-tree sang nhánh của MIB khác.
+        // BUG CŨ: điều kiện ngoài (callerLevel > 0) khiến MIB bị loại khỏi
+        // check này hoàn toàn -> xem được ví của bất kỳ ai trong toàn hệ
+        // thống. Đã fix.
+        const isOwnDescendant = await isDescendantOf(this.prisma, ibId, callerId);
+        if (!isOwnDescendant) {
+          throw new ForbiddenException({
+            code: 'IB_NOT_IN_SUBTREE',
+            message: 'IB này không thuộc nhánh của bạn',
+          });
+        }
+      } else {
+        // Lv1+: chỉ xem con trực tiếp (Parent-Strict)
+        const target = await this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { parentId: true } });
+        if (!target || target.parentId !== callerId) {
+          throw new ForbiddenException({
+            code: 'IB_NOT_IN_SUBTREE',
+            message: 'IB này không thuộc subtree của bạn',
+          });
+        }
       }
     }
 

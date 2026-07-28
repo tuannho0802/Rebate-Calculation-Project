@@ -1,10 +1,11 @@
 import * as ExcelJS from 'exceljs';
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { isDescendantOf } from '../../common/utils/subtree.util';
 
 @Injectable()
 export class ExportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   private async getIbTreeByLevel(rootIbId: string): Promise<Record<number, any[]>> {
     const root = await this.prisma.ibNode.findUnique({
@@ -58,17 +59,17 @@ export class ExportService {
     });
 
     // ── COLORS ──────────────────────────────────────────────────
-    const HEADER_BG    = 'FF1F3864'; // Navy blue
-    const HEADER_BG2   = 'FF2E75B6'; // Lighter blue
-    const YELLOW_BG    = 'FFFFF2CC'; // Soft yellow
-    const YELLOW_FONT  = 'FF7F6000'; // Dark gold
-    const GREEN_BG     = 'FFE2EFDA'; // Soft green
-    const GREEN_FONT   = 'FF375623'; // Dark green
-    const PINK_BG      = 'FFFCE4D6'; // Soft orange-pink
-    const PINK_FONT    = 'FF833C00'; // Dark brown
-    const RED_FONT     = 'FFC00000'; // Deep red
-    const WHITE        = 'FFFFFFFF';
-    const GRAY_BG      = 'FFF2F2F2'; // Light gray for empty cells
+    const HEADER_BG = 'FF1F3864'; // Navy blue
+    const HEADER_BG2 = 'FF2E75B6'; // Lighter blue
+    const YELLOW_BG = 'FFFFF2CC'; // Soft yellow
+    const YELLOW_FONT = 'FF7F6000'; // Dark gold
+    const GREEN_BG = 'FFE2EFDA'; // Soft green
+    const GREEN_FONT = 'FF375623'; // Dark green
+    const PINK_BG = 'FFFCE4D6'; // Soft orange-pink
+    const PINK_FONT = 'FF833C00'; // Dark brown
+    const RED_FONT = 'FFC00000'; // Deep red
+    const WHITE = 'FFFFFFFF';
+    const GRAY_BG = 'FFF2F2F2'; // Light gray for empty cells
     const SUBHEADER_BG = 'FF4472C4'; // Medium blue
 
     // ── COLUMN WIDTHS ────────────────────────────────────────────
@@ -80,10 +81,10 @@ export class ExportService {
     // Helper: apply thin border to a cell
     const applyBorder = (cell: ExcelJS.Cell, color = 'FFD9D9D9') => {
       cell.border = {
-        top:    { style: 'thin', color: { argb: color } },
-        left:   { style: 'thin', color: { argb: color } },
+        top: { style: 'thin', color: { argb: color } },
+        left: { style: 'thin', color: { argb: color } },
         bottom: { style: 'thin', color: { argb: color } },
-        right:  { style: 'thin', color: { argb: color } },
+        right: { style: 'thin', color: { argb: color } },
       };
     };
 
@@ -174,24 +175,24 @@ export class ExportService {
 
     // ── ROWS 8+: ASSET DATA ───────────────────────────────────────
     const assetTypes = [
-      { key: 'D_FOREX',        label: 'D Forex (Pips)',       maxPips: 12   },
-      { key: 'FOREX',          label: 'Forex (Pips)',          maxPips: 12   },
-      { key: 'GOLD',           label: 'Gold (Pips)',           maxPips: 20   },
-      { key: 'SILVER_5000',    label: 'Silver 5000OZ (Pips)', maxPips: 80   },
-      { key: 'SILVER_1000',    label: 'Silver 1000OZ (Pips)', maxPips: 20   },
-      { key: 'OIL',            label: 'Oil (Pips)',            maxPips: 20   },
-      { key: 'NATURE_GAS',     label: 'Nature Gas (Pips)',     maxPips: 35   },
-      { key: 'COMMODITIES',    label: 'Commodities (Pips)',    maxPips: 3    },
-      { key: 'HKG50',          label: 'HKG50 (Pips)',          maxPips: 20   },
-      { key: 'A50',            label: 'A50 (Pips)',             maxPips: 40   },
-      { key: 'JPN225',         label: 'JPN225 (Pips)',          maxPips: 50   },
-      { key: 'US_INDEX',       label: 'US Index (Pips)',        maxPips: 2.3  },
-      { key: 'SHARES',         label: 'Shares',                maxPips: 1.5  },
-      { key: 'ETHEREUM',       label: 'Ethereum',              maxPips: 3    },
-      { key: 'PRECIOUS_METAL', label: 'Precious Metal',        maxPips: 20   },
-      { key: 'BITCOIN',        label: 'Bitcoin',               maxPips: 3    },
-      { key: 'CRYPTO',         label: 'Crypto',                maxPips: 1.5  },
-      { key: 'GAUCNH',         label: 'GAUCNH',                maxPips: 7    },
+      { key: 'D_FOREX', label: 'D Forex (Pips)', maxPips: 12 },
+      { key: 'FOREX', label: 'Forex (Pips)', maxPips: 12 },
+      { key: 'GOLD', label: 'Gold (Pips)', maxPips: 20 },
+      { key: 'SILVER_5000', label: 'Silver 5000OZ (Pips)', maxPips: 80 },
+      { key: 'SILVER_1000', label: 'Silver 1000OZ (Pips)', maxPips: 20 },
+      { key: 'OIL', label: 'Oil (Pips)', maxPips: 20 },
+      { key: 'NATURE_GAS', label: 'Nature Gas (Pips)', maxPips: 35 },
+      { key: 'COMMODITIES', label: 'Commodities (Pips)', maxPips: 3 },
+      { key: 'HKG50', label: 'HKG50 (Pips)', maxPips: 20 },
+      { key: 'A50', label: 'A50 (Pips)', maxPips: 40 },
+      { key: 'JPN225', label: 'JPN225 (Pips)', maxPips: 50 },
+      { key: 'US_INDEX', label: 'US Index (Pips)', maxPips: 2.3 },
+      { key: 'SHARES', label: 'Shares', maxPips: 1.5 },
+      { key: 'ETHEREUM', label: 'Ethereum', maxPips: 3 },
+      { key: 'PRECIOUS_METAL', label: 'Precious Metal', maxPips: 20 },
+      { key: 'BITCOIN', label: 'Bitcoin', maxPips: 3 },
+      { key: 'CRYPTO', label: 'Crypto', maxPips: 1.5 },
+      { key: 'GAUCNH', label: 'GAUCNH', maxPips: 7 },
     ];
 
     let rowIdx = 8;
@@ -217,7 +218,7 @@ export class ExportService {
       }
 
       // Choose color theme based on whether any pips > 0
-      const bgColor   = hasRebate ? GREEN_BG  : PINK_BG;
+      const bgColor = hasRebate ? GREEN_BG : PINK_BG;
       const fontColor = hasRebate ? GREEN_FONT : PINK_FONT;
       const borderColor = hasRebate ? 'FFA9D18E' : 'FFF4B183';
 
@@ -277,7 +278,21 @@ export class ExportService {
       const rootLevel = (
         await this.prisma.ibNode.findUnique({ where: { id: rootIbId } })
       )?.level;
-      if (rootLevel !== 0) {
+
+      if (rootLevel === 0) {
+        // MIB (Lv0): View-All — chỉ trong CHÍNH nhánh của mình (đệ quy).
+        // BUG CŨ: nhánh `if (rootLevel !== 0)` khiến MIB bị bỏ qua check
+        // này hoàn toàn -> export được transaction của bất kỳ IB nào trong
+        // toàn hệ thống, kể cả ngoài nhánh của mình. Đã fix.
+        const isOwnDescendant = await isDescendantOf(this.prisma, targetIbId, rootIbId);
+        if (!isOwnDescendant) {
+          throw new ForbiddenException({
+            code: 'IB_NOT_IN_SUBTREE',
+            message: 'IB không thuộc nhánh của bạn',
+          });
+        }
+      } else {
+        // Lv1+: chỉ xem con trực tiếp (Parent-Strict)
         const tree = await this.getIbTreeByLevel(rootIbId);
         let found = false;
         for (const level in tree) {
@@ -322,21 +337,21 @@ export class ExportService {
     const sheet = workbook.addWorksheet('Transactions');
 
     // ── COLORS ─────────────────────────────────────────────────
-    const HDR_BG    = 'FF1F3864';
-    const HDR_FONT  = 'FFFFFFFF';
-    const ODD_BG    = 'FFF2F7FF';
-    const EVEN_BG   = 'FFFFFFFF';
+    const HDR_BG = 'FF1F3864';
+    const HDR_FONT = 'FFFFFFFF';
+    const ODD_BG = 'FFF2F7FF';
+    const EVEN_BG = 'FFFFFFFF';
 
     // ── COLUMN DEFINITIONS ─────────────────────────────────────
     sheet.columns = [
-      { key: 'date',         width: 22 },
-      { key: 'name',         width: 20 },
-      { key: 'email',        width: 28 },
-      { key: 'assetType',    width: 16 },
-      { key: 'rebateType',   width: 16 },
-      { key: 'lots',         width: 12 },
+      { key: 'date', width: 22 },
+      { key: 'name', width: 20 },
+      { key: 'email', width: 28 },
+      { key: 'assetType', width: 16 },
+      { key: 'rebateType', width: 16 },
+      { key: 'lots', width: 12 },
       { key: 'rebateAmount', width: 16 },
-      { key: 'currency',     width: 10 },
+      { key: 'currency', width: 10 },
     ];
 
     const headers = ['Trade Date', 'IB Name', 'IB Email', 'Asset Type', 'Rebate Type', 'Lots', 'Rebate Amount', 'Currency'];
@@ -369,24 +384,24 @@ export class ExportService {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E75B6' } };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
       cell.border = {
-        top:    { style: 'thin', color: { argb: 'FF1F3864' } },
+        top: { style: 'thin', color: { argb: 'FF1F3864' } },
         bottom: { style: 'medium', color: { argb: 'FF1F3864' } },
-        left:   { style: 'thin', color: { argb: 'FF1F3864' } },
-        right:  { style: 'thin', color: { argb: 'FF1F3864' } },
+        left: { style: 'thin', color: { argb: 'FF1F3864' } },
+        right: { style: 'thin', color: { argb: 'FF1F3864' } },
       };
     });
 
     // ── DATA ROWS ──────────────────────────────────────────────
     txs.forEach((tx, idx) => {
       const row = sheet.addRow({
-        date:         tx.tradedAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
-        name:         tx.ib.name || '—',
-        email:        tx.ib.email,
-        assetType:    tx.assetType,
-        rebateType:   tx.rebateType,
-        lots:         Number(tx.lots),
+        date: tx.tradedAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+        name: tx.ib.name || '—',
+        email: tx.ib.email,
+        assetType: tx.assetType,
+        rebateType: tx.rebateType,
+        lots: Number(tx.lots),
         rebateAmount: Number(tx.rebateAmount),
-        currency:     tx.currency,
+        currency: tx.currency,
       });
 
       row.height = 17;
@@ -396,10 +411,10 @@ export class ExportService {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
         cell.font = { size: 10, name: 'Calibri' };
         cell.border = {
-          top:    { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
           bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          left:   { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          right:  { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
         };
 
         // Alignment per column
@@ -423,20 +438,20 @@ export class ExportService {
     // ── TOTALS ROW ─────────────────────────────────────────────
     if (txs.length > 0) {
       const totalRow = sheet.addRow({
-        date:         'TOTAL',
-        lots:         txs.reduce((s, t) => s + Number(t.lots), 0),
+        date: 'TOTAL',
+        lots: txs.reduce((s, t) => s + Number(t.lots), 0),
         rebateAmount: txs.reduce((s, t) => s + Number(t.rebateAmount), 0),
-        currency:     txs[0]?.currency || '',
+        currency: txs[0]?.currency || '',
       });
       totalRow.height = 20;
       totalRow.eachCell((cell, colNumber) => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
         cell.font = { bold: true, size: 10, name: 'Calibri' };
         cell.border = {
-          top:    { style: 'medium', color: { argb: 'FF2E75B6' } },
+          top: { style: 'medium', color: { argb: 'FF2E75B6' } },
           bottom: { style: 'medium', color: { argb: 'FF2E75B6' } },
-          left:   { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          right:  { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
         };
         if (colNumber === 6 || colNumber === 7) {
           cell.numFmt = '#,##0.########';

@@ -19,7 +19,7 @@ export class TransactionService {
     private readonly auditService: AuditService,
     private readonly notificationService: NotificationService,
     private readonly walletService: WalletService,
-  ) {}
+  ) { }
 
   /**
    * POST /transactions — tạo 1 giao dịch
@@ -156,7 +156,13 @@ export class TransactionService {
 
   /**
    * DELETE /transactions/:id — xóa giao dịch nhập sai
-   * Chỉ createdBy hoặc MIB (level=0) mới được xóa
+   * Chỉ createdBy hoặc cha trực tiếp của IB đó (Parent-Strict) mới được xóa.
+   *
+   * FIX: trước đây "MIB (level=0)" được xóa BẤT KỲ transaction nào trong cả
+   * subtree (mọi cấp), không chỉ con trực tiếp — vượt ngoài "MIB chỉ
+   * View-All, không Edit-All". Đổi thành: người tạo, HOẶC cha trực tiếp của
+   * IB gắn với transaction đó (LvN xóa transaction của LvN+1 trực tiếp),
+   * áp dụng như nhau cho mọi level kể cả MIB — không còn ngoại lệ riêng.
    */
   async remove(currentUserId: string, id: string, ipAddress?: string, callerRole?: string) {
     const tx = await this.prisma.rebateTransaction.findUnique({
@@ -168,19 +174,18 @@ export class TransactionService {
     // Kiểm tra ibId trong subtree
     await this.assertInSubtree(currentUserId, tx.ibId, callerRole);
 
-    // Kiểm tra quyền xóa: phải là người tạo HOẶC MIB (level=0)
-    const currentUser = await this.prisma.ibNode.findUnique({
-      where: { id: currentUserId },
-      select: { level: true },
-    });
-
-    const isMib = currentUser?.level === 0;
     const isCreator = tx.createdById === currentUserId;
 
-    if (!isMib && !isCreator) {
+    let isDirectParent = false;
+    if (!isCreator && callerRole !== 'ADMIN') {
+      const target = await this.prisma.ibNode.findUnique({ where: { id: tx.ibId }, select: { parentId: true } });
+      isDirectParent = target?.parentId === currentUserId;
+    }
+
+    if (callerRole !== 'ADMIN' && !isCreator && !isDirectParent) {
       throw new ForbiddenException({
         code: 'TRANSACTION_DELETE_FORBIDDEN',
-        message: 'Chỉ người tạo giao dịch hoặc MIB mới được xóa',
+        message: 'Chỉ người tạo giao dịch hoặc cấp trên trực tiếp mới được xóa',
       });
     }
 
