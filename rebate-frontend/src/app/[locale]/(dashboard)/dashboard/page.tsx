@@ -7,8 +7,38 @@ import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
 import { useAuthStore } from '@/store/auth.store';
 import { AssetType, RebateConfig, RebateCalculation } from '@/types';
+import NetworkOverviewSection from '@/components/dashboard/NetworkOverviewSection';
 
-function DashboardPageInner() {
+// ─────────────────────────────────────────────────────────────────
+// ADMIN VIEW — Admin không tham gia cây IB (không có RebateConfig,
+// không có cấp dưới), nên KHÔNG hiện "Cấu hình Rebate" / "Trình tính
+// hoa hồng" — 2 phần đó không có ý nghĩa với Admin. Thay vào đó chỉ
+// hiện tổng quan toàn hệ thống.
+// ─────────────────────────────────────────────────────────────────
+function AdminDashboardView({ email }: { email?: string }) {
+  return (
+    <div className="space-y-8">
+      <div className="bg-white border border-amber-200/80 rounded-2xl p-6 shadow-sm">
+        <h1 className="text-2xl font-extrabold text-gray-900">Xin chào, {email}</h1>
+        <p className="text-gray-600 mt-1 font-medium">
+          Toàn cảnh vận hành hệ thống Rebate — Admin quản trị và giám sát, không tham gia trực tiếp vào cây IB.
+        </p>
+      </div>
+
+      <NetworkOverviewSection
+        scopeTitle="Toàn hệ thống"
+        scopeHint="Bao gồm mọi MIB và IB đang hoạt động trong toàn bộ hệ thống."
+        showWallet={false}
+      />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MIB / IB VIEW — giữ nguyên phần cá nhân đã có (Cấu hình Rebate,
+// Trình tính hoa hồng), THÊM phần tổng quan mạng lưới bên dưới.
+// ─────────────────────────────────────────────────────────────────
+function MibIbDashboardView() {
   const t = useTranslations('DashboardPage');
   const { user } = useAuthStore();
   const [profile, setProfile] = useState<any>(null);
@@ -32,7 +62,7 @@ function DashboardPageInner() {
       const loadDashboardData = async () => {
         try {
           const profileData = await ibApi.getMe();
-          let pData = profileData.data;
+          const pData = profileData.data;
 
           if (pData.parent) {
             pData.parentEmail = pData.parent.email;
@@ -63,6 +93,15 @@ function DashboardPageInner() {
       setCalcLoading(false);
     }
   };
+
+  // Ghi chú phạm vi xem đúng quy tắc: MIB (level 0) View-All đệ quy toàn
+  // nhánh; Lv1+ chỉ tính con trực tiếp (parent-strict) — khớp với đúng
+  // những gì BE trả về sau fix ngày 28/07/2026, để người dùng không hiểu
+  // nhầm là thiếu dữ liệu khi số liệu ít hơn kỳ vọng.
+  const isMib = profile?.level === 0;
+  const scopeHint = isMib
+    ? 'Bao gồm toàn bộ IB trong nhánh của bạn (mọi cấp — View-All).'
+    : 'Chỉ tính các IB cấp dưới trực tiếp của bạn (không gồm cháu/chắt).';
 
   return (
     <div className="space-y-8">
@@ -109,9 +148,8 @@ function DashboardPageInner() {
                   {/* Chỉ còn 1 cột duy nhất — trước có 3 cột (Rebate/Markup/Max Pips)
                       gây hiểu nhầm, vì Dashboard này luôn là góc nhìn của chính IB đang
                       đăng nhập ("khung chưa chia cho ai cả"), nên Rebate Pips và Max Pips
-                      thực chất là 1. Tái dùng key i18n `maxPips` — đổi giá trị dịch sang
-                      "Hoa hồng được nhận cho MIB và IB" trong file locale (không cần sửa
-                      code thêm). */}
+                      thực chất là 1. Tái dùng key i18n `maxPips` (đã đổi giá trị dịch
+                      sang "Hoa hồng được nhận cho MIB và IB" trong messages/vi.json,en.json). */}
                   <th className="px-4 py-3 text-right font-bold">{t('maxPips')}</th>
                 </tr>
               </thead>
@@ -215,8 +253,29 @@ function DashboardPageInner() {
           )}
         </div>
       </div>
+
+      {/* Tổng quan mạng lưới — MỚI: dùng chung API/component với Admin,
+          BE tự scope đúng theo role (MIB đệ quy toàn nhánh / Lv1+ chỉ con
+          trực tiếp), không cần logic riêng ở FE. */}
+      <NetworkOverviewSection
+        scopeTitle={isMib ? 'Mạng lưới của tôi' : 'Cấp dưới trực tiếp của tôi'}
+        scopeHint={scopeHint}
+        showWallet={true}
+      />
     </div>
   );
+}
+
+function DashboardPageInner() {
+  const { user } = useAuthStore();
+
+  if (!user) return null;
+
+  if (user.role === 'ADMIN') {
+    return <AdminDashboardView email={user.email} />;
+  }
+
+  return <MibIbDashboardView />;
 }
 
 export default function DashboardPage() {

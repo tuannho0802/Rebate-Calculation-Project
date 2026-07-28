@@ -104,7 +104,7 @@
     "assetType": "Asset Type",
     "rebatePips": "Rebate Pips (Retained)",
     "markupPips": "Markup Pips (Transferred)",
-    "maxPips": "Max Pips",
+    "maxPips": "Commission Received for MIB and IB",
     "noConfig": "No Rebate configuration activated yet.",
     "calculatorTitle": "Rebate Calculator",
     "calcAssetLabel": "Asset Type",

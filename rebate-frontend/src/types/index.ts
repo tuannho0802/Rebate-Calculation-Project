@@ -150,6 +150,49 @@ export interface RebateConfig {
   updatedAt: string;
 }
 
+// ─── Dashboard (4 endpoint tự-phục-vụ — BE tự scope theo role) ────
+// Xem rebate-backend/src/modules/dashboard/dashboard.service.ts::resolveScopedIbIds()
+// Admin: toàn hệ thống | MIB (level 0): đệ quy toàn nhánh | Lv1+: chỉ con trực tiếp.
+
+export interface DashboardSummary {
+  ibStats: { totalActive: number; totalInactive: number; totalInSubtree: number };
+  transactionStats: {
+    todayCount: number; todayLots: number; todayRebateUsd: number;
+    monthCount: number; monthLots: number; monthRebateUsd: number;
+  };
+  topIbsThisMonth: { id: string; email: string; name: string; monthLots: number; monthRebateUsd: number }[];
+  chartData: { month: string; totalRebate: number; totalLots: number }[];
+  generatedAt: string;
+}
+
+export interface DashboardOverview {
+  wallet: { balance: number; currency: string };
+  rebate: { thisMonth: number; lastMonth: number; changePercent: number | null };
+  subtree: { totalIbs: number; activeIbs: number };
+  lots: { thisMonth: number };
+  topIbs: { email: string; rebate: number; lots: number }[];
+}
+
+export interface DashboardRebateSummary {
+  period: string;
+  total: number;
+  byAsset: { assetType: string; rebate: number; lots: number }[];
+  byRebateType: { rebateType: string; rebate: number }[];
+  byLevel: { level: number; rebate: number }[];
+}
+
+export interface DashboardIbPerformanceItem {
+  id: string; email: string; name: string; level: number;
+  lots: number; rebate: number; txCount: number;
+  lotsChangePercent: number | null; rebateChangePercent: number | null;
+}
+
+export interface DashboardIbPerformance {
+  period: string;
+  items: DashboardIbPerformanceItem[];
+  total: number; page: number; limit: number;
+}
+
 export interface BulkUpdateResult {
   ibId: string;
   success: boolean;
