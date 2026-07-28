@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/auth.store';
 import { authApi } from '@/lib/api/auth';
 import { Loader2, LogOut, Menu, X } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
-import { filterNavItemsByRole, getNavLabelKeyForPath, isAdminOnlyRoute } from '@/lib/nav-config';
+import { filterNavItemsByRole, getNavLabelKeyForPath, isAdminOnlyRoute, isMibOnlyRoute } from '@/lib/nav-config';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
 
@@ -16,8 +16,8 @@ const decodeJwt = (token: string) => {
   try {
     const base64Url = token.split('.')[1];
     const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function (c) {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
     }).join(''));
     return JSON.parse(jsonPayload);
   } catch (e) {
@@ -41,7 +41,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         router.replace('/login');
         return;
       }
-      
+
       if (!user) {
         const payload = decodeJwt(token);
         if (payload && payload.sub) {
@@ -54,15 +54,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           });
         }
       }
-      
+
       setTimeout(() => setIsCheckingAuth(false), 300);
     };
-    
+
     checkAuth();
   }, [router, user]);
 
   useEffect(() => {
-    if (user && user.role !== 'ADMIN' && isAdminOnlyRoute(pathname)) {
+    if (!user) return;
+    if (user.role !== 'ADMIN' && isAdminOnlyRoute(pathname)) {
+      toast.error(getErrorMessage('AUTH_FORBIDDEN'));
+      router.replace('/dashboard');
+      return;
+    }
+    // MIB-only routes (e.g. ib-view): Admin + MIB (level 0) allowed, deeper
+    // Sub-IB levels are redirected away.
+    if (user.role !== 'ADMIN' && user.level !== 0 && isMibOnlyRoute(pathname)) {
       toast.error(getErrorMessage('AUTH_FORBIDDEN'));
       router.replace('/dashboard');
     }
@@ -87,7 +95,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     );
   }
 
-  const navItems = filterNavItemsByRole(user?.role).map((item) => ({
+  const navItems = filterNavItemsByRole(user?.role, user?.level).map((item) => ({
     ...item,
     name: t(item.labelKey),
   }));
@@ -100,7 +108,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#FEF9C3_0%,#FFFFFF_40%,#FFF5F5_100%)] flex font-sans">
       {isSidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/50 z-40 lg:hidden backdrop-blur-sm transition-opacity"
           onClick={() => setIsSidebarOpen(false)}
         />
@@ -122,7 +130,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               Rebate BCR
             </span>
           </div>
-          <button 
+          <button
             className="ml-auto lg:hidden text-gray-500 hover:text-amber-600 transition-colors"
             onClick={() => setIsSidebarOpen(false)}
           >
@@ -140,8 +148,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 onClick={() => setIsSidebarOpen(false)}
                 className={`
                   group flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200
-                  ${isActive 
-                    ? 'bg-gradient-to-r from-amber-100 via-amber-50 to-white text-gray-900 border-l-4 border-red-500 shadow-sm' 
+                  ${isActive
+                    ? 'bg-gradient-to-r from-amber-100 via-amber-50 to-white text-gray-900 border-l-4 border-red-500 shadow-sm'
                     : 'text-gray-700 hover:bg-amber-50/60 hover:text-gray-900'
                   }
                 `}
@@ -192,7 +200,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span className="text-sm font-bold text-gray-900">{user?.email || 'admin@example.com'}</span>
               <span className="text-xs text-gray-600 font-medium">{t('statusActive')}</span>
             </div>
-            
+
             <div className="h-9 w-9 rounded-lg bg-[linear-gradient(180deg,#FDE047_0%,#FFFFFF_50%,#EF4444_100%)] shadow-md border border-amber-300 flex items-center justify-center text-gray-900 font-extrabold text-sm">
               {user?.email?.charAt(0).toUpperCase() || 'A'}
             </div>

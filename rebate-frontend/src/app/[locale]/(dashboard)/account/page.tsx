@@ -36,11 +36,10 @@ export default function AccountPage() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center px-6 py-4 text-sm font-bold transition-colors ${
-                activeTab === tab.key
+              className={`flex items-center px-6 py-4 text-sm font-bold transition-colors ${activeTab === tab.key
                   ? 'text-gray-900 border-b-2 border-red-500 bg-white shadow-sm'
                   : 'text-gray-600 hover:text-gray-900 hover:bg-amber-50/60'
-              }`}
+                }`}
             >
               {tab.icon}
               {tab.label}
