@@ -21,20 +21,50 @@ function changePercent(current: number, prev: number): number | null {
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) { }
 
-  // ── GET /dashboard/summary (existing, kept for backwards compat) ────────────
-  async getSummary(currentUserId: string, callerRole?: string) {
-    let childIds: string[];
+  /**
+   * Resolve danh sách ibId mà caller được phép xem, ĐÚNG 3 quy tắc:
+   *   - ADMIN      : CRUD-All   → toàn bộ hệ thống.
+   *   - MIB (lv 0) : View-All   → đệ quy TOÀN BỘ hậu duệ trong nhánh của mình.
+   *   - Lv1+       : CHỈ con trực tiếp (parent-strict), KHÔNG đệ quy xuống cháu/chắt.
+   *
+   * FIX (28/07/2026): trước đây cả 4 hàm dashboard đều gộp chung 1 nhánh
+   * `else` cho mọi role không phải ADMIN, khiến Lv1+ vô tình được xem đệ quy
+   * y hệt MIB — vi phạm "parent-strict" cho Lv1+. Tách hẳn thành helper dùng
+   * chung để tránh lặp lại sai sót tương tự ở từng hàm riêng lẻ.
+   *
+   * Lưu ý: kết quả trả về LUÔN loại trừ chính callerId (dù ADMIN, MIB hay
+   * Lv1+). Với những hàm cần gộp cả rebate của chính người gọi vào tổng
+   * (getSummary, getRebateSummary), caller tự nối `callerId` vào mảng dùng
+   * để truy vấn — xem ví dụ ngay bên dưới. Những hàm hiển thị bảng "downline"
+   * (getOverview, getIbPerformance) thì dùng thẳng, không cần nối.
+   */
+  private async resolveScopedIbIds(
+    callerId: string,
+    callerRole?: string,
+    callerLevel?: number,
+  ): Promise<string[]> {
     if (callerRole === 'ADMIN') {
       const all = await this.prisma.ibNode.findMany({ select: { id: true } });
-      childIds = all.map((n) => n.id);
-    } else {
-      // FIX (audit toàn diện): trước đây chỉ lấy `parentId: currentUserId`
-      // (Lv1 trực tiếp), khiến MIB có tree sâu hơn 1 cấp bị thiếu/undercount
-      // dữ liệu Lv2/Lv3/N trên Dashboard. Giờ đệ quy toàn bộ hậu duệ, đúng
-      // "MIB View-All" — nhất quán với wallet/payout/export/ib.service đã fix.
-      const descendants = await getDescendantIds(this.prisma, currentUserId);
-      childIds = descendants.filter((id) => id !== currentUserId);
+      return all.map((n) => n.id).filter((id) => id !== callerId);
     }
+
+    if (callerLevel === 0) {
+      // MIB: View-All đệ quy toàn nhánh của chính mình.
+      const descendants = await getDescendantIds(this.prisma, callerId);
+      return descendants.filter((id) => id !== callerId);
+    }
+
+    // Lv1+: parent-strict — CHỈ con trực tiếp, không đệ quy xuống cháu/chắt.
+    const directChildren = await this.prisma.ibNode.findMany({
+      where: { parentId: callerId },
+      select: { id: true },
+    });
+    return directChildren.map((n) => n.id);
+  }
+
+  // ── GET /dashboard/summary (existing, kept for backwards compat) ────────────
+  async getSummary(currentUserId: string, callerRole?: string, callerLevel?: number) {
+    const childIds = await this.resolveScopedIbIds(currentUserId, callerRole, callerLevel);
     const subtreeIds = callerRole === 'ADMIN' ? childIds : [currentUserId, ...childIds];
 
     const [activeCount, inactiveCount] = await Promise.all([
@@ -123,17 +153,8 @@ export class DashboardService {
   }
 
   // ── GET /dashboard/overview ─────────────────────────────────────────────────
-  async getOverview(callerId: string, callerRole?: string) {
-    let childIds: string[];
-    if (callerRole === 'ADMIN') {
-      const all = await this.prisma.ibNode.findMany({ select: { id: true } });
-      childIds = all.map((n) => n.id).filter((id) => id !== callerId);
-    } else {
-      // FIX: đệ quy toàn bộ hậu duệ thay vì chỉ Lv1 trực tiếp — xem comment
-      // chi tiết ở getSummary() phía trên.
-      const descendants = await getDescendantIds(this.prisma, callerId);
-      childIds = descendants.filter((id) => id !== callerId);
-    }
+  async getOverview(callerId: string, callerRole?: string, callerLevel?: number) {
+    const childIds = await this.resolveScopedIbIds(callerId, callerRole, callerLevel);
 
     // Wallet
     const wallet = await this.prisma.wallet.findUnique({
@@ -216,18 +237,14 @@ export class DashboardService {
   }
 
   // ── GET /dashboard/rebate-summary?period=YYYY-MM ───────────────────────────
-  async getRebateSummary(callerId: string, period: string, callerRole?: string) {
+  async getRebateSummary(callerId: string, period: string, callerRole?: string, callerLevel?: number) {
     const { start, end, label } = parsePeriod(period);
-    let ibIds: string[];
-    if (callerRole === 'ADMIN') {
-      const all = await this.prisma.ibNode.findMany({ select: { id: true } });
-      ibIds = all.map((n) => n.id);
-    } else {
-      // FIX: đệ quy toàn bộ hậu duệ thay vì chỉ Lv1 trực tiếp — xem comment
-      // chi tiết ở getSummary() phía trên. getDescendantIds() đã bao gồm
-      // sẵn callerId nên không cần nối thêm.
-      ibIds = await getDescendantIds(this.prisma, callerId);
-    }
+    const childIds = await this.resolveScopedIbIds(callerId, callerRole, callerLevel);
+    // ibIds cần CÓ chính callerId (tổng rebate của "tôi + mạng lưới của tôi"),
+    // resolveScopedIbIds() luôn loại trừ self nên phải nối lại thủ công ở đây
+    // (khác getOverview/getIbPerformance — 2 hàm đó là bảng "downline", không
+    // gồm chính người gọi).
+    const ibIds = callerRole === 'ADMIN' ? childIds : [callerId, ...childIds];
 
     const txs = await this.prisma.rebateTransaction.findMany({
       where: { ibId: { in: ibIds }, tradedAt: { gte: start, lt: end } },
@@ -281,22 +298,14 @@ export class DashboardService {
     page: number,
     limit: number,
     callerRole?: string,
+    callerLevel?: number,
   ) {
     const { start, end, label } = parsePeriod(period);
     const [y, m] = label.split('-').map(Number);
     const prevStart = new Date(Date.UTC(y, m - 2, 1));
     const prevEnd = start;
 
-    let childIds: string[];
-    if (callerRole === 'ADMIN') {
-      const all = await this.prisma.ibNode.findMany({ select: { id: true } });
-      childIds = all.map((n) => n.id).filter((id) => id !== callerId);
-    } else {
-      // FIX: đệ quy toàn bộ hậu duệ thay vì chỉ Lv1 trực tiếp — xem comment
-      // chi tiết ở getSummary() phía trên.
-      const descendants = await getDescendantIds(this.prisma, callerId);
-      childIds = descendants.filter((id) => id !== callerId);
-    }
+    const childIds = await this.resolveScopedIbIds(callerId, callerRole, callerLevel);
 
     // Get all IBs in subtree with pagination
     const total = childIds.length;
