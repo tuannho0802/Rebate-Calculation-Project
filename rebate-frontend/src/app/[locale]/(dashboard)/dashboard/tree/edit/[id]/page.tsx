@@ -1,7 +1,8 @@
 'use client';
 
-import { use, useState, useEffect } from 'react';
+import { Suspense, use, useState, useEffect } from 'react';
 import { useRouter } from '@/i18n/routing';
+import { useSearchParams } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import { rebateApi } from '@/lib/api/rebate';
 import { rebateTemplateApi } from '@/lib/api/rebateTemplates';
@@ -13,10 +14,18 @@ import { MarkupLinkRow } from '@/components/rebate/AccountTypeBuilder';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
 
-export default function EditIbRebatePage({ params }: { params: Promise<{ id: string }> }) {
+function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
   const { user } = useAuthStore();
+
+  // Deep-link từ Notification (Case 2 — cấp dưới bị chỉnh sửa): quyền xem/sửa
+  // trang này vẫn do BE quyết định như cũ (chỉ cấp dưới trực tiếp trong subtree
+  // của người đang đăng nhập), ở đây chỉ đọc thêm asset nào cần tô sáng.
+  const searchParams = useSearchParams();
+  const highlightAssets = new Set(
+    (searchParams.get('highlightAssets') || '').split(',').filter(Boolean),
+  );
 
   useEffect(() => {
     try {
@@ -376,8 +385,16 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
                 const currentVal = rebateValues[asset] || '0';
                 const isRebateInvalid = parsePipsValue(currentVal) > combinedMax;
 
+                const isHighlighted = highlightAssets.has(asset);
+
                 return (
-                  <tr key={asset} className="hover:bg-gray-50/50 transition-colors">
+                  <tr
+                    key={asset}
+                    className={`transition-colors ${isHighlighted
+                      ? 'ring-2 ring-inset ring-amber-500 bg-amber-50/70'
+                      : 'hover:bg-gray-50/50'
+                      }`}
+                  >
                     <td className="px-6 py-4 font-bold text-gray-900">{asset}</td>
                     <td className="px-6 py-4 text-amber-950 font-bold">
                       Hoa hồng được nhận: {combinedMax}
@@ -456,5 +473,13 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
         </>
       )}
     </div>
+  );
+}
+
+export default function EditIbRebatePage({ params }: { params: Promise<{ id: string }> }) {
+  return (
+    <Suspense fallback={null}>
+      <EditIbRebatePageInner params={params} />
+    </Suspense>
   );
 }

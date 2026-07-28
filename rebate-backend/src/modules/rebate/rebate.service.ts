@@ -496,8 +496,13 @@ export class RebateService {
           metadata: {
             updatedBy: currentUserId,
             actorEmail: actor?.email,
-            targetIbId,
-            changedAssets: updateDto.assets.map((a) => ({ assetType: a.assetType, rebateType: a.rebateType })),
+            // Bọc trong "details" để đồng nhất với cấu trúc metadata mà Admin nhận
+            // (notifyAdminsOnIbAction) — FE dùng chung 1 helper để tìm điểm điều
+            // hướng thay vì phải biết trước ai gửi loại notification nào.
+            details: {
+              targetIbId,
+              changedAssets: updateDto.assets.map((a) => ({ assetType: a.assetType, rebateType: a.rebateType })),
+            },
           },
         });
       }
@@ -690,6 +695,13 @@ export class RebateService {
       });
     }
 
+    // Fix: FE luôn gửi lên TOÀN BỘ danh sách asset (kể cả những cái không đổi),
+    // nên trước đây vòng lặp này update DB + ghi audit + gửi notification cho
+    // TẤT CẢ, dù chỉ 1 asset thực sự thay đổi -> 1 lần bấm Lưu ra hàng chục bản
+    // ghi audit thừa + hàng chục notification trùng lặp cho cùng 1 người.
+    // Giờ so sánh với giá trị cũ trước, asset nào KHÔNG đổi thì bỏ qua hoàn toàn.
+    const changedOverrides: { assetType: AssetType; rebateType: string; maxPips: number }[] = [];
+
     for (const ov of overrides) {
       if (ov.maxPips < 0) {
         throw new UnprocessableEntityException({
@@ -705,8 +717,12 @@ export class RebateService {
       const before = await this.prisma.rebateConfig.findUnique({
         where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
       });
+      const beforeMaxPips = before ? Number(before.maxPips) : null;
 
-
+      if (beforeMaxPips === ov.maxPips) {
+        continue; // Không đổi gì -> bỏ qua hoàn toàn, không update/audit/notify
+      }
+      changedOverrides.push(ov);
 
       const updated = await this.prisma.rebateConfig.upsert({
         where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
@@ -726,7 +742,7 @@ export class RebateService {
         data: {
           rebateConfigId: updated.id,
           changedById,
-          before: { maxPips: before ? Number(before.maxPips) : null },
+          before: { maxPips: beforeMaxPips },
           after: { maxPips: ov.maxPips },
         },
       });
@@ -739,20 +755,25 @@ export class RebateService {
         action: AUDIT_ACTIONS.REBATE_MAX_OVERRIDE,
         targetType: 'REBATE_CONFIG',
         targetId: updated.id,
-        before: { mibId, assetType: ov.assetType, rebateType: ov.rebateType, maxPips: before ? Number(before.maxPips) : null },
+        before: { mibId, assetType: ov.assetType, rebateType: ov.rebateType, maxPips: beforeMaxPips },
         after: { mibId, assetType: ov.assetType, rebateType: ov.rebateType, maxPips: ov.maxPips },
       });
+    }
 
-      await this.resetSubtreeAssets(mibId, ov.assetType, ov.rebateType, changedById);
+    // Fix: trước đây gọi resetSubtreeAssets() BÊN TRONG vòng lặp, 1 lần / asset ->
+    // N asset thay đổi = N lần quét subtree + N notification riêng biệt cho cùng
+    // 1 người. Giờ gom lại: quét subtree 1 lần, gửi ĐÚNG 1 notification / người,
+    // liệt kê đủ mọi asset đã đổi trong "changedAssets".
+    if (changedOverrides.length > 0) {
+      await this.resetSubtreeAssetsBatch(mibId, changedOverrides, changedById);
     }
 
     return this.getConfig(mibId);
   }
 
-  private async resetSubtreeAssets(
+  private async resetSubtreeAssetsBatch(
     rootId: string,
-    assetType: AssetType,
-    rebateType: string,
+    changedAssets: { assetType: AssetType; rebateType: string }[],
     changedById: string,
   ) {
     const subtree: any[] = await this.prisma.$queryRaw`
@@ -765,32 +786,46 @@ export class RebateService {
       )
       SELECT id FROM subtree WHERE id != ${rootId}
     `;
+    const descendantIds = subtree.map((s) => s.id);
 
-    const allIdsToNotify = [rootId, ...(subtree).map((s) => s.id)];
-
-    if (subtree.length > 0) {
-      const descendantIds = subtree.map(s => s.id);
-      await this.prisma.rebateConfig.updateMany({
-        where: {
-          ibId: { in: descendantIds },
-          assetType,
-          rebateType: rebateType as any,
-        },
-        data: {
-          rebatePips: 0,
-          markupPips: 0,
-          maxPips: 0,
-        }
-      });
+    if (descendantIds.length > 0) {
+      // Prisma updateMany không hỗ trợ where theo nhiều cặp (assetType, rebateType)
+      // khác nhau cùng lúc trong 1 câu lệnh -> vẫn cần loop ở TẦNG DB, nhưng đây là
+      // update thẳng (không audit/không notify riêng lẻ), khác hẳn vòng lặp cũ.
+      for (const { assetType, rebateType } of changedAssets) {
+        await this.prisma.rebateConfig.updateMany({
+          where: { ibId: { in: descendantIds }, assetType, rebateType: rebateType as any },
+          data: { rebatePips: 0, markupPips: 0, maxPips: 0 },
+        });
+      }
     }
 
+    const changedAssetsList = changedAssets.map((a) => ({ assetType: a.assetType, rebateType: a.rebateType }));
+    const assetNames = changedAssetsList.map((a) => a.assetType).slice(0, 4);
+    const summaryText = assetNames.length > 0
+      ? ` (${assetNames.join(', ')}${changedAssetsList.length > 4 ? '...' : ''})`
+      : '';
+
+    const allIdsToNotify = [rootId, ...descendantIds];
+
     for (const id of allIdsToNotify) {
-      this.notificationService.createSystemNotification({
+      const isRoot = id === rootId;
+      // Fix: mỗi recipient ở đây đều đang được báo về THAY ĐỔI TRÊN CHÍNH CONFIG
+      // CỦA HỌ (MIB bị đổi trần trực tiếp, hoặc cấp dưới bị reset config do trần
+      // MIB tuyến trên hạ xuống) — nên targetIbId luôn là chính id của recipient
+      // đó (Case 1 tự-mình ở FE), KHÔNG phải rootId dùng chung cho mọi người.
+      await this.notificationService.createSystemNotification({
         recipientId: id,
         type: 'REBATE_UPDATED' as any,
-        title: 'Sửa đổi Rebate',
-        body: 'Vui lòng bạn hãy vô kiểm tra lại Rebate hiện tại của mình',
-        metadata: { assetType, action: 'RESET' },
+        title: isRoot ? 'Trần Rebate (MaxPips) của bạn đã được Admin cập nhật' : 'Rebate của bạn đã bị điều chỉnh',
+        body: isRoot
+          ? `Admin vừa cập nhật trần Rebate${summaryText} cho MIB của bạn. Vui lòng kiểm tra lại Rebate hiện tại của mình.`
+          : `Trần Rebate${summaryText} của MIB tuyến trên vừa thay đổi khiến cấu hình của bạn bị reset về mức hợp lệ. Vui lòng kiểm tra lại Rebate hiện tại của mình.`,
+        metadata: {
+          action: 'RESET',
+          changedById,
+          details: { targetIbId: id, changedAssets: changedAssetsList },
+        },
       });
     }
   }

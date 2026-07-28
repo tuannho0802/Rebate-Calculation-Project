@@ -176,18 +176,20 @@ export class NotificationService {
     changes: Record<string, unknown>,
     adminId?: string,
   ) {
-    let summaryText = '';
-    if (changes && Array.isArray(changes.assets)) {
-      const assetNames = (changes.assets as Array<{ asset?: string }>)
-        .map((a) => a.asset)
-        .filter(Boolean)
-        .slice(0, 4);
-      if (assetNames.length > 0) {
-        summaryText = ` (${assetNames.join(', ')}${changes.assets.length > 4 ? '...' : ''})`;
-      }
-    }
+    // Fix: trước đây "changes.assets" chỉ được dùng để nhúng chữ vào body (text),
+    // không hề lưu vào metadata dưới dạng mảng có cấu trúc — nên FE không thể biết
+    // chính xác asset nào để highlight. Giờ lưu thêm "changedAssets" có cấu trúc.
+    const changedAssets = (Array.isArray((changes as any)?.assets)
+      ? ((changes as any).assets as Array<{ asset?: string; rebatePips?: number; markupPips?: number }>)
+      : []
+    )
+      .filter((a) => !!a.asset)
+      .map((a) => ({ assetType: a.asset, rebatePips: a.rebatePips, markupPips: a.markupPips }));
 
-    const body = `Cấu hình rebate của bạn${summaryText} vừa được Admin cập nhật. Vui lòng kiểm tra thiết lập chi tiết tại trang Rebate Management.`;
+    const assetNames = changedAssets.map((a) => a.assetType).slice(0, 4);
+    const summaryText = assetNames.length > 0
+      ? ` (${assetNames.join(', ')}${changedAssets.length > 4 ? '...' : ''})`
+      : '';
 
     const recipientIds: string[] = [targetIbId];
 
@@ -207,12 +209,31 @@ export class NotificationService {
     }
 
     for (const recipientId of [...new Set(recipientIds)]) {
+      // Fix: trước đây câu chữ luôn nói "của bạn" kể cả với các ancestor nhận
+      // thông báo do CẤP DƯỚI của họ bị sửa (case cascade) — gây hiểu nhầm.
+      // Giờ tách rõ: recipient chính là targetIbId (tự mình bị sửa) hay chỉ là
+      // upline nhận thông báo cascade (cấp dưới của họ bị sửa).
+      const isSelf = recipientId === targetIbId;
+      const title = isSelf
+        ? 'Cấu hình rebate của bạn đã bị Admin cập nhật'
+        : 'Cấu hình rebate của cấp dưới trong nhánh bạn đã bị Admin cập nhật';
+      const body = isSelf
+        ? `Cấu hình rebate của bạn${summaryText} vừa được Admin cập nhật. Vui lòng kiểm tra thiết lập chi tiết.`
+        : `Cấu hình rebate${summaryText} của 1 tài khoản trong nhánh của bạn vừa được Admin cập nhật. Vui lòng kiểm tra lại.`;
+
       await this.createSystemNotification({
         recipientId,
         type: NotificationType.REBATE_UPDATED,
-        title: 'Cấu hình rebate đã bị Admin cập nhật',
+        title,
         body,
-        metadata: { adminId, targetIbId, scope: notifyScope },
+        metadata: {
+          adminId,
+          targetIbId,
+          scope: notifyScope,
+          // Bọc trong "details" để đồng nhất cấu trúc với mọi loại notification
+          // khác (Admin/MIB/IB đều đọc chung 1 shape ở FE).
+          details: { targetIbId, changedAssets },
+        },
       });
     }
   }

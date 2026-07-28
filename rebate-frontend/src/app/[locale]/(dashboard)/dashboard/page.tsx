@@ -1,17 +1,25 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
 import { useAuthStore } from '@/store/auth.store';
 import { AssetType, RebateConfig, RebateCalculation } from '@/types';
 
-export default function DashboardPage() {
+function DashboardPageInner() {
   const t = useTranslations('DashboardPage');
   const { user } = useAuthStore();
   const [profile, setProfile] = useState<any>(null);
   const [config, setConfig] = useState<RebateConfig | null>(null);
+
+  // Deep-link từ Notification (Case 1 — chính mình bị chỉnh sửa):
+  // /dashboard?highlightAssets=GOLD,FOREX -> tô sáng đúng dòng asset vừa bị đổi.
+  const searchParams = useSearchParams();
+  const highlightAssets = new Set(
+    (searchParams.get('highlightAssets') || '').split(',').filter(Boolean),
+  );
 
   // Calculator States
   const [calcAsset, setCalcAsset] = useState<AssetType>(AssetType.FOREX);
@@ -112,12 +120,21 @@ export default function DashboardPage() {
                     cột duy nhất đang hiển thị. Với MIB, rebatePips/markupPips của
                     chính MIB gần như luôn = 0 (MIB không "nhận" pips từ ai), nên lọc
                     theo 2 field đó sẽ luôn ẩn hết dù BE đã trả về maxPips hợp lệ. */}
-                {config && config.assets?.filter(a => (a.maxPips ?? 0) > 0).map((asset, idx) => (
-                  <tr key={`${asset.assetType}-${idx}`} className="hover:bg-amber-50/40 transition-colors">
-                    <td className="px-4 py-3 font-bold text-gray-900">{asset.assetType}</td>
-                    <td className="px-4 py-3 text-right text-amber-950 font-extrabold">{asset.maxPips ?? 0} pips</td>
-                  </tr>
-                ))}
+                {config && config.assets?.filter(a => (a.maxPips ?? 0) > 0).map((asset, idx) => {
+                  const isHighlighted = highlightAssets.has(asset.assetType);
+                  return (
+                    <tr
+                      key={`${asset.assetType}-${idx}`}
+                      className={`transition-colors ${isHighlighted
+                        ? 'ring-2 ring-inset ring-amber-500 bg-amber-50/70'
+                        : 'hover:bg-amber-50/40'
+                        }`}
+                    >
+                      <td className="px-4 py-3 font-bold text-gray-900">{asset.assetType}</td>
+                      <td className="px-4 py-3 text-right text-amber-950 font-extrabold">{asset.maxPips ?? 0} pips</td>
+                    </tr>
+                  );
+                })}
                 {(!config || !config.assets || config.assets.filter(a => (a.maxPips ?? 0) > 0).length === 0) && (
                   <tr>
                     <td colSpan={2} className="px-4 py-6 text-center text-gray-500 font-medium">
@@ -199,5 +216,13 @@ export default function DashboardPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardPageInner />
+    </Suspense>
   );
 }

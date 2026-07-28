@@ -12,14 +12,48 @@ import { useAuthStore } from '@/store/auth.store';
 const notificationTypeOptions = Object.values(NotificationType);
 
 /**
- * Suy ra ibId cần điều hướng tới từ metadata.details của notification.
- * Backend hiện có 2 shape phổ biến: { targetIbId } (REBATE_CONFIG_UPDATE, IB_MOVE_SUBTREE)
- * và { newIbId } (IB_CREATE). Trả về null nếu không có gì để điều hướng.
+ * Suy ra URL cần điều hướng tới từ metadata.details của notification.
+ * Backend hiện có 3 shape phổ biến trong details: { targetIbId } (REBATE_CONFIG_UPDATE,
+ * IB_MOVE_SUBTREE), { newIbId } (IB_CREATE), { nodeIds: [] } (REBATE_SCENARIO_SAVE).
+ * Trả về null nếu không có gì để điều hướng.
+ *
+ * Quy tắc điều hướng:
+ * - Admin: luôn vào Rebate Management (hành vi cũ, KHÔNG đổi) — Admin có quyền xem
+ *   toàn hệ thống nên không cần phân biệt "của ai".
+ * - MIB/IB: PHẢI phân biệt — trang đích và quyền xem vẫn do BE (SubtreeGuard) quyết
+ *   định như cũ, ở đây chỉ dựng URL, không cấp thêm quyền gì:
+ *   - Case 1: targetId chính là bản thân người đang đăng nhập -> "/dashboard"
+ *     (trang overview cấu hình của chính mình).
+ *   - Case 2: targetId là người khác (chỉ có thể là cấp dưới trực tiếp, vì SubtreeGuard
+ *     chỉ cho MIB/IB xem con trực tiếp của mình) -> "/dashboard/tree/edit/:id" — đúng
+ *     trang quản lý/xem chi tiết cấp dưới đã dùng sẵn trong hệ thống.
  */
-function getNavigateTargetIbId(meta: Record<string, any>): string | null {
+function buildNotificationNavigateUrl(
+  meta: Record<string, any>,
+  currentUserId: string | undefined,
+  isAdmin: boolean,
+): string | null {
   const details = meta?.details;
   if (!details) return null;
-  return details.targetIbId || details.newIbId || null;
+
+  const targetId: string | null =
+    details.targetIbId || details.newIbId || details.nodeIds?.[0] || null;
+  if (!targetId) return null;
+
+  if (isAdmin) {
+    return `/dashboard/rebate-management?ibId=${targetId}`;
+  }
+
+  const changedAssets: string[] = Array.isArray(details.changedAssets)
+    ? details.changedAssets.map((a: any) => a?.assetType).filter(Boolean)
+    : [];
+  const qs = changedAssets.length > 0 ? `?highlightAssets=${changedAssets.join(',')}` : '';
+
+  if (currentUserId && targetId === currentUserId) {
+    return `/dashboard${qs}`;
+  }
+
+  return `/dashboard/tree/edit/${targetId}${qs}`;
 }
 
 export default function NotificationPage() {
@@ -180,12 +214,12 @@ export default function NotificationPage() {
                 notifications.map((item: Notification) => {
                   const meta = (item.metadata as Record<string, any>) || {};
                   const reviewStatus = meta.reviewStatus;
-                  const navigateTargetId = getNavigateTargetIbId(meta);
+                  const navigateUrl = buildNotificationNavigateUrl(meta, user?.id, isAdmin);
 
                   const handleNavigate = () => {
-                    if (!navigateTargetId) return;
+                    if (!navigateUrl) return;
                     if (!item.isRead) markReadMutation.mutate(item.id);
-                    router.push(`/dashboard/rebate-management?ibId=${navigateTargetId}`);
+                    router.push(navigateUrl);
                   };
 
                   return (
@@ -196,13 +230,13 @@ export default function NotificationPage() {
                     >
                       <td className="px-4 py-4 text-slate-900 max-w-md">
                         <div
-                          className={`flex items-start gap-2 ${navigateTargetId ? 'cursor-pointer group' : ''}`}
-                          onClick={navigateTargetId ? handleNavigate : undefined}
-                          title={navigateTargetId ? 'Bấm để xem chi tiết trong Rebate Management' : undefined}
+                          className={`flex items-start gap-2 ${navigateUrl ? 'cursor-pointer group' : ''}`}
+                          onClick={navigateUrl ? handleNavigate : undefined}
+                          title={navigateUrl ? 'Bấm để xem chi tiết' : undefined}
                         >
                           <div>
                             <p
-                              className={`font-extrabold text-slate-900 text-sm ${navigateTargetId ? 'group-hover:text-amber-700 group-hover:underline' : ''
+                              className={`font-extrabold text-slate-900 text-sm ${navigateUrl ? 'group-hover:text-amber-700 group-hover:underline' : ''
                                 }`}
                             >
                               {item.title}
