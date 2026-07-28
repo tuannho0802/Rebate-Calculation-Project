@@ -95,6 +95,44 @@ export interface IbTreeNode extends IbNode {
   children: IbTreeNode[];
 }
 
+// ─── Profile (GET/PATCH /ib/:id/profile) ──────────────────────────
+
+export interface BankAccountInfo {
+  bankName?: string;
+  accountNumber?: string;
+  accountHolder?: string;
+}
+
+export interface PaymentInfo {
+  method?: string;
+  details?: string;
+}
+
+export interface IbProfile {
+  id: string;
+  email: string;
+  name?: string;
+  level: number;
+  phone?: string | null;
+  country?: string | null;
+  bankAccount?: BankAccountInfo | null;
+  paymentInfo?: PaymentInfo | null;
+  notes?: string | null;
+  referralCode?: string | null;
+  profileUpdatedAt?: string | null;
+  wallet: {
+    balance: number;
+    totalEarned: number;
+  };
+}
+
+export interface UpdateProfileDto {
+  phone?: string;
+  country?: string;
+  bankAccount?: string; // JSON.stringify(BankAccountInfo)
+  paymentInfo?: string; // JSON.stringify(PaymentInfo)
+}
+
 // ─── Rebate Config ────────────────────────────────────────────────
 
 export interface RebateAssetConfig {

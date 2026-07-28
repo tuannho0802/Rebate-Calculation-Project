@@ -1,9 +1,19 @@
-import { ApiResponse, IbNode, IbTreeNode, IbPerformanceResponse } from '@/types';
+import { ApiResponse, IbNode, IbTreeNode, IbPerformanceResponse, IbProfile, UpdateProfileDto } from '@/types';
 import { apiClient } from './client';
 
 export const ibApi = {
   getMe: async (): Promise<ApiResponse<IbNode>> => {
     const response = await apiClient.get<ApiResponse<IbNode>>('/ib/me');
+    return response.data;
+  },
+
+  getProfile: async (id: string): Promise<ApiResponse<IbProfile>> => {
+    const response = await apiClient.get<ApiResponse<IbProfile>>(`/ib/${id}/profile`);
+    return response.data;
+  },
+
+  updateProfile: async (id: string, dto: UpdateProfileDto): Promise<ApiResponse<IbProfile>> => {
+    const response = await apiClient.patch<ApiResponse<IbProfile>>(`/ib/${id}/profile`, dto);
     return response.data;
   },
 
