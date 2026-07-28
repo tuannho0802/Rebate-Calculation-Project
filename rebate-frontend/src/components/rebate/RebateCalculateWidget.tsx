@@ -6,8 +6,10 @@ import { rebateApi } from '@/lib/api/rebate';
 import { AssetType } from '@/types';
 import { getErrorMessage } from '@/lib/error-messages';
 import { Calculator, Loader2, DollarSign, Users, Calendar, Search } from 'lucide-react';
+import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
 
 export function RebateCalculateWidget() {
+  const { activeAssetTypes } = useDisabledAssetTypes();
   const [ibId, setIbId] = useState('');
   const [assetType, setAssetType] = useState<AssetType>(AssetType.FOREX);
   const [lots, setLots] = useState<number | ''>(1);
@@ -72,7 +74,7 @@ export function RebateCalculateWidget() {
               onChange={(e) => { setAssetType(e.target.value as AssetType); setShouldCalculate(false); }}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#0066ff]/50 focus:border-[#0066ff] transition-all bg-white"
             >
-              {Object.values(AssetType).map((type) => (
+              {activeAssetTypes.map((type) => (
                 <option key={type} value={type}>{type}</option>
               ))}
             </select>

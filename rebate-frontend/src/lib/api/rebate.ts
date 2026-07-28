@@ -76,6 +76,19 @@ export const rebateApi = {
   saveBranchScenario: async (nodes: { ibId: string; markupPercent: number; markupPips: number }[]): Promise<ApiResponse<{ success: boolean; message: string }>> => {
     const response = await apiClient.put<ApiResponse<{ success: boolean; message: string }>>('/rebate/config/scenario/save', { nodes });
     return response.data;
-  }
+  },
+
+  getDisabledAssetTypes: async (): Promise<ApiResponse<AssetType[]>> => {
+    const response = await apiClient.get<ApiResponse<AssetType[]>>('/rebate/disabled-asset-types');
+    return response.data;
+  },
+
+  updateDisabledAssetTypes: async (disabledAssetTypes: AssetType[]): Promise<ApiResponse<AssetType[]>> => {
+    const response = await apiClient.put<ApiResponse<AssetType[]>>('/rebate/disabled-asset-types', {
+      disabledAssetTypes,
+    });
+    return response.data;
+  },
 };
+
 

@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { rebateApi } from '@/lib/api/rebate';
 import { Loader2, X } from 'lucide-react';
 import { AssetType } from '@/types';
+import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
 
 interface ViewRebateModalProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ interface ViewRebateModalProps {
 }
 
 export function ViewRebateModal({ isOpen, onClose, ibId }: ViewRebateModalProps) {
+  const { activeAssetTypes } = useDisabledAssetTypes();
   const { data: configData, isLoading } = useQuery({
     queryKey: ['rebateConfig', ibId],
     queryFn: () => rebateApi.getConfig(ibId),
@@ -20,7 +22,7 @@ export function ViewRebateModal({ isOpen, onClose, ibId }: ViewRebateModalProps)
 
   if (!isOpen) return null;
 
-  const assets = configData?.data?.assets || [];
+  const assets = (configData?.data?.assets || []).filter((asset) => activeAssetTypes.includes(asset.assetType as any));
 
   return (
     <>

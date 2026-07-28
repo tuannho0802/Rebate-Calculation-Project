@@ -1040,4 +1040,42 @@ export class RebateService {
 
     return { data: items, meta: { page, limit, total } };
   }
+
+  async getDisabledAssetTypes(): Promise<{ success: boolean; data: AssetType[] }> {
+    const config = await this.prisma.systemConfig.findUnique({
+      where: { key: 'DISABLED_ASSET_TYPES' },
+    });
+    const disabledAssetTypes = Array.isArray(config?.value) ? (config.value as AssetType[]) : [];
+    return { success: true, data: disabledAssetTypes };
+  }
+
+  async updateDisabledAssetTypes(
+    disabledAssetTypes: AssetType[],
+    actorId: string,
+  ): Promise<{ success: boolean; data: AssetType[] }> {
+    const beforeConfig = await this.prisma.systemConfig.findUnique({
+      where: { key: 'DISABLED_ASSET_TYPES' },
+    });
+    const beforeValue = Array.isArray(beforeConfig?.value) ? beforeConfig.value : [];
+
+    const updatedConfig = await this.prisma.systemConfig.upsert({
+      where: { key: 'DISABLED_ASSET_TYPES' },
+      update: { value: disabledAssetTypes },
+      create: { key: 'DISABLED_ASSET_TYPES', value: disabledAssetTypes },
+    });
+
+    await this.auditService.log({
+      actorId,
+      action: 'UPDATE_DISABLED_ASSET_TYPES',
+      targetType: 'SYSTEM_CONFIG',
+      targetId: 'DISABLED_ASSET_TYPES',
+      before: { disabledAssetTypes: beforeValue },
+      after: { disabledAssetTypes },
+    });
+
+    return {
+      success: true,
+      data: Array.isArray(updatedConfig.value) ? (updatedConfig.value as AssetType[]) : [],
+    };
+  }
 }

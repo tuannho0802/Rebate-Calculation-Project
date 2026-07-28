@@ -14,10 +14,13 @@ import { MarkupLinkRow } from '@/components/rebate/AccountTypeBuilder';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
 
+import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
+
 function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
   const { user } = useAuthStore();
+  const { activeAssetTypes } = useDisabledAssetTypes();
 
   // Deep-link từ Notification (Case 2 — cấp dưới bị chỉnh sửa): quyền xem/sửa
   // trang này vẫn do BE quyết định như cũ (chỉ cấp dưới trực tiếp trong subtree
@@ -246,20 +249,15 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
     return getAvailableBudget(asset);
   };
 
-  const isAnyRebateInvalid = Object.values(AssetType).some(asset => parsePipsValue(rebateValues[asset] || '0') > getCombinedRebateMax(asset));
+  const isAnyRebateInvalid = activeAssetTypes.some(asset => parsePipsValue(rebateValues[asset] || '0') > getCombinedRebateMax(asset));
   const isFormInvalid = isAnyRebateInvalid;
 
   const handleSave = () => {
     const assetsToUpdate: RebateAssetConfig[] = [];
 
-    // Đổi Loại tài khoản (Link markup) làm addedMarkupPips đổi ĐỀU cho mọi asset,
-    // nên những asset ĐANG có phân bổ thật (rebatePips > 0) cần được gửi lại để
-    // markupPips ở BE khớp với Loại tài khoản mới — kể cả khi rebatePips của
-    // asset đó không đổi. Ngoài trường hợp này ra, chỉ gửi asset có rebatePips
-    // thật sự bị đổi.
     const accountTypeChanged = !!targetIb && targetIb.accountType !== subIbAccountType;
 
-    Object.values(AssetType).forEach((asset) => {
+    activeAssetTypes.forEach((asset) => {
       const rebateVal = rebateValues[asset] || '0';
       const parsedRebate = parsePipsValue(rebateVal);
       const initialRebate = parsePipsValue(initialRebateValues[asset] || '0');
@@ -378,7 +376,7 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {Object.values(AssetType).map((asset) => {
+              {activeAssetTypes.map((asset) => {
                 const combinedMax = getCombinedRebateMax(asset); // Trần thật (KHÔNG cộng Markup Pips)
                 const unit = unitMap[asset] || 'pips';
 

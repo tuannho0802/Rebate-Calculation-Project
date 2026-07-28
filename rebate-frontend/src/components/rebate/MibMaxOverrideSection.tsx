@@ -3,11 +3,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { Lock, Unlock } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
 import { normalizeTreeRoots } from '@/lib/tree-utils';
 import { AssetType, RebateType } from '@/types';
+import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
 
 type OverrideRow = {
   assetType: AssetType;
@@ -18,6 +20,7 @@ const ASSET_TYPES = Object.values(AssetType);
 
 export function MibMaxOverrideSection() {
   const { user } = useAuthStore();
+  const { isLocked, toggleLock, isUpdating } = useDisabledAssetTypes();
   const [selectedMibId, setSelectedMibId] = useState('');
   const [rows, setRows] = useState<OverrideRow[]>(
     ASSET_TYPES.map((assetType) => ({ assetType, customMax: '' })),
@@ -124,15 +127,29 @@ export function MibMaxOverrideSection() {
               <tr>
                 <th className="p-3">Sản phẩm</th>
                 <th className="p-3">Mức Max Pips (Để trống = mặc định)</th>
+                <th className="p-3 text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {rows.map((row) => {
                 const val = row.customMax.trim();
                 const invalid = val !== '' && (Number.isNaN(Number(val)) || Number(val) < 0);
+                const locked = isLocked(row.assetType);
                 return (
-                  <tr key={row.assetType} className="hover:bg-amber-50/40 transition-colors">
-                    <td className="p-3 font-bold text-gray-900">{row.assetType}</td>
+                  <tr
+                    key={row.assetType}
+                    className={`transition-colors ${locked ? 'bg-red-50/30 hover:bg-red-50/50' : 'hover:bg-amber-50/40'}`}
+                  >
+                    <td className="p-3 font-bold text-gray-900">
+                      <div className="flex items-center gap-2">
+                        <span>{row.assetType}</span>
+                        {locked && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-800 border border-red-200">
+                            Đã khoá
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-3">
                       <input
                         type="number"
@@ -140,6 +157,7 @@ export function MibMaxOverrideSection() {
                         step="0.01"
                         value={row.customMax}
                         placeholder="Tuỳ chỉnh (>= 0)"
+                        disabled={locked}
                         onChange={(e) =>
                           setRows((prev) =>
                             prev.map((r) =>
@@ -149,11 +167,35 @@ export function MibMaxOverrideSection() {
                             ),
                           )
                         }
-                        className={`w-full max-w-[140px] px-3 py-1.5 border rounded-lg font-medium text-gray-900 ${invalid ? 'border-red-500' : 'border-gray-300'}`}
+                        className={`w-full max-w-[140px] px-3 py-1.5 border rounded-lg font-medium text-gray-900 ${
+                          locked ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200' : invalid ? 'border-red-500' : 'border-gray-300'
+                        }`}
                       />
                       {invalid && (
                         <p className="text-xs text-red-600 mt-1 font-semibold">Giá trị phải &gt;= 0</p>
                       )}
+                    </td>
+                    <td className="p-3 text-center">
+                      <button
+                        type="button"
+                        disabled={isUpdating}
+                        onClick={() => toggleLock(row.assetType)}
+                        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm ${
+                          locked
+                            ? 'bg-red-100 text-red-700 border border-red-300 hover:bg-red-200'
+                            : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-amber-100 hover:text-amber-900 hover:border-amber-400'
+                        }`}
+                      >
+                        {locked ? (
+                          <>
+                            <Unlock className="w-3.5 h-3.5" /> Mở khoá
+                          </>
+                        ) : (
+                          <>
+                            <Lock className="w-3.5 h-3.5" /> Khoá
+                          </>
+                        )}
+                      </button>
                     </td>
                   </tr>
                 );
@@ -173,3 +215,4 @@ export function MibMaxOverrideSection() {
     </div>
   );
 }
+

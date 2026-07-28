@@ -14,9 +14,11 @@ import ExcelJS from 'exceljs';
 import { normalizeTreeRoots, flattenIbTree } from '@/lib/tree-utils';
 import { PivotArrowOverlay } from '@/components/rebate/PivotArrowOverlay';
 import { CompactPivotTable, CompactSelection } from '@/components/rebate/CompactPivotTable';
+import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
 import { solveBallAllocation, SolverNodeInput } from '@/lib/ai-rebate-solver';
 
 function RebateManagementPageInner() {
+  const { activeAssetTypes } = useDisabledAssetTypes();
   const t = useTranslations('RebateManagement');
   const searchParams = useSearchParams();
   // Deep-link từ trang Notification: /dashboard/rebate-management?ibId=xxx
@@ -137,7 +139,7 @@ function RebateManagementPageInner() {
     }
   }, [allNodes, configRefreshTrigger]);
 
-  const assetTypes = Object.values(AssetType);
+  const assetTypes = activeAssetTypes;
 
   const getAssetConfig = (ibId: string | null | undefined, assetType: AssetType) => {
     if (!ibId) return undefined;
