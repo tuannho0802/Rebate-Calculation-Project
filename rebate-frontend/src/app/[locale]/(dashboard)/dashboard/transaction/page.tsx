@@ -7,10 +7,11 @@ import { reportApi } from '@/lib/api/report';
 import { transactionApi } from '@/lib/api/transaction';
 import { AssetType, RebateTransaction } from '@/types';
 import { IbSearchAutocomplete } from '@/components/ib-tree/IbSearchAutocomplete';
-
-const assetTypeOptions = Object.values(AssetType);
+import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
 
 export default function TransactionPage() {
+  const { activeAssetTypes } = useDisabledAssetTypes();
+  const assetTypeOptions = activeAssetTypes;
   const queryClient = useQueryClient();
   const [ibId, setIbId] = useState('');
   const [assetType, setAssetType] = useState<AssetType>(AssetType.FOREX);

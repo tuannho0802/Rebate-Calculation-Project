@@ -13,6 +13,7 @@ import { SubtreeGuard } from '../../common/guards/subtree.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { UpdateDisabledAssetTypesDto } from './dto/update-disabled-asset-types.dto';
 import { AssetType } from '@prisma/client';
 
 @ApiTags('💰 Rebate')
@@ -215,6 +216,26 @@ export class RebateController {
         scenarios,
       },
     };
+  }
+
+  @Get('disabled-asset-types')
+  @ApiOperation({ summary: 'Get list of locked / disabled asset types' })
+  @ApiResponse({ status: 200, description: 'Returns array of disabled AssetType enum values' })
+  async getDisabledAssetTypes() {
+    return this.rebateService.getDisabledAssetTypes();
+  }
+
+  @Put('disabled-asset-types')
+  @ApiBearerAuth('Bearer')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Update list of locked / disabled asset types (Admin only)' })
+  @ApiResponse({ status: 200, description: 'Disabled asset types updated successfully' })
+  async updateDisabledAssetTypes(
+    @CurrentUser() user: any,
+    @Body() dto: UpdateDisabledAssetTypesDto,
+  ) {
+    return this.rebateService.updateDisabledAssetTypes(dto.disabledAssetTypes, user.sub);
   }
 }
 

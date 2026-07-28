@@ -8,7 +8,9 @@ import { useAuthStore } from '@/store/auth.store';
 import { rebateTemplateApi } from '@/lib/api/rebateTemplates';
 import { toast } from 'sonner';
 
-const ASSET_TYPES = [
+import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
+
+const RAW_ASSET_TYPES = [
   'D_FOREX', 'FOREX', 'GOLD', 'SILVER_5000', 'SILVER_1000', 'OIL',
   'NATURE_GAS', 'COMMODITIES', 'HKG50', 'A50', 'JPN225', 'US_INDEX',
   'SHARES', 'ETHEREUM', 'PRECIOUS_METAL', 'BITCOIN', 'CRYPTO', 'GAUCNH'
@@ -47,6 +49,8 @@ function mapAccountTypeTemplate(template: { id: string; name: string; rows: { as
 }
 
 export function AccountTypeBuilder() {
+  const { activeAssetTypes } = useDisabledAssetTypes();
+  const ASSET_TYPES = RAW_ASSET_TYPES.filter((a) => activeAssetTypes.includes(a as any));
   const t = useTranslations('Rebate');
   const { user } = useAuthStore();
   const [mounted, setMounted] = useState(false);
@@ -341,14 +345,16 @@ export function AccountTypeBuilder() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {table.rows.length === 0 ? (
+                  {table.rows.filter((row) => activeAssetTypes.includes(row.assetType as any)).length === 0 ? (
                     <tr>
                       <td colSpan={3} className="p-8 text-center text-gray-500 text-sm">
                         Chưa có dữ liệu. Nhấn dấu + để thêm.
                       </td>
                     </tr>
                   ) : (
-                    table.rows.map(row => (
+                    table.rows
+                      .filter((row) => activeAssetTypes.includes(row.assetType as any))
+                      .map(row => (
                       <tr key={row.id} className="hover:bg-blue-50/30 transition-colors">
                         <td className="p-4 pl-6 font-medium text-gray-900">{row.assetType}</td>
                         <td className="p-4 text-gray-700">{row.maxCeiling}</td>

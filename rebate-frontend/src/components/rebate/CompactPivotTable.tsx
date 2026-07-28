@@ -98,11 +98,14 @@ function buildColumns(
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+import { useMemo } from 'react';
+import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
+
 export function CompactPivotTable({
   rootId,
   rootIb,
   ibs,
-  assetTypes,
+  assetTypes: rawAssetTypes,
   configs,
   getMibMaxDisplay,
   parentById,
@@ -116,6 +119,11 @@ export function CompactPivotTable({
   onActiveScenarioChange,
   highlightIbId,
 }: CompactPivotTableProps) {
+  const { activeAssetTypes } = useDisabledAssetTypes();
+  const assetTypes = useMemo(
+    () => rawAssetTypes.filter((a) => activeAssetTypes.includes(a)),
+    [rawAssetTypes, activeAssetTypes],
+  );
   const t = useTranslations('RebateManagement');
   const [selectedScenarioIndex, setSelectedScenarioIndex] = useState<number>(0);
   const [userHasSelected, setUserHasSelected] = useState<boolean>(false);

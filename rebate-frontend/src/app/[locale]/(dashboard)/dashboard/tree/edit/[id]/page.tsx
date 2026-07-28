@@ -13,10 +13,13 @@ import { MarkupLinkRow } from '@/components/rebate/AccountTypeBuilder';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
 
+import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
+
 export default function EditIbRebatePage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id } = use(params);
   const { user } = useAuthStore();
+  const { activeAssetTypes } = useDisabledAssetTypes();
 
   useEffect(() => {
     try {
@@ -230,13 +233,13 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
     return available + addedMarkupPips;
   };
 
-  const isAnyRebateInvalid = Object.values(AssetType).some(asset => parsePipsValue(rebateValues[asset] || '0') > getCombinedRebateMax(asset));
+  const isAnyRebateInvalid = activeAssetTypes.some(asset => parsePipsValue(rebateValues[asset] || '0') > getCombinedRebateMax(asset));
   const isFormInvalid = isAnyRebateInvalid;
 
   const handleSave = () => {
     const assetsToUpdate: RebateAssetConfig[] = [];
 
-    Object.values(AssetType).forEach((asset) => {
+    activeAssetTypes.forEach((asset) => {
       const rebateVal = rebateValues[asset] || '0';
       const parsedRebate = parsePipsValue(rebateVal);
       const rMax = getCombinedRebateMax(asset); // Validation limit & combined max
@@ -339,7 +342,7 @@ export default function EditIbRebatePage({ params }: { params: Promise<{ id: str
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {Object.values(AssetType).map((asset) => {
+              {activeAssetTypes.map((asset) => {
                 const combinedMax = getCombinedRebateMax(asset); // Mức trần đã cộng Markup Pips
                 const unit = unitMap[asset] || 'pips';
 
