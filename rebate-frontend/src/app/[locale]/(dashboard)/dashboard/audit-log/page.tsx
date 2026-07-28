@@ -45,6 +45,16 @@ const TARGET_TYPE_ROUTE: Record<string, string | null> = {
   SYSTEM_CONFIG: null, // Chưa có trang chi tiết
 };
 
+// targetType -> Label tiếng Việt (cho các targetType không map được IB)
+const TARGET_TYPE_LABEL: Record<string, string> = {
+  TRANSACTION: 'Giao dịch',
+  PAYOUT: 'Yêu cầu rút tiền',
+  ADMIN: 'Tài khoản Admin',
+  SYSTEM_CONFIG: 'Cấu hình hệ thống',
+  REBATE_TEMPLATES: 'Mẫu Rebate',
+  REBATE_CONFIG_BRANCH: 'Cấu hình nhánh',
+};
+
 export default function AuditLogPage() {
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -296,25 +306,24 @@ export default function AuditLogPage() {
                         <div className="text-slate-900 font-medium text-sm">
                           {item.actor?.email || item.actorId}
                         </div>
-                        <div className="text-xs text-slate-500">
-                          ID: {item.actorId}
-                        </div>
                       </td>
                       <td className="px-4 py-4">
                         <div className="text-slate-900 font-medium text-sm">
                           {actionLabel}
                         </div>
-                        <div className="text-xs text-slate-500 mt-1">
-                          targetType: {item.targetType} | targetId: {item.targetId}
-                        </div>
                       </td>
                       <td className="px-4 py-4">
-                        <div className="text-slate-700 text-xs">
-                          <span className="font-semibold">ID:</span> {item.targetId}
-                        </div>
-                        <div className="text-xs text-slate-500">
-                          <span className="font-semibold">Type:</span> {item.targetType}
-                        </div>
+                        {item.targetLabel ? (
+                          <div className="text-slate-900 font-medium text-sm">
+                            {item.targetLabel}
+                          </div>
+                        ) : (
+                          <div className="text-slate-700 text-xs">
+                            <span className="font-semibold">
+                              {TARGET_TYPE_LABEL[item.targetType] || item.targetType}
+                            </span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-4 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-2">

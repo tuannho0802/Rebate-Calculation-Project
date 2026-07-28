@@ -99,8 +99,28 @@ export class AuditService {
       this.prisma.auditLog.count({ where: dismissedIds.length ? { ...where, id: { notIn: dismissedIds } } : where }),
     ]);
 
+    // Resolve targetId thành targetLabel cho các targetType map được IB
+    const IB_TARGET_TYPES = ['IB', 'REBATE_CONFIG', 'REBATE_TEMPLATES', 'REBATE_CONFIG_BRANCH'];
+    const targetIbIds = [...new Set(items.filter(i => IB_TARGET_TYPES.includes(i.targetType)).map(i => i.targetId))];
+    const targetNodes = targetIbIds.length
+      ? await this.prisma.ibNode.findMany({ where: { id: { in: targetIbIds } }, select: { id: true, email: true, name: true } })
+      : [];
+    const targetMap = new Map(targetNodes.map((n: any) => [n.id, n]));
+
+    const decoratedItems = items.map((item: any) => {
+      const targetNode = targetMap.get(item.targetId);
+      const targetLabel = targetNode
+        ? (targetNode.name ? `${targetNode.name} (${targetNode.email})` : targetNode.email)
+        : null;
+
+      return {
+        ...item,
+        targetLabel,
+      };
+    });
+
     return {
-      data: items,
+      data: decoratedItems,
       meta: { page, limit, total },
     };
   }

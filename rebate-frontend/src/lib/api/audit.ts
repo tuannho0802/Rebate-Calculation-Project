@@ -8,6 +8,7 @@ export interface AuditLogItem {
   action: string;
   targetType: string;
   targetId: string;
+  targetLabel?: string | null;
   before?: any;
   after?: any;
   createdAt: string;
