@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationType } from '@prisma/client';
@@ -132,6 +133,33 @@ export class NotificationService {
     }
     await this.prisma.notification.delete({ where: { id: notificationId } });
     return { message: 'Đã xóa thông báo' };
+  }
+
+  /**
+   * DELETE /notifications/bulk — xoá nhiều thông báo cùng lúc theo danh sách id.
+   * Notification không phải dữ liệu nghiệp vụ (không có ràng buộc/tham chiếu từ
+   * bảng khác) nên xoá thẳng bằng deleteMany, không cần transaction/soft-delete.
+   * Vẫn giữ where: { recipientId: currentUserId } để không xoá nhầm thông báo
+   * của người khác dù id đó có tồn tại thật trong hệ thống.
+   */
+  async removeBulk(currentUserId: string, ids: string[]) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException({ code: 'IDS_REQUIRED', message: 'Cần danh sách id để xoá' });
+    }
+    const result = await this.prisma.notification.deleteMany({
+      where: { id: { in: ids }, recipientId: currentUserId },
+    });
+    return { deleted: result.count };
+  }
+
+  /**
+   * DELETE /notifications/all — xoá toàn bộ thông báo của mình.
+   */
+  async removeAll(currentUserId: string) {
+    const result = await this.prisma.notification.deleteMany({
+      where: { recipientId: currentUserId },
+    });
+    return { deleted: result.count };
   }
 
   /**

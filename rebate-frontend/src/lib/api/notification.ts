@@ -62,6 +62,18 @@ export const notificationApi = {
     return response.data;
   },
 
+  removeBulk: async (ids: string[]): Promise<ApiResponse<{ deleted: number }>> => {
+    const response = await apiClient.delete<ApiResponse<{ deleted: number }>>('/notifications/bulk', {
+      data: { ids },
+    });
+    return response.data;
+  },
+
+  removeAll: async (): Promise<ApiResponse<{ deleted: number }>> => {
+    const response = await apiClient.delete<ApiResponse<{ deleted: number }>>('/notifications/all');
+    return response.data;
+  },
+
   reviewNotification: async (
     id: string,
     data: { status: 'APPROVED' | 'REJECTED'; reason?: string }
