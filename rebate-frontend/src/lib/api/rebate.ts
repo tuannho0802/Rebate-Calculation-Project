@@ -2,23 +2,24 @@ import { ApiResponse, RebateConfig, RebateCalculation, AssetType, BulkUpdateResp
 import { apiClient } from './client';
 
 export const rebateApi = {
-  getConfig: async (ibId: string): Promise<ApiResponse<RebateConfig>> => {
+  getConfig: async (ibId: string, accountType?: string): Promise<ApiResponse<RebateConfig>> => {
     try {
-      console.log('rebateApi.getConfig', { url: `/rebate/config/${ibId}`, ibId });
+      console.log('rebateApi.getConfig', { url: `/rebate/config/${ibId}`, ibId, accountType });
     } catch (e) {
       // ignore logging errors
     }
-    const response = await apiClient.get<ApiResponse<RebateConfig>>(`/rebate/config/${ibId}`);
+    const query = accountType ? `?accountType=${encodeURIComponent(accountType)}` : '';
+    const response = await apiClient.get<ApiResponse<RebateConfig>>(`/rebate/config/${ibId}${query}`);
     return response.data;
   },
 
-  updateConfig: async (ibId: string, assets: any): Promise<ApiResponse<RebateConfig>> => {
+  updateConfig: async (ibId: string, assets: any, accountType?: string): Promise<ApiResponse<RebateConfig>> => {
     try {
-      console.log('rebateApi.updateConfig', { url: `/rebate/config/${ibId}`, ibId, assets });
+      console.log('rebateApi.updateConfig', { url: `/rebate/config/${ibId}`, ibId, accountType, assets });
     } catch (e) {
       // ignore logging errors
     }
-    const response = await apiClient.put<ApiResponse<RebateConfig>>(`/rebate/config/${ibId}`, { assets });
+    const response = await apiClient.put<ApiResponse<RebateConfig>>(`/rebate/config/${ibId}`, { assets, accountType });
     return response.data;
   },
 

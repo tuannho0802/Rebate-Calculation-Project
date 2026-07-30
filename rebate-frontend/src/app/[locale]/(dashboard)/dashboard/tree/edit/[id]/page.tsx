@@ -1,14 +1,14 @@
 'use client';
 
 import { Suspense, use, useState, useEffect } from 'react';
-import { useRouter } from '@/i18n/routing';
+import { useRouter, Link } from '@/i18n/routing';
 import { useSearchParams } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import { rebateApi } from '@/lib/api/rebate';
 import { rebateTemplateApi } from '@/lib/api/rebateTemplates';
 import { ibApi } from '@/lib/api/ib';
 import { useAuthStore } from '@/store/auth.store';
-import { Loader2, Save, ArrowLeft, Mail } from 'lucide-react';
+import { Loader2, Save, ArrowLeft, Mail, Plus, Settings2, SlidersHorizontal } from 'lucide-react';
 import { AssetType, IbNode, RebateAssetConfig, RebateType, MAX_PIPS, RebateConfig } from '@/types';
 import { MarkupLinkRow } from '@/components/rebate/AccountTypeBuilder';
 import { getErrorMessage } from '@/lib/error-messages';
@@ -18,48 +18,41 @@ import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
 
 function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const { id } = use(params);
-  const { user } = useAuthStore();
+  const searchParams = useSearchParams();
+
+  const unwrappedParams = use(params);
+  const id = unwrappedParams.id;
+
   const { activeAssetTypes } = useDisabledAssetTypes();
 
-  // Deep-link từ Notification (Case 2 — cấp dưới bị chỉnh sửa): quyền xem/sửa
-  // trang này vẫn do BE quyết định như cũ (chỉ cấp dưới trực tiếp trong subtree
-  // của người đang đăng nhập), ở đây chỉ đọc thêm asset nào cần tô sáng.
-  const searchParams = useSearchParams();
-  const highlightAssets = new Set(
-    (searchParams.get('highlightAssets') || '').split(',').filter(Boolean),
-  );
-
-  useEffect(() => {
-    try {
-      console.log('EditIbRebatePage target IB', { targetId: id, configPath: `/rebate/config/${id}` });
-    } catch (e) {
-      // ignore logging errors
-    }
-  }, [id]);
-
-  const [mounted, setMounted] = useState(false);
-  const [profile, setProfile] = useState<IbNode | null>(null);
+  const user = useAuthStore((s) => s.user);
   const [targetIb, setTargetIb] = useState<IbNode | null>(null);
+  const [profile, setProfile] = useState<IbNode | null>(null);
+  const [parentIbNode, setParentIbNode] = useState<IbNode | null>(null);
+  const [subIbAccountType, setSubIbAccountType] = useState<string>('STD');
   const [markupLinks, setMarkupLinks] = useState<MarkupLinkRow[]>([]);
-  const [subIbAccountType, setSubIbAccountType] = useState('Markup 0%');
-  const [accountTypeTemplates, setAccountTypeTemplates] = useState<any>([]);
-
-  const [parentConfig, setParentConfig] = useState<RebateConfig | null>(null);
+  const [accountTypeTemplates, setAccountTypeTemplates] = useState<any[]>([]);
   const [unitMap, setUnitMap] = useState<Record<string, string>>({});
+  const [parentConfig, setParentConfig] = useState<RebateConfig | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   const [globalMarkup, setGlobalMarkup] = useState<string>('');
   const [rebateValues, setRebateValues] = useState<Record<string, string>>({});
-  // FIX VĐ1 (27/07/2026): lưu lại giá trị rebatePips GỐC (lúc load từ BE) để
-  // diff với giá trị hiện tại lúc Lưu — chỉ gửi lên BE đúng những asset THẬT
-  // SỰ bị đổi, thay vì luôn gửi cả 18 AssetType mỗi lần bấm Lưu (gây ghi DB
-  // thừa + vô tình reset markupPercent của IB cha cho asset không liên quan,
-  // xem mục "1.1" trong rebate.service.ts#updateConfig()).
   const [initialRebateValues, setInitialRebateValues] = useState<Record<string, string>>({});
 
   const [assetsToUpdateState, setAssetsToUpdateState] = useState<any[]>([]);
+  const [selectedAccountType, setSelectedAccountType] = useState<string>('STD');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // State for Add/Remove Account Types Modal
+  const [isManageTypesModalOpen, setIsManageTypesModalOpen] = useState(false);
+  const [tempSelectedTypes, setTempSelectedTypes] = useState<string[]>([]);
+  const [isSavingTypes, setIsSavingTypes] = useState(false);
+
+  const highlightAssets = new Set(
+    (searchParams.get('highlightAssets') || '').split(',').filter(Boolean),
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -67,10 +60,9 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
 
     const loadData = async () => {
       try {
-        const [profileRes, targetRes, targetConfigRes] = await Promise.all([
+        const [profileRes, targetRes] = await Promise.all([
           ibApi.getMe().catch(() => null),
           ibApi.getById(id).catch(() => null),
-          rebateApi.getConfig(id).catch(() => null),
         ]);
 
         let loadedProfile: IbNode | null = null;
@@ -79,15 +71,37 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
           setProfile(loadedProfile);
         }
 
+        let targetTypes = ['STD'];
         if (targetRes?.data) {
           setTargetIb(targetRes.data);
           const acc = targetRes.data.accountType;
           setSubIbAccountType(acc && acc !== 'SEA STD' ? acc : 'STD');
+          if (targetRes.data.accountTypes && targetRes.data.accountTypes.length > 0) {
+            targetTypes = targetRes.data.accountTypes;
+          } else if (acc) {
+            targetTypes = [acc];
+          }
+
+          if (targetRes.data.parentId) {
+            const pNodeRes = await ibApi.getById(targetRes.data.parentId).catch(() => null);
+            if (pNodeRes?.data) {
+              setParentIbNode(pNodeRes.data);
+            }
+          }
         }
 
-        // Get templates (account types and markup links) from MIB
-        // For MIB: fetch own templates
-        // For Sub-IB: fetch parent's templates
+        const initialType = targetTypes[0] || 'STD';
+        setSelectedAccountType(initialType);
+
+        const [targetConfigRes, pConfigRes] = await Promise.all([
+          rebateApi.getConfig(id, initialType).catch(() => null),
+          loadedProfile?.id ? rebateApi.getConfig(loadedProfile.id, initialType).catch(() => null) : null,
+        ]);
+
+        if (pConfigRes?.data) {
+          setParentConfig(pConfigRes.data);
+        }
+
         let mLinks: MarkupLinkRow[] = [];
         const tempUnitMap: Record<string, string> = {};
 
@@ -105,20 +119,9 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
               });
             });
 
-            // If target IB does not have a valid accountType set, fallback to "STD"
             if (targetRes?.data && (!targetRes.data.accountType || targetRes.data.accountType === 'SEA STD')) {
               setSubIbAccountType('STD');
             }
-          }
-        }
-
-        // Get parent config for comparing max values
-        // Always use the logged-in user's config because the logged-in user IS the parent of targetIb
-        const parentConfigSourceId = loadedProfile?.id;
-        if (parentConfigSourceId) {
-          const pConfigRes = await rebateApi.getConfig(parentConfigSourceId).catch(() => null);
-          if (pConfigRes?.data) {
-            setParentConfig(pConfigRes.data);
           }
         }
         setUnitMap(tempUnitMap);
@@ -147,9 +150,45 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
     loadData();
   }, [id, user?.id]);
 
+  const handleAccountTypeChange = async (newType: string) => {
+    setSelectedAccountType(newType);
+    setSaveSuccess(false);
+    try {
+      const parentConfigSourceId = profile?.id;
+      const [targetConfigRes, pConfigRes] = await Promise.all([
+        rebateApi.getConfig(id, newType).catch(() => null),
+        parentConfigSourceId ? rebateApi.getConfig(parentConfigSourceId, newType).catch(() => null) : null,
+      ]);
+
+      if (pConfigRes?.data) {
+        setParentConfig(pConfigRes.data);
+      }
+
+      if (targetConfigRes?.data?.assets) {
+        const initialRebate: Record<string, string> = {};
+        let initialMarkup = '';
+
+        targetConfigRes.data.assets.forEach((asset: RebateAssetConfig) => {
+          initialRebate[asset.assetType] = String(asset.rebatePips);
+          if (!initialMarkup) {
+            initialMarkup = String(asset.markupPips);
+          }
+        });
+
+        setRebateValues(initialRebate);
+        setInitialRebateValues(initialRebate);
+        setGlobalMarkup(initialMarkup || '0');
+      } else {
+        setRebateValues({});
+        setInitialRebateValues({});
+      }
+    } catch (e) {
+      console.error('Error switching account type config', e);
+    }
+  };
 
   const updateConfigMutation = useMutation({
-    mutationFn: (assets: RebateAssetConfig[]) => rebateApi.updateConfig(id, assets),
+    mutationFn: (assets: RebateAssetConfig[]) => rebateApi.updateConfig(id, assets, selectedAccountType),
     onSuccess: (res) => {
       if (res.success) {
         setSaveSuccess(true);
@@ -166,20 +205,48 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
     }
   });
 
-  const updateAccountTypeMutation = useMutation({
-    mutationFn: (newType: string) => ibApi.update(id, { accountType: newType }),
-    onSuccess: (res, variables) => {
+  const openManageTypesModal = () => {
+    const currentTypes = (targetIb?.accountTypes && targetIb.accountTypes.length > 0)
+      ? targetIb.accountTypes
+      : [targetIb?.accountType || 'STD'];
+    setTempSelectedTypes(currentTypes);
+    setIsManageTypesModalOpen(true);
+  };
+
+  const handleSaveAccountTypes = async () => {
+    if (tempSelectedTypes.length === 0) {
+      toast.error('IB phải sở hữu ít nhất 1 loại tài khoản link');
+      return;
+    }
+
+    setIsSavingTypes(true);
+    try {
+      const res = await ibApi.update(id, {
+        accountType: tempSelectedTypes[0],
+        accountTypes: tempSelectedTypes,
+      });
+
       if (res.success) {
-        setSubIbAccountType(variables);
-        toast.success('Cập nhật Loại tài khoản (Link) thành công');
+        toast.success('Cập nhật các loại tài khoản link cho IB thành công!');
+        setTargetIb((prev) => prev ? {
+          ...prev,
+          accountType: tempSelectedTypes[0],
+          accountTypes: tempSelectedTypes,
+        } : null);
+
+        if (!tempSelectedTypes.includes(selectedAccountType)) {
+          handleAccountTypeChange(tempSelectedTypes[0]);
+        }
+        setIsManageTypesModalOpen(false);
       } else {
         toast.error(getErrorMessage((res as any).error?.code));
       }
-    },
-    onError: (err: any) => {
+    } catch (err: any) {
       toast.error(getErrorMessage(err.response?.data?.error?.code || 'INTERNAL_ERROR'));
+    } finally {
+      setIsSavingTypes(false);
     }
-  });
+  };
 
   if (!mounted) return null;
 
@@ -188,16 +255,10 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
     return Number.isNaN(parsed) ? 0 : parsed;
   };
 
-  const isMib = profile?.level === 0;
-
-  const getRebateMax = (asset: AssetType) => {
-    return getCombinedRebateMax(asset);
-  };
-
   const isMibEditingLevel1 = profile?.level === 0 && targetIb?.level === 1;
 
   const getAddedMarkupPips = (accountTypeStr: string, links: MarkupLinkRow[]): number => {
-    if (!isMibEditingLevel1) return 0; // Markup pips only added ONCE at Level 1 by MIB
+    if (!isMibEditingLevel1) return 0;
     const matched = links.find((l) => l.name === accountTypeStr);
     if (matched !== undefined && matched !== null) {
       return Number(matched.share || 0);
@@ -215,26 +276,15 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
 
   const getAvailableBudget = (asset: AssetType) => {
     if (profile?.level === 0) {
-      // Ưu tiên 1: maxPips THẬT của chính MIB, lấy từ rebateApi.getConfig() đã fetch ở trên.
-      // BE (getConfig) giờ đã tự fallback về MAX_PIPS[asset] khi DB có maxPips <= 0 cho MIB,
-      // nên ở đây có thể tin thẳng giá trị BE trả về mà không cần > 0 nữa.
       if (parentConfig?.assets) {
         const ownAsset = parentConfig.assets.find((a) => a.assetType === asset);
         if (ownAsset) {
           return Number(ownAsset.maxPips);
         }
       }
-
-      // KHÔNG còn nhánh "account type template" ở đây — dự án hiện chưa có (và không có
-      // kế hoạch có) UI nào cho phép set accountType của chính MIB khớp với 1 template,
-      // nên nhánh đó trước đây luôn là dead code, gây hiểu nhầm là bug. Nếu về sau có nhu
-      // cầu đó thật, hãy thêm lại kèm UI tương ứng.
-
-      // Fallback cuối cùng (chỉ khi parentConfig chưa kịp load): trần mặc định công ty.
       return MAX_PIPS[asset] || 0;
     }
 
-    // For Sub-IB Level 1, 2, ...: budget available to give child is EXACTLY parent's rebatePips
     if (parentConfig?.assets) {
       const pAsset = parentConfig.assets.find(a => a.assetType === asset);
       if (pAsset) return Number(pAsset.rebatePips || 0);
@@ -242,9 +292,6 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
     return 0;
   };
 
-  // "Rebate Max của IB" hiển thị = đúng budget khả dụng, KHÔNG cộng thêm addedMarkupPips.
-  // addedMarkupPips chỉ là % markup của Loại tài khoản, ảnh hưởng cột "Chia cho cấp dưới"
-  // (xem markupPips gửi lên khi Lưu bên dưới), không phải là trần thật của IB.
   const getCombinedRebateMax = (asset: AssetType) => {
     return getAvailableBudget(asset);
   };
@@ -254,7 +301,6 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
 
   const handleSave = () => {
     const assetsToUpdate: RebateAssetConfig[] = [];
-
     const accountTypeChanged = !!targetIb && targetIb.accountType !== subIbAccountType;
 
     activeAssetTypes.forEach((asset) => {
@@ -264,30 +310,18 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
       const rebateChanged = parsedRebate !== initialRebate;
       const needsMarkupRefresh = accountTypeChanged && parsedRebate > 0;
 
-      // FIX VĐ1 (27/07/2026): trước đây luôn gửi CẢ 18 AssetType lên BE mỗi lần
-      // Lưu, dù thường chỉ 1 asset thực sự bị đổi. Hệ quả: (a) ghi DB thừa cho
-      // 17 dòng không liên quan, (b) mục "1.1" trong updateConfig() vô tình
-      // reset markupPercent của IB cha cho TẤT CẢ asset đó, kể cả asset không
-      // ai đụng tới. Giờ chỉ gửi asset thật sự cần cập nhật.
       if (!rebateChanged && !needsMarkupRefresh) return;
 
-      // KHÔNG gửi maxPips lên BE nữa — BE tự tính childMaxPips (xem updateConfig()),
-      // gửi lên chỉ tạo lại đường hở để giá trị tạm tính client-side (addedMarkupPips...)
-      // bị ghi đè vĩnh viễn vào DB (đây chính là root cause VĐ2/VĐ3 cũ).
       assetsToUpdate.push({
         assetType: asset,
         rebateType: RebateType.STP_REBATE,
+        accountType: selectedAccountType,
         rebatePips: parsedRebate,
         markupPips: addedMarkupPips,
         markupPercent: 100,
       });
     });
 
-    // FIX VĐ1 (kèm theo): trước đây điều kiện này luôn đúng vì assetsToUpdate
-    // luôn chứa cả 18 asset. Giờ assetsToUpdate có thể rỗng (không asset nào
-    // đổi rebatePips) trong khi người dùng CHỈ đổi Loại tài khoản (accountType)
-    // — trường hợp đó vẫn cần mở modal xác nhận để handleConfirmSave() thực sự
-    // gọi updateAccountTypeMutation, nếu không Lưu sẽ không làm gì cả.
     if (assetsToUpdate.length > 0 || accountTypeChanged) {
       setAssetsToUpdateState(assetsToUpdate);
       setIsConfirmModalOpen(true);
@@ -297,21 +331,40 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
   const handleConfirmSave = async () => {
     setIsConfirmModalOpen(false);
     if (targetIb && targetIb.accountType !== subIbAccountType) {
-      await updateAccountTypeMutation.mutateAsync(subIbAccountType);
+      await ibApi.update(id, { accountType: subIbAccountType });
+      setTargetIb((prev) => prev ? { ...prev, accountType: subIbAccountType } : null);
     }
     if (assetsToUpdateState.length > 0) {
       updateConfigMutation.mutate(assetsToUpdateState);
     }
   };
 
+  const availableAccountTypes = (targetIb?.accountTypes && targetIb.accountTypes.length > 0)
+    ? targetIb.accountTypes
+    : [targetIb?.accountType || 'STD'];
+
+  const isTargetMib = targetIb?.level === 0;
+  const parentAccountTypesList = (parentIbNode?.accountTypes && parentIbNode.accountTypes.length > 0)
+    ? parentIbNode.accountTypes
+    : [parentIbNode?.accountType || 'STD'];
+
+  const assignableAccountTypesOptions = isTargetMib
+    ? Array.from(new Set([
+        ...markupLinks.map((l) => l.name),
+        ...accountTypeTemplates.map((t) => t.name),
+        'STD', 'STD5', 'STD10', 'STD15', 'STD20',
+      ])).filter(Boolean)
+    : parentAccountTypesList;
+
   return (
     <div className="space-y-8">
-      {/* Header */}
       <div>
-        <button onClick={() => router.back()} className="flex items-center text-gray-500 hover:text-gray-900 transition-colors mb-6">
-          <ArrowLeft className="w-4 h-4 mr-2" /> Quay lại
-        </button>
-
+        <Link
+          href="/dashboard/ib-management"
+          className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-900 mb-4 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" /> Quay lại danh sách IB
+        </Link>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-6">
             <h1 className="text-xl font-bold text-gray-900">{targetIb?.name || '---'}</h1>
@@ -321,28 +374,38 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
               <span className="text-amber-950 font-bold text-sm">{targetIb?.email || '---'}</span>
             </div>
             <div className="hidden md:block w-px h-6 bg-gray-200"></div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-gray-500">Loại tài khoản:</span>
-              {isMibEditingLevel1 && markupLinks.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-gray-500">Chỉnh sửa cho link:</span>
                 <select
-                  value={subIbAccountType}
-                  onChange={(e) => {
-                    setSaveSuccess(false);
-                    setSubIbAccountType(e.target.value);
-                  }}
+                  value={selectedAccountType}
+                  onChange={(e) => handleAccountTypeChange(e.target.value)}
                   className="font-bold text-gray-900 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-300 shadow-sm focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer text-sm"
                 >
-                  {markupLinks.map((link) => (
-                    <option key={link.id || link.name} value={link.name}>
-                      {link.name}
+                  {availableAccountTypes.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
                     </option>
                   ))}
                 </select>
-              ) : (
-                <span className="font-semibold text-gray-900 bg-gray-100 px-3 py-1 rounded-lg border border-gray-200 text-sm">
-                  {subIbAccountType}
-                </span>
-              )}
+              </div>
+
+              <button
+                type="button"
+                onClick={openManageTypesModal}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 font-bold text-xs transition-all shadow-sm"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Thêm / Xóa loại link</span>
+              </button>
+
+              <div className="flex items-center gap-1">
+                {availableAccountTypes.map((t) => (
+                  <span key={t} className="px-2 py-0.5 text-[11px] font-extrabold rounded bg-gray-100 text-gray-700 border border-gray-200">
+                    {t}
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -357,7 +420,6 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
         </div>
       </div>
 
-      {/* Bảng Rebate Max */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
           <h3 className="font-bold text-lg text-gray-900">Cấu hình Rebate cho từng sản phẩm</h3>
@@ -469,6 +531,90 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
             </div>
           </div>
         </>
+      )}
+
+      {/* Modal Quản lý / Thêm / Xóa Loại Tài Khoản Link */}
+      {isManageTypesModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Quản lý Loại tài khoản link</h3>
+                <p className="text-xs text-gray-500 font-medium">Thêm hoặc xóa các loại link cấp cho IB ({targetIb?.name || targetIb?.email})</p>
+              </div>
+              <button
+                onClick={() => setIsManageTypesModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 font-bold p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-500">
+                Danh sách loại tài khoản link khả dụng
+              </label>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                {isTargetMib
+                  ? 'Loại tài khoản link được lấy từ bảng Cấu hình hoa hồng Markup hệ thống.'
+                  : `Được giới hạn bởi các loại link mà Cấp trên sở hữu (${parentAccountTypesList.join(', ')}).`}
+              </p>
+
+              <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1.5 border border-gray-200 rounded-xl bg-gray-50/50">
+                {assignableAccountTypesOptions.map((type) => {
+                  const isChecked = tempSelectedTypes.includes(type);
+                  return (
+                    <label
+                      key={type}
+                      className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border cursor-pointer text-sm font-semibold transition-all ${
+                        isChecked
+                          ? 'bg-amber-50 border-amber-400 text-amber-950 shadow-sm font-bold'
+                          : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => {
+                          if (isChecked) {
+                            if (tempSelectedTypes.length > 1) {
+                              setTempSelectedTypes(tempSelectedTypes.filter((t) => t !== type));
+                            } else {
+                              toast.error('IB phải sở hữu ít nhất 1 loại tài khoản link');
+                            }
+                          } else {
+                            setTempSelectedTypes([...tempSelectedTypes, type]);
+                          }
+                        }}
+                        className="rounded border-gray-300 text-amber-600 focus:ring-amber-500 h-4 w-4"
+                      />
+                      <span>{type}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setIsManageTypesModalOpen(false)}
+                className="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition-colors"
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAccountTypes}
+                disabled={isSavingTypes}
+                className="flex-1 py-2.5 px-4 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-sm transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isSavingTypes && <Loader2 className="h-4 w-4 animate-spin" />}
+                Xác nhận cập nhật
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

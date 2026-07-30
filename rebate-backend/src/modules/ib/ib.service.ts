@@ -211,6 +211,7 @@ export class IbService {
       level: user.level,
       parentId: user.parentId,
       accountType: user.accountType,
+      accountTypes: user.accountTypes,
       rebateConfig: formattedConfig,
       createdAt: user.createdAt,
     };
@@ -238,14 +239,36 @@ export class IbService {
     const hashedPassword = await bcrypt.hash(createIbDto.password, 10);
     const newLevel = currentUserLevel + 1;
 
-    let parentAccountType = createIbDto.accountType || 'STD';
-    let selectedTemplate: { id: string; name: string; rows: any[] } | null = null;
-    if (currentUserLevel > 0) {
-      const parentNode = await this.prisma.ibNode.findUnique({ where: { id: currentUserId } });
-      if (parentNode?.accountType) {
-        parentAccountType = parentNode.accountType;
+    const parentNode = await this.prisma.ibNode.findUnique({ where: { id: currentUserId } });
+    const parentAccountTypes = (parentNode?.accountTypes && parentNode.accountTypes.length > 0)
+      ? parentNode.accountTypes
+      : [parentNode?.accountType || 'STD'];
+
+    let accountTypes: string[];
+    if (createIbDto.accountTypes && createIbDto.accountTypes.length > 0) {
+      const requestedTypes = Array.from(new Set(createIbDto.accountTypes));
+      const invalidTypes = requestedTypes.filter((t) => !parentAccountTypes.includes(t));
+      if (invalidTypes.length > 0) {
+        throw new BadRequestException({
+          code: 'IB_INVALID_ACCOUNT_TYPE',
+          message: `Loại tài khoản link (${invalidTypes.join(', ')}) vượt quá phạm vi được cấp của cấp trên`,
+        });
       }
+      accountTypes = requestedTypes;
+    } else if (createIbDto.accountType) {
+      if (currentUserLevel > 0 && !parentAccountTypes.includes(createIbDto.accountType)) {
+        throw new BadRequestException({
+          code: 'IB_INVALID_ACCOUNT_TYPE',
+          message: `Loại tài khoản link (${createIbDto.accountType}) vượt quá phạm vi được cấp của cấp trên`,
+        });
+      }
+      accountTypes = [createIbDto.accountType];
+    } else {
+      accountTypes = parentAccountTypes;
     }
+
+    let parentAccountType = accountTypes[0] || 'STD';
+    let selectedTemplate: { id: string; name: string; rows: any[] } | null = null;
 
     if (createIbDto.accountTypeTemplateId) {
       const template = await this.prisma.accountTypeTemplate.findUnique({
@@ -283,6 +306,7 @@ export class IbService {
           phone: createIbDto.phone,
           country: createIbDto.country,
           accountType: parentAccountType,
+          accountTypes,
           bankAccount: createIbDto.bankAccount,
           paymentInfo: createIbDto.paymentInfo,
           notes: createIbDto.notes,
@@ -391,6 +415,25 @@ export class IbService {
       }
     }
 
+    if (dto.accountTypes && dto.accountTypes.length > 0 && existing.parentId) {
+      const parentNode = await this.prisma.ibNode.findUnique({
+        where: { id: existing.parentId },
+        select: { accountType: true, accountTypes: true },
+      });
+      if (parentNode) {
+        const parentTypes = (parentNode.accountTypes && parentNode.accountTypes.length > 0)
+          ? parentNode.accountTypes
+          : [parentNode.accountType || 'STD'];
+        const invalidTypes = dto.accountTypes.filter((t) => !parentTypes.includes(t));
+        if (invalidTypes.length > 0) {
+          throw new BadRequestException({
+            code: 'IB_INVALID_ACCOUNT_TYPE',
+            message: `Loại tài khoản link (${invalidTypes.join(', ')}) vượt quá phạm vi được cấp của cấp trên`,
+          });
+        }
+      }
+    }
+
     const before = { name: existing.name, email: existing.email };
 
     const updated = await this.prisma.ibNode.update({
@@ -428,6 +471,7 @@ export class IbService {
       level: updated.level,
       parentId: updated.parentId,
       accountType: updated.accountType,
+      accountTypes: updated.accountTypes,
     };
   }
 
@@ -629,6 +673,8 @@ export class IbService {
     page: number,
     limit: number,
     callerRole?: string,
+    callerLevel?: number,
+    type?: 'mib' | 'sub-ib' | 'all',
   ) {
     let searchableIds: string[];
 
@@ -648,6 +694,12 @@ export class IbService {
     const where: any = {
       id: { in: searchableIds },
     };
+
+    if (type === 'mib') {
+      where.level = 0;
+    } else if (type === 'sub-ib') {
+      where.level = { gte: 1 };
+    }
 
     if (q && typeof q === 'string' && q.trim().length >= 2) {
       const keyword = q.trim();

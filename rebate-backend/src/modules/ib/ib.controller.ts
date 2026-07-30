@@ -142,16 +142,18 @@ export class IbController {
   // ─── SEARCH — phải đặt TRƯỚC GET :id ─────────────────────────────────────────
   @Get('search')
   @ApiOperation({ summary: 'Tìm kiếm IB theo email hoặc tên trong subtree của mình' })
-  @ApiQuery({ name: 'q', required: true, description: 'Từ khóa tìm kiếm (ít nhất 2 ký tự)' })
+  @ApiQuery({ name: 'q', required: false, description: 'Từ khóa tìm kiếm (ít nhất 2 ký tự)' })
   @ApiQuery({ name: 'includeInactive', required: false, type: Boolean, default: false, description: 'Bao gồm IB đã bị deactivate' })
   @ApiQuery({ name: 'page', required: false, type: Number, default: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, default: 20 })
+  @ApiQuery({ name: 'type', required: false, enum: ['mib', 'sub-ib', 'all'], description: 'Lọc theo mib (level 0) hoặc sub-ib (level >= 1)' })
   searchIb(
     @CurrentUser() user: any,
     @Query('q') q: string | undefined,
     @Query('includeInactive') includeInactive?: string,
     @Query('page') page = '1',
     @Query('limit') limit = '20',
+    @Query('type') type?: 'mib' | 'sub-ib' | 'all',
   ) {
     return this.ibService.searchIb(
       user.sub,
@@ -160,6 +162,8 @@ export class IbController {
       parseInt(page, 10) || 1,
       Math.min(parseInt(limit, 10) || 20, 100),
       user.role,
+      user.level,
+      type,
     );
   }
 

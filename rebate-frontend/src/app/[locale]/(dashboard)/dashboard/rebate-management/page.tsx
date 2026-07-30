@@ -95,6 +95,7 @@ function RebateManagementPageInner() {
   }, [allNodes]);
 
   const [configRefreshTrigger, setConfigRefreshTrigger] = useState(0);
+  const [selectedAccountType, setSelectedAccountType] = useState<string>('STD');
 
   const handleRefreshConfigs = () => {
     setConfigRefreshTrigger(prev => prev + 1);
@@ -124,7 +125,7 @@ function RebateManagementPageInner() {
     if (allNodes.length > 0) {
       const loadConfigs = async () => {
         const results = await Promise.allSettled(
-          allNodes.map(ib => rebateApi.getConfig(ib.id))
+          allNodes.map(ib => rebateApi.getConfig(ib.id, selectedAccountType))
         );
 
         const newConfigs: Record<string, RebateConfig> = {};
@@ -137,7 +138,7 @@ function RebateManagementPageInner() {
       };
       loadConfigs();
     }
-  }, [allNodes, configRefreshTrigger]);
+  }, [allNodes, configRefreshTrigger, selectedAccountType]);
 
   const assetTypes = activeAssetTypes;
 
@@ -522,29 +523,46 @@ function RebateManagementPageInner() {
 
   return (
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Header bar: Search MIB (Trái) + Phân Trang 1 2 3... Next (Giữa) + Export Excel (Phải) */}
+      {/* Header bar: Search MIB (Trái) + Select Loại tài khoản link + Phân Trang 1 2 3... Next (Giữa) + Export Excel (Phải) */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-3 border border-gray-300 shadow-sm">
-        {/* Ô Tìm Kiếm MIB */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setCurrentPage(1);
-            }}
-            placeholder="Tìm kiếm theo tên hoặc email của MIB..."
-            className="w-full pl-9 pr-8 py-2 border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+        {/* Ô Tìm Kiếm MIB & Select Box Loại tài khoản link */}
+        <div className="flex items-center gap-3 flex-1 max-w-xl">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Tìm kiếm theo tên hoặc email của MIB..."
+              className="w-full pl-9 pr-8 py-2 border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs font-bold text-gray-600 whitespace-nowrap">Loại link:</span>
+            <select
+              value={selectedAccountType}
+              onChange={(e) => setSelectedAccountType(e.target.value)}
+              className="py-2 px-3 border border-amber-300 bg-amber-50 font-bold text-amber-950 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer rounded-none"
             >
-              ✕
-            </button>
-          )}
+              {['STD', 'STD5', 'STD10', 'STD15', 'STD20'].map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Cụm Phân Trang 1 2 3 ... Next */}

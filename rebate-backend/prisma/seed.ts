@@ -286,8 +286,9 @@ async function main() {
   // Minh hoạ Admin custom max: mib2 D_FOREX thấp hơn trần công ty (12 -> 8)
   await prisma.rebateConfig.upsert({
     where: {
-      ibId_assetType_rebateType: {
+      ibId_accountType_assetType_rebateType: {
         ibId: mib2.id,
+        accountType: 'STD',
         assetType: AssetType.D_FOREX,
         rebateType: 'STP_REBATE',
       },
