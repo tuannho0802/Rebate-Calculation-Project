@@ -74,7 +74,12 @@ export function IbViewTree() {
     queryKey: ['me'],
     queryFn: () => ibApi.getMe(),
   });
-  const isAdmin = user?.role === 'ADMIN' || meRes?.data?.role === 'ADMIN' || user?.email?.includes('admin') || true;
+  // Fix: trước đây có "|| true" ở cuối khiến MỌI user (kể cả MIB/IB) đều được
+  // coi là Admin — thấy toolbar Chỉnh Sửa + kéo-thả được dù BE chặn 403 khi Save.
+  // Đồng thời bỏ heuristic "email chứa admin" (không đáng tin) — chỉ dựa vào
+  // role thật trả về từ JWT/API.
+  const isAdmin = user?.role === 'ADMIN' || meRes?.data?.role === 'ADMIN';
+  const currentUserId = user?.id || meRes?.data?.id;
 
   // Drag & Drop & Edit Mode States
   const [isEditingMode, setIsEditingMode] = useState<boolean>(false);
@@ -124,10 +129,12 @@ export function IbViewTree() {
     }
   };
 
-  // 2. Fetch list of MIBs for top-left dropdown (only active MIBs)
+  // 2. Fetch list of MIBs for top-left dropdown (chỉ Admin — endpoint /ib/mibs
+  // yêu cầu @Roles('ADMIN') ở BE, gọi với MIB/IB sẽ luôn 403).
   const { data: mibsRes, isLoading: isLoadingMibs } = useQuery({
     queryKey: ['mibsList'],
     queryFn: () => ibApi.getMibs(),
+    enabled: isAdmin,
     staleTime: 0,
     refetchOnMount: 'always',
   });
@@ -135,15 +142,28 @@ export function IbViewTree() {
   const rawMibs = mibsRes?.data || [];
   const mibs = rawMibs.filter((m) => m.isActive !== false);
 
-  // Auto-select first active MIB when loaded
+  // Auto-select first active MIB when loaded (chỉ áp dụng cho Admin)
   useEffect(() => {
-    if (mibs.length > 0 && !selectedMibId) {
+    if (isAdmin && mibs.length > 0 && !selectedMibId) {
       setSelectedMibId(mibs[0].id);
     }
-  }, [mibs, selectedMibId]);
+  }, [isAdmin, mibs, selectedMibId]);
 
-  // Selected MIB data
-  const selectedMib = mibs.find((m) => m.id === selectedMibId);
+  // Fix: MIB/IB không có quyền chọn MIB khác (chỉ được xem tính từ nhánh của
+  // chính mình trở xuống) — tự động root vào chính mình ngay khi biết mình
+  // không phải Admin, không cần chờ/gọi getMibs().
+  useEffect(() => {
+    if (!isAdmin && currentUserId && !selectedMibId) {
+      setSelectedMibId(currentUserId);
+    }
+  }, [isAdmin, currentUserId, selectedMibId]);
+
+  // Selected MIB data — Admin lấy từ danh sách mibs; MIB/IB dùng chính thông
+  // tin bản thân (từ /ib/me) vì họ không nằm trong "mibs" (API Admin-only) và
+  // trường hợp của họ selectedMibId luôn === currentUserId.
+  const selectedMib =
+    mibs.find((m) => m.id === selectedMibId) ||
+    (!isAdmin && selectedMibId === currentUserId ? meRes?.data : undefined);
 
   // 3. Fetch Level 1 children when MIB changes
   const { data: level1Res, isLoading: isLoadingLevel1 } = useQuery({
@@ -695,15 +715,14 @@ export function IbViewTree() {
           onDragLeave={handleDragLeave}
           onDrop={(e) => handleDrop(e, node)}
           onClick={() => handleToggleNode(node)}
-          className={`group relative flex flex-col justify-between w-64 min-h-[110px] p-4 bg-white border-2 rounded-2xl shadow-sm transition-all duration-200 cursor-pointer ${
-            isTargetDropOver
+          className={`group relative flex flex-col justify-between w-64 min-h-[110px] p-4 bg-white border-2 rounded-2xl shadow-sm transition-all duration-200 cursor-pointer ${isTargetDropOver
               ? 'border-emerald-500 bg-emerald-50/60 shadow-lg ring-4 ring-emerald-400/50 scale-105 z-20'
               : isBeingDragged
-              ? 'opacity-40 border-amber-400 border-dashed bg-amber-50'
-              : isExpanded
-              ? 'border-amber-500 bg-amber-50/20 shadow-md ring-2 ring-amber-400/30'
-              : 'border-slate-200 hover:border-amber-400 hover:shadow-md'
-          } ${isEditingMode ? 'border-dashed border-amber-400 ring-1 ring-amber-300' : ''}`}
+                ? 'opacity-40 border-amber-400 border-dashed bg-amber-50'
+                : isExpanded
+                  ? 'border-amber-500 bg-amber-50/20 shadow-md ring-2 ring-amber-400/30'
+                  : 'border-slate-200 hover:border-amber-400 hover:shadow-md'
+            } ${isEditingMode ? 'border-dashed border-amber-400 ring-1 ring-amber-300' : ''}`}
         >
           {/* Top Drag Handle Indicator when in Edit Mode */}
           {isEditingMode && isAdmin && (
@@ -852,11 +871,10 @@ export function IbViewTree() {
                     setPendingMove(null);
                   }
                 }}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-extrabold rounded-xl shadow-xs transition-all cursor-pointer ${
-                  isEditingMode
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-extrabold rounded-xl shadow-xs transition-all cursor-pointer ${isEditingMode
                     ? 'bg-amber-600 text-white hover:bg-amber-700 ring-2 ring-amber-400'
                     : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                }`}
+                  }`}
               >
                 <Edit3 className="h-4 w-4" />
                 {isEditingMode ? 'Đang Chỉnh Sửa' : 'Chỉnh Sửa (Kéo-Thả)'}
@@ -886,31 +904,44 @@ export function IbViewTree() {
             </div>
           )}
 
-          {/* MIB Select Dropdown */}
-          <div className="flex items-center gap-3 bg-amber-50/70 p-2 rounded-2xl border border-amber-200">
-            <Filter className="h-4 w-4 text-amber-700 ml-2" />
-            <div className="flex flex-col">
-              <label className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">MIB Quản Lý:</label>
-              {isLoadingMibs ? (
-                <div className="flex items-center gap-2 text-xs text-amber-700 py-1 font-bold">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Tải MIB...
-                </div>
-              ) : (
-                <select
-                  value={selectedMibId}
-                  onChange={(e) => setSelectedMibId(e.target.value)}
-                  className="bg-white border border-amber-300 rounded-xl px-3 py-1 text-xs font-extrabold text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer min-w-[220px]"
-                >
-                  {mibs.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name ? m.name + ' (' + m.email + ')' : m.email}
-                    </option>
-                  ))}
-                </select>
-              )}
+          {/* MIB Select Dropdown — chỉ Admin mới chọn được MIB khác. MIB/IB chỉ
+              xem được nhánh của chính mình nên không cần (và không nên) có dropdown. */}
+          {isAdmin ? (
+            <div className="flex items-center gap-3 bg-amber-50/70 p-2 rounded-2xl border border-amber-200">
+              <Filter className="h-4 w-4 text-amber-700 ml-2" />
+              <div className="flex flex-col">
+                <label className="text-[10px] font-bold text-amber-900 uppercase tracking-wider">MIB Quản Lý:</label>
+                {isLoadingMibs ? (
+                  <div className="flex items-center gap-2 text-xs text-amber-700 py-1 font-bold">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Tải MIB...
+                  </div>
+                ) : (
+                  <select
+                    value={selectedMibId}
+                    onChange={(e) => setSelectedMibId(e.target.value)}
+                    className="bg-white border border-amber-300 rounded-xl px-3 py-1 text-xs font-extrabold text-slate-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer min-w-[220px]"
+                  >
+                    {mibs.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name ? `${m.name} (${m.email})` : m.email}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-center gap-3 bg-slate-100 px-4 py-2.5 rounded-2xl border border-slate-200">
+              <Users className="h-4 w-4 text-slate-500" />
+              <div className="flex flex-col">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Đang xem</span>
+                <span className="text-xs font-extrabold text-slate-800">
+                  {selectedMib ? (selectedMib.name || selectedMib.email) : 'Nhánh của bạn'} (chỉ xem)
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Export Excel Button */}
           <button
@@ -937,9 +968,8 @@ export function IbViewTree() {
         onMouseMove={handleCanvasMouseMove}
         onMouseUp={handleCanvasMouseUpOrLeave}
         onMouseLeave={handleCanvasMouseUpOrLeave}
-        className={`bg-white p-6 sm:p-8 rounded-3xl border border-amber-200/80 shadow-sm overflow-auto min-h-[600px] relative select-none ${
-          isPanning ? 'cursor-grabbing' : 'cursor-grab'
-        }`}
+        className={`bg-white p-6 sm:p-8 rounded-3xl border border-amber-200/80 shadow-sm overflow-auto min-h-[600px] relative select-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'
+          }`}
       >
         {/* Floating Compact Zoom Controls Bar (Fixed at Top Right) */}
         <div className="sticky top-0 right-0 z-40 float-right -mt-2 -mr-2 pointer-events-none mb-2">
@@ -999,25 +1029,24 @@ export function IbViewTree() {
               minWidth: zoomLevel < 1 ? `${100 / zoomLevel}%` : 'max-content',
             }}
           >
-            {/* Level 0: MIB ROOT Header */}
+            {/* Level 0: Root Header */}
             <div className="w-full flex items-center justify-start mb-2 sticky left-4 z-30 pointer-events-none">
               <span className="pointer-events-auto bg-slate-900 text-amber-400 text-xs font-black px-4 py-2 rounded-xl shadow-md border border-slate-700 uppercase tracking-wider">
-                MIB Root
+                {isAdmin ? 'MIB Root' : 'Gốc Nhánh Của Bạn'}
               </span>
             </div>
 
-            {/* MIB Root Box Card (Accepts Drop when in Edit Mode) */}
+            {/* Root Box Card (Accepts Drop when in Edit Mode — chỉ Admin) */}
             <div
               onDragOver={(e) => handleDragOver(e, selectedMib as any)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, selectedMib as any)}
-              className={`w-72 p-5 bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700 text-white rounded-3xl shadow-lg border-2 border-amber-400 flex flex-col gap-2 relative transition-all ${
-                dragOverNodeId === selectedMib.id ? 'ring-4 ring-emerald-400 scale-105' : ''
-              }`}
+              className={`w-72 p-5 bg-gradient-to-br from-amber-500 via-amber-600 to-amber-700 text-white rounded-3xl shadow-lg border-2 border-amber-400 flex flex-col gap-2 relative transition-all ${dragOverNodeId === selectedMib.id ? 'ring-4 ring-emerald-400 scale-105' : ''
+                }`}
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold bg-white/20 px-2.5 py-0.5 rounded-full backdrop-blur-sm">
-                  MIB Cấp Cao
+                  {isAdmin ? 'MIB Cấp Cao' : 'Chính bạn'}
                 </span>
                 <Shield className="h-5 w-5 text-amber-200" />
               </div>

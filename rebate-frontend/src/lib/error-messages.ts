@@ -15,6 +15,7 @@ export const ERROR_MESSAGES: Record<string, string> = {
   IB_NOT_FOUND:              "Không tìm thấy IB",
   IB_EMAIL_TAKEN:            "Email này đã được sử dụng",
   IB_NOT_IN_SUBTREE:         "Bạn không có quyền xem thông tin IB này",
+  INVALID_JSON:              "Dữ liệu thanh toán/ngân hàng không hợp lệ",
   IB_MAX_LEVEL_REACHED:      "Không thể tạo thêm cấp dưới",
   PARENT_NOT_FOUND:          "Không tìm thấy node cha",
   SCENARIO_TARGET_NOT_IN_SUBTREE: "Bạn không có quyền lưu kịch bản cho các IB ngoài nhánh của mình",

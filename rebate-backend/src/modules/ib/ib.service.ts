@@ -599,12 +599,21 @@ export class IbService {
 
   async updateProfile(callerId: string, callerLevel: number, targetIbId: string, dto: UpdateIbDto, callerRole?: string) {
     // ADMIN bypass — cho phép sửa bất kỳ IB nào
-    // Lv0/MIB: cũng bypass (level === 0)
+    // Lv0/MIB: được sửa mọi IB trong CHÍNH nhánh của mình (đệ quy) — nhưng
+    // KHÔNG được sửa sang nhánh của MIB khác (fix: trước đây bypass thẳng
+    // không hề kiểm tra target có thuộc nhánh mình hay không).
     // Lv1+: chỉ được sửa con trực tiếp (parentId === callerId) hoặc chính mình
-    if (callerRole !== 'ADMIN' && callerLevel > 0 && callerId !== targetIbId) {
-      const target = await this.prisma.ibNode.findUnique({ where: { id: targetIbId }, select: { parentId: true } });
-      if (!target || target.parentId !== callerId) {
-        throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn' });
+    if (callerRole !== 'ADMIN' && callerId !== targetIbId) {
+      if (callerLevel === 0) {
+        const isOwnDescendant = await this.isDescendantOf(targetIbId, callerId);
+        if (!isOwnDescendant) {
+          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc nhánh của bạn' });
+        }
+      } else {
+        const target = await this.prisma.ibNode.findUnique({ where: { id: targetIbId }, select: { parentId: true } });
+        if (!target || target.parentId !== callerId) {
+          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn' });
+        }
       }
     }
 
@@ -652,10 +661,19 @@ export class IbService {
   }
 
   async getProfile(callerId: string, callerLevel: number, targetIbId: string, callerRole?: string) {
-    if (callerRole !== 'ADMIN' && callerLevel > 0 && callerId !== targetIbId) {
-      const target = await this.prisma.ibNode.findUnique({ where: { id: targetIbId }, select: { parentId: true } });
-      if (!target || target.parentId !== callerId) {
-        throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn' });
+    if (callerRole !== 'ADMIN' && callerId !== targetIbId) {
+      if (callerLevel === 0) {
+        // MIB: "View ALL" nhưng CHỈ trong nhánh của chính mình — không được
+        // xem cross-tree sang nhánh của MIB khác.
+        const isOwnDescendant = await this.isDescendantOf(targetIbId, callerId);
+        if (!isOwnDescendant) {
+          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc nhánh của bạn' });
+        }
+      } else {
+        const target = await this.prisma.ibNode.findUnique({ where: { id: targetIbId }, select: { parentId: true } });
+        if (!target || target.parentId !== callerId) {
+          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn' });
+        }
       }
     }
 
@@ -695,8 +713,14 @@ export class IbService {
       // ADMIN: tìm toàn hệ thống (trừ chính Admin)
       const all = await this.prisma.ibNode.findMany({ select: { id: true } });
       searchableIds = all.map((n) => n.id).filter((id) => id !== currentUserId);
+    } else if (callerLevel === 0) {
+      // MIB (Lv0): "View ALL" trong CHÍNH nhánh của mình — tìm đệ quy toàn bộ
+      // hậu duệ, không chỉ con trực tiếp. Tái dùng getAllSubtreeNodes() đã có
+      // sẵn (dùng cho moveIb) thay vì viết BFS mới.
+      const subtree = await this.getAllSubtreeNodes(currentUserId);
+      searchableIds = subtree.map((n) => n.id).filter((id) => id !== currentUserId);
     } else {
-      // IB: chỉ tìm trong con trực tiếp (parentId = currentUserId)
+      // IB Lv1+: chỉ tìm trong con trực tiếp (parentId = currentUserId)
       const children = await this.prisma.ibNode.findMany({
         where: { parentId: currentUserId },
         select: { id: true },
@@ -761,12 +785,20 @@ export class IbService {
   /**
    * GET /ib/:id/performance — hiệu suất 1 IB theo tháng
    */
-  async getIbPerformance(currentUserId: string, ibId: string, month?: string, callerRole?: string) {
-    // 1. Verify ibId: ADMIN bypass; IB chỉ được xem chính mình hoặc con trực tiếp
+  async getIbPerformance(currentUserId: string, ibId: string, month?: string, callerRole?: string, callerLevel?: number) {
+    // 1. Verify ibId: ADMIN bypass; MIB (Lv0) xem được cả nhánh của mình (View ALL, scoped);
+    //    Lv1+ chỉ được xem chính mình hoặc con trực tiếp.
     if (callerRole !== 'ADMIN' && currentUserId !== ibId) {
-      const target = await this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { parentId: true } });
-      if (!target || target.parentId !== currentUserId) {
-        throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+      if (callerLevel === 0) {
+        const isOwnDescendant = await this.isDescendantOf(ibId, currentUserId);
+        if (!isOwnDescendant) {
+          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+        }
+      } else {
+        const target = await this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { parentId: true } });
+        if (!target || target.parentId !== currentUserId) {
+          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+        }
       }
     }
 
@@ -1167,5 +1199,33 @@ export class IbService {
       return isNaN(num) ? 0 : num;
     }
     return 0;
+  }
+
+  /**
+   * Đi ngược từ targetId lên theo chuỗi parentId, kiểm tra ancestorId có nằm
+   * trên đường đi hay không. Cùng logic với SubtreeGuard.isDescendantOf() —
+   * dùng cho các hàm cần verify "targetId có thuộc nhánh của ancestorId
+   * không" theo chiều lên (nhanh hơn getAllSubtreeNodes() cho 1 lần check).
+   */
+  private async isDescendantOf(targetId: string, ancestorId: string): Promise<boolean> {
+    let currentId: string | null = targetId;
+    let depth = 0;
+    const MAX_DEPTH = 10;
+
+    while (currentId && depth < MAX_DEPTH) {
+      const node: { parentId: string | null } | null = await this.prisma.ibNode.findUnique({
+        where: { id: currentId },
+        select: { parentId: true },
+      });
+
+      if (!node) return false;
+      if (node.parentId === ancestorId) return true;
+      if (!node.parentId) return false;
+
+      currentId = node.parentId;
+      depth++;
+    }
+
+    return false;
   }
 }

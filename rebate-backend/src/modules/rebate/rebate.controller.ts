@@ -10,6 +10,7 @@ import { SaveRebateTemplatesDto } from './dto/save-templates.dto';
 import { SaveBranchScenarioDto } from './dto/save-scenario.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { SubtreeGuard } from '../../common/guards/subtree.guard';
+import { SubtreeEditGuard } from '../../common/guards/subtree-edit.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -97,7 +98,7 @@ export class RebateController {
 
   @Put('config/:ibId')
   @ApiBearerAuth('Bearer')
-  @UseGuards(SubtreeGuard)
+  @UseGuards(SubtreeEditGuard)
   @ApiOperation({ summary: 'Update rebate config for an IB', description: 'Updates rebate configuration (rebatePips, markupPips, markupPercent) per asset type for the specified IB.' })
   @ApiParam({ name: 'ibId', description: 'The IB account ID to update', example: 'clxyz123' })
   @ApiResponse({ status: 200, description: 'Rebate configuration updated successfully' })
@@ -154,7 +155,7 @@ export class RebateController {
 
   @Put('ib/:ibId/templates')
   @ApiBearerAuth('Bearer')
-  @UseGuards(SubtreeGuard)
+  @UseGuards(SubtreeEditGuard)
   @ApiOperation({ summary: 'Lưu template account type và markup link cho IB' })
   @ApiParam({ name: 'ibId', description: 'UUID của IB', example: 'clxyz123' })
   @ApiResponse({ status: 200, description: 'Templates saved successfully' })

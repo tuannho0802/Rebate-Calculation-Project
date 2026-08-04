@@ -124,8 +124,8 @@ export interface IbProfile {
   referralCode?: string | null;
   profileUpdatedAt?: string | null;
   wallet?: {
-    balance: string;
-    totalEarned: string;
+    balance: number | string;
+    totalEarned: number | string;
   } | null;
 }
 

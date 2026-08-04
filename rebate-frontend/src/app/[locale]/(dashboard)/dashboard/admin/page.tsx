@@ -12,7 +12,7 @@ export default function AdminManagementPage() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingAdmin, setEditingAdmin] = useState<any>(null);
-  
+
   const [formData, setFormData] = useState({
     email: '',
     name: '',
@@ -94,8 +94,8 @@ export default function AdminManagementPage() {
   };
 
   const admins = adminRes?.data || [];
-  const filteredAdmins = admins.filter(a => 
-    (a.email?.toLowerCase().includes(q.toLowerCase())) || 
+  const filteredAdmins = admins.filter(a =>
+    (a.email?.toLowerCase().includes(q.toLowerCase())) ||
     (a.name?.toLowerCase().includes(q.toLowerCase()))
   );
 
@@ -135,7 +135,6 @@ export default function AdminManagementPage() {
           <table className="min-w-full divide-y divide-gray-100 text-left text-sm">
             <thead className="bg-amber-50/80 font-extrabold text-gray-800 border-b border-amber-200/80">
               <tr>
-                <th className="px-4 py-3 font-bold">ID</th>
                 <th className="px-4 py-3 font-bold">Tên</th>
                 <th className="px-4 py-3 font-bold">Email</th>
                 <th className="px-4 py-3 font-bold">Loại Admin</th>
@@ -145,20 +144,19 @@ export default function AdminManagementPage() {
             <tbody className="divide-y divide-gray-100">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center">
+                  <td colSpan={4} className="px-4 py-8 text-center">
                     <Loader2 className="mx-auto h-6 w-6 animate-spin text-amber-600" />
                   </td>
                 </tr>
               ) : filteredAdmins.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500 font-medium">
+                  <td colSpan={4} className="px-4 py-8 text-center text-gray-500 font-medium">
                     Không tìm thấy Admin nào phù hợp.
                   </td>
                 </tr>
               ) : (
                 filteredAdmins.map((admin) => (
                   <tr key={admin.id} className="hover:bg-amber-50/40 transition-colors">
-                    <td className="px-4 py-3 text-xs font-mono text-gray-500">{admin.id}</td>
                     <td className="px-4 py-3 font-medium text-gray-900">{admin.name || '—'}</td>
                     <td className="px-4 py-3 text-gray-600">{admin.email}</td>
                     <td className="px-4 py-3">
@@ -213,7 +211,7 @@ export default function AdminManagementPage() {
                 {isEditModalOpen ? 'Sửa thông tin Admin' : 'Thêm Admin mới'}
               </h3>
             </div>
-            
+
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Tên hiển thị</label>
@@ -225,7 +223,7 @@ export default function AdminManagementPage() {
                   className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-1">Email</label>
                 <input

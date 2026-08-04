@@ -7,6 +7,16 @@ export const ibApi = {
     return response.data;
   },
 
+  getProfile: async (id: string): Promise<ApiResponse<IbProfile>> => {
+    const response = await apiClient.get<ApiResponse<IbProfile>>(`/ib/${id}/profile`);
+    return response.data;
+  },
+
+  updateProfile: async (id: string, dto: UpdateProfileDto): Promise<ApiResponse<IbProfile>> => {
+    const response = await apiClient.patch<ApiResponse<IbProfile>>(`/ib/${id}/profile`, dto);
+    return response.data;
+  },
+
   getMibs: async (): Promise<ApiResponse<IbNode[]>> => {
     const response = await apiClient.get<ApiResponse<IbNode[]>>('/ib/mibs');
     return response.data;
@@ -89,16 +99,6 @@ export const ibApi = {
   getPerformance: async (id: string, month?: string): Promise<ApiResponse<IbPerformanceResponse>> => {
     const query = month ? `?month=${month}` : '';
     const response = await apiClient.get<ApiResponse<IbPerformanceResponse>>(`/ib/${id}/performance${query}`);
-    return response.data;
-  },
-
-  getProfile: async (id: string): Promise<ApiResponse<IbProfile>> => {
-    const response = await apiClient.get<ApiResponse<IbProfile>>(`/ib/${id}/profile`);
-    return response.data;
-  },
-
-  updateProfile: async (id: string, dto: UpdateProfileDto): Promise<ApiResponse<IbProfile>> => {
-    const response = await apiClient.patch<ApiResponse<IbProfile>>(`/ib/${id}/profile`, dto);
     return response.data;
   },
 

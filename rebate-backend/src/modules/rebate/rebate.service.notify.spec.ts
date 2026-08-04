@@ -141,6 +141,10 @@ describe('RebateService — updateConfig() changedAssets notification (fix)', ()
             expect.objectContaining({
                 recipientId: 'lv2-1',
                 metadata: expect.objectContaining({
+                    // changedAssets nằm trong metadata.details (không phải top-level metadata) —
+                    // cố ý bọc vậy để đồng nhất shape với notifyAdminsOnIbAction, phục vụ
+                    // getNavigateTargetIbId() ở FE đọc chung 1 vị trí details.targetIbId
+                    // bất kể notification gửi cho Admin hay MIB/IB.
                     details: expect.objectContaining({
                         changedAssets: [{ assetType: AssetType.FOREX, rebateType: 'STP_REBATE' }],
                     }),
