@@ -450,7 +450,7 @@ async function main() {
     await prisma.accountTypeTemplate.create({
       data: {
         ownerId: mibOwner.id,
-        name: 'SEA STD',
+        name: 'STD',
         rows: [
           { assetType: 'FOREX', maxCeiling: '8', calcUnit: 'pips' },
           { assetType: 'GOLD', maxCeiling: '18', calcUnit: 'pips' },
@@ -458,7 +458,7 @@ async function main() {
       },
     });
     await prisma.markupLinkTemplate.create({
-      data: { ownerId: mibOwner.id, name: 'SEA STD', share: 8 },
+      data: { ownerId: mibOwner.id, name: 'STD', share: 8 },
     });
   }
 

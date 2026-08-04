@@ -3,12 +3,11 @@
 import { Suspense, use, useState, useEffect } from 'react';
 import { useRouter, Link } from '@/i18n/routing';
 import { useSearchParams } from 'next/navigation';
-import { useMutation } from '@tanstack/react-query';
 import { rebateApi } from '@/lib/api/rebate';
 import { rebateTemplateApi } from '@/lib/api/rebateTemplates';
 import { ibApi } from '@/lib/api/ib';
 import { useAuthStore } from '@/store/auth.store';
-import { Loader2, Save, ArrowLeft, Mail, Plus, Settings2, SlidersHorizontal } from 'lucide-react';
+import { Loader2, Save, ArrowLeft, Mail, Plus } from 'lucide-react';
 import { AssetType, IbNode, RebateAssetConfig, RebateType, MAX_PIPS, RebateConfig } from '@/types';
 import { MarkupLinkRow } from '@/components/rebate/AccountTypeBuilder';
 import { getErrorMessage } from '@/lib/error-messages';
@@ -29,19 +28,24 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
   const [targetIb, setTargetIb] = useState<IbNode | null>(null);
   const [profile, setProfile] = useState<IbNode | null>(null);
   const [parentIbNode, setParentIbNode] = useState<IbNode | null>(null);
-  const [subIbAccountType, setSubIbAccountType] = useState<string>('STD');
   const [markupLinks, setMarkupLinks] = useState<MarkupLinkRow[]>([]);
   const [accountTypeTemplates, setAccountTypeTemplates] = useState<any[]>([]);
   const [unitMap, setUnitMap] = useState<Record<string, string>>({});
-  const [parentConfig, setParentConfig] = useState<RebateConfig | null>(null);
   const [mounted, setMounted] = useState(false);
 
-  const [globalMarkup, setGlobalMarkup] = useState<string>('');
+  // Maps by accountType:
+  // parentConfigsMap[accType] -> RebateConfig of parent for that accType
+  const [parentConfigsMap, setParentConfigsMap] = useState<Record<string, RebateConfig>>({});
+  
+  // rebateValues keyed by `${accType}:${assetType}`
   const [rebateValues, setRebateValues] = useState<Record<string, string>>({});
   const [initialRebateValues, setInitialRebateValues] = useState<Record<string, string>>({});
 
-  const [assetsToUpdateState, setAssetsToUpdateState] = useState<any[]>([]);
-  const [selectedAccountType, setSelectedAccountType] = useState<string>('STD');
+  // Filter state for Position 1 (ALL or specific accountType)
+  const [selectedAccountTypeFilter, setSelectedAccountTypeFilter] = useState<string>('ALL');
+
+  const [pendingUpdates, setPendingUpdates] = useState<Record<string, RebateAssetConfig[]>>({});
+  const [isSaving, setIsSaving] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
@@ -75,7 +79,6 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
         if (targetRes?.data) {
           setTargetIb(targetRes.data);
           const acc = targetRes.data.accountType;
-          setSubIbAccountType(acc && acc !== 'SEA STD' ? acc : 'STD');
           if (targetRes.data.accountTypes && targetRes.data.accountTypes.length > 0) {
             targetTypes = targetRes.data.accountTypes;
           } else if (acc) {
@@ -90,17 +93,35 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
           }
         }
 
-        const initialType = targetTypes[0] || 'STD';
-        setSelectedAccountType(initialType);
+        // Fetch configs for all target account types concurrently
+        const pConfigsMap: Record<string, RebateConfig> = {};
+        const initRebateVals: Record<string, string> = {};
 
-        const [targetConfigRes, pConfigRes] = await Promise.all([
-          rebateApi.getConfig(id, initialType).catch(() => null),
-          loadedProfile?.id ? rebateApi.getConfig(loadedProfile.id, initialType).catch(() => null) : null,
-        ]);
+        const parentSourceId = targetRes?.data?.parentId || loadedProfile?.id;
 
-        if (pConfigRes?.data) {
-          setParentConfig(pConfigRes.data);
-        }
+        await Promise.all(
+          targetTypes.map(async (accType) => {
+            const [tConfigRes, pConfigRes] = await Promise.all([
+              rebateApi.getConfig(id, accType).catch(() => null),
+              parentSourceId ? rebateApi.getConfig(parentSourceId, accType).catch(() => null) : null,
+            ]);
+
+            if (pConfigRes?.data) {
+              pConfigsMap[accType] = pConfigRes.data;
+            }
+
+            if (tConfigRes?.data?.assets) {
+              tConfigRes.data.assets.forEach((asset: RebateAssetConfig) => {
+                const key = `${accType}:${asset.assetType}`;
+                initRebateVals[key] = String(asset.rebatePips);
+              });
+            }
+          })
+        );
+
+        setParentConfigsMap(pConfigsMap);
+        setRebateValues(initRebateVals);
+        setInitialRebateValues(initRebateVals);
 
         let mLinks: MarkupLinkRow[] = [];
         const tempUnitMap: Record<string, string> = {};
@@ -118,30 +139,9 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
                 tempUnitMap[r.assetType] = r.calcUnit;
               });
             });
-
-            if (targetRes?.data && (!targetRes.data.accountType || targetRes.data.accountType === 'SEA STD')) {
-              setSubIbAccountType('STD');
-            }
           }
         }
         setUnitMap(tempUnitMap);
-
-        if (targetConfigRes?.data?.assets) {
-          const initialRebate: Record<string, string> = {};
-          let initialMarkup = '';
-
-          targetConfigRes.data.assets.forEach((asset: RebateAssetConfig) => {
-            initialRebate[asset.assetType] = String(asset.rebatePips);
-            if (!initialMarkup) {
-              initialMarkup = String(asset.markupPips);
-            }
-          });
-
-          setRebateValues(initialRebate);
-          setInitialRebateValues(initialRebate);
-          setGlobalMarkup(initialMarkup || '0');
-        }
-
       } catch (error) {
         console.error('Failed to load data', error);
       }
@@ -150,60 +150,36 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
     loadData();
   }, [id, user?.id]);
 
-  const handleAccountTypeChange = async (newType: string) => {
-    setSelectedAccountType(newType);
-    setSaveSuccess(false);
-    try {
-      const parentConfigSourceId = profile?.id;
-      const [targetConfigRes, pConfigRes] = await Promise.all([
-        rebateApi.getConfig(id, newType).catch(() => null),
-        parentConfigSourceId ? rebateApi.getConfig(parentConfigSourceId, newType).catch(() => null) : null,
-      ]);
+  const loadMissingAccountTypes = async (typesToLoad: string[], currentTargetIb: IbNode | null) => {
+    const parentSourceId = currentTargetIb?.parentId || targetIb?.parentId || profile?.id;
+    const pConfigsMap = { ...parentConfigsMap };
+    const newRebateVals = { ...rebateValues };
 
-      if (pConfigRes?.data) {
-        setParentConfig(pConfigRes.data);
-      }
+    await Promise.all(
+      typesToLoad.map(async (accType) => {
+        const [tConfigRes, pConfigRes] = await Promise.all([
+          rebateApi.getConfig(id, accType).catch(() => null),
+          parentSourceId ? rebateApi.getConfig(parentSourceId, accType).catch(() => null) : null,
+        ]);
 
-      if (targetConfigRes?.data?.assets) {
-        const initialRebate: Record<string, string> = {};
-        let initialMarkup = '';
+        if (pConfigRes?.data) {
+          pConfigsMap[accType] = pConfigRes.data;
+        }
 
-        targetConfigRes.data.assets.forEach((asset: RebateAssetConfig) => {
-          initialRebate[asset.assetType] = String(asset.rebatePips);
-          if (!initialMarkup) {
-            initialMarkup = String(asset.markupPips);
-          }
-        });
+        if (tConfigRes?.data?.assets) {
+          tConfigRes.data.assets.forEach((asset: RebateAssetConfig) => {
+            const key = `${accType}:${asset.assetType}`;
+            if (newRebateVals[key] === undefined) {
+              newRebateVals[key] = String(asset.rebatePips);
+            }
+          });
+        }
+      })
+    );
 
-        setRebateValues(initialRebate);
-        setInitialRebateValues(initialRebate);
-        setGlobalMarkup(initialMarkup || '0');
-      } else {
-        setRebateValues({});
-        setInitialRebateValues({});
-      }
-    } catch (e) {
-      console.error('Error switching account type config', e);
-    }
+    setParentConfigsMap(pConfigsMap);
+    setRebateValues(newRebateVals);
   };
-
-  const updateConfigMutation = useMutation({
-    mutationFn: (assets: RebateAssetConfig[]) => rebateApi.updateConfig(id, assets, selectedAccountType),
-    onSuccess: (res) => {
-      if (res.success) {
-        setSaveSuccess(true);
-        toast.success('Cập nhật cấu hình hoa hồng thành công');
-        setTimeout(() => {
-          router.push('/dashboard/ib-management');
-        }, 1200);
-      } else {
-        toast.error(getErrorMessage((res as any).error?.code));
-      }
-    },
-    onError: (err: any) => {
-      toast.error(getErrorMessage(err.response?.data?.error?.code || 'INTERNAL_ERROR'));
-    }
-  });
 
   const openManageTypesModal = () => {
     const currentTypes = (targetIb?.accountTypes && targetIb.accountTypes.length > 0)
@@ -228,16 +204,17 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
 
       if (res.success) {
         toast.success('Cập nhật các loại tài khoản link cho IB thành công!');
-        setTargetIb((prev) => prev ? {
-          ...prev,
+        const updatedIb = res.data || (targetIb ? {
+          ...targetIb,
           accountType: tempSelectedTypes[0],
           accountTypes: tempSelectedTypes,
         } : null);
 
-        if (!tempSelectedTypes.includes(selectedAccountType)) {
-          handleAccountTypeChange(tempSelectedTypes[0]);
-        }
+        setTargetIb(updatedIb as IbNode);
         setIsManageTypesModalOpen(false);
+
+        // Load configs for newly added types if any
+        await loadMissingAccountTypes(tempSelectedTypes, updatedIb as IbNode);
       } else {
         toast.error(getErrorMessage((res as any).error?.code));
       }
@@ -255,15 +232,22 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
     return Number.isNaN(parsed) ? 0 : parsed;
   };
 
-  const isMibEditingLevel1 = profile?.level === 0 && targetIb?.level === 1;
+  const availableAccountTypes = (targetIb?.accountTypes && targetIb.accountTypes.length > 0)
+    ? targetIb.accountTypes
+    : [targetIb?.accountType || 'STD'];
+
+  const displayedAccountTypes = selectedAccountTypeFilter === 'ALL'
+    ? availableAccountTypes
+    : availableAccountTypes.filter((t) => t === selectedAccountTypeFilter);
+
+  const isMibNode = targetIb?.level === 0;
 
   const getAddedMarkupPips = (accountTypeStr: string, links: MarkupLinkRow[]): number => {
-    if (!isMibEditingLevel1) return 0;
     const matched = links.find((l) => l.name === accountTypeStr);
-    if (matched !== undefined && matched !== null) {
-      return Number(matched.share || 0);
+    if (matched !== undefined && matched !== null && matched.share !== undefined && Number(matched.share) > 0) {
+      return Number(matched.share);
     }
-    if (accountTypeStr === 'STD' || !accountTypeStr || accountTypeStr === 'SEA STD') return 0;
+    if (accountTypeStr === 'STD' || !accountTypeStr) return 0;
     const match = accountTypeStr.match(/(\d+(?:\.\d+)?)/);
     if (match) {
       const num = parseFloat(match[1]);
@@ -272,76 +256,108 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
     return 0;
   };
 
-  const addedMarkupPips = getAddedMarkupPips(subIbAccountType, markupLinks);
+  const getAvailableBudget = (accType: string, asset: AssetType) => {
+    const parentConfig = parentConfigsMap[accType];
 
-  const getAvailableBudget = (asset: AssetType) => {
-    if (profile?.level === 0) {
+    if (!targetIb || targetIb.level === 0 || targetIb.level === 1) {
+      const addedMarkup = getAddedMarkupPips(accType, markupLinks);
       if (parentConfig?.assets) {
         const ownAsset = parentConfig.assets.find((a) => a.assetType === asset);
-        if (ownAsset) {
-          return Number(ownAsset.maxPips);
+        if (ownAsset && Number(ownAsset.maxPips) > 0) {
+          return Number(ownAsset.maxPips) + addedMarkup;
         }
       }
-      return MAX_PIPS[asset] || 0;
+      return (MAX_PIPS[asset] || 0) + addedMarkup;
     }
 
     if (parentConfig?.assets) {
-      const pAsset = parentConfig.assets.find(a => a.assetType === asset);
+      const pAsset = parentConfig.assets.find((a) => a.assetType === asset);
       if (pAsset) return Number(pAsset.rebatePips || 0);
     }
     return 0;
   };
 
-  const getCombinedRebateMax = (asset: AssetType) => {
-    return getAvailableBudget(asset);
+  const getCombinedRebateMax = (accType: string, asset: AssetType) => {
+    return getAvailableBudget(accType, asset);
   };
 
-  const isAnyRebateInvalid = activeAssetTypes.some(asset => parsePipsValue(rebateValues[asset] || '0') > getCombinedRebateMax(asset));
+  // Check form validity across displayed account types
+  const isAnyRebateInvalid = displayedAccountTypes.some((accType) =>
+    activeAssetTypes.some((asset) => {
+      const key = `${accType}:${asset}`;
+      const maxBudget = getCombinedRebateMax(accType, asset);
+      return parsePipsValue(rebateValues[key] || '0') > maxBudget;
+    })
+  );
+
   const isFormInvalid = isAnyRebateInvalid;
 
   const handleSave = () => {
-    const assetsToUpdate: RebateAssetConfig[] = [];
-    const accountTypeChanged = !!targetIb && targetIb.accountType !== subIbAccountType;
+    const updatesByAccType: Record<string, RebateAssetConfig[]> = {};
+    let totalChangesCount = 0;
 
-    activeAssetTypes.forEach((asset) => {
-      const rebateVal = rebateValues[asset] || '0';
-      const parsedRebate = parsePipsValue(rebateVal);
-      const initialRebate = parsePipsValue(initialRebateValues[asset] || '0');
-      const rebateChanged = parsedRebate !== initialRebate;
-      const needsMarkupRefresh = accountTypeChanged && parsedRebate > 0;
+    availableAccountTypes.forEach((accType) => {
+      const assetsToUpdate: RebateAssetConfig[] = [];
+      const addedMarkup = getAddedMarkupPips(accType, markupLinks);
 
-      if (!rebateChanged && !needsMarkupRefresh) return;
+      activeAssetTypes.forEach((asset) => {
+        const key = `${accType}:${asset}`;
+        const rebateVal = rebateValues[key] || '0';
+        const parsedRebate = parsePipsValue(rebateVal);
+        const initialRebate = parsePipsValue(initialRebateValues[key] || '0');
 
-      assetsToUpdate.push({
-        assetType: asset,
-        rebateType: RebateType.STP_REBATE,
-        accountType: selectedAccountType,
-        rebatePips: parsedRebate,
-        markupPips: addedMarkupPips,
-        markupPercent: 100,
+        if (parsedRebate !== initialRebate) {
+          assetsToUpdate.push({
+            assetType: asset,
+            rebateType: RebateType.STP_REBATE,
+            accountType: accType,
+            rebatePips: parsedRebate,
+            markupPips: addedMarkup,
+            markupPercent: 100,
+          });
+        }
       });
+
+      if (assetsToUpdate.length > 0) {
+        updatesByAccType[accType] = assetsToUpdate;
+        totalChangesCount += assetsToUpdate.length;
+      }
     });
 
-    if (assetsToUpdate.length > 0 || accountTypeChanged) {
-      setAssetsToUpdateState(assetsToUpdate);
+    if (totalChangesCount > 0) {
+      setPendingUpdates(updatesByAccType);
       setIsConfirmModalOpen(true);
+    } else {
+      toast.info('Không có thay đổi nào để lưu');
     }
   };
 
   const handleConfirmSave = async () => {
     setIsConfirmModalOpen(false);
-    if (targetIb && targetIb.accountType !== subIbAccountType) {
-      await ibApi.update(id, { accountType: subIbAccountType });
-      setTargetIb((prev) => prev ? { ...prev, accountType: subIbAccountType } : null);
-    }
-    if (assetsToUpdateState.length > 0) {
-      updateConfigMutation.mutate(assetsToUpdateState);
+    setIsSaving(true);
+
+    try {
+      const updateEntries = Object.entries(pendingUpdates);
+
+      for (const [accType, assets] of updateEntries) {
+        const res = await rebateApi.updateConfig(id, assets, accType);
+        if (!res.success) {
+          throw new Error((res as any).error?.code || 'UPDATE_FAILED');
+        }
+      }
+
+      setSaveSuccess(true);
+      setInitialRebateValues({ ...rebateValues });
+      toast.success('Cập nhật cấu hình hoa hồng thành công!');
+      setTimeout(() => {
+        router.push('/dashboard/ib-management');
+      }, 1200);
+    } catch (err: any) {
+      toast.error(getErrorMessage(err.response?.data?.error?.code || err.message || 'INTERNAL_ERROR'));
+    } finally {
+      setIsSaving(false);
     }
   };
-
-  const availableAccountTypes = (targetIb?.accountTypes && targetIb.accountTypes.length > 0)
-    ? targetIb.accountTypes
-    : [targetIb?.accountType || 'STD'];
 
   const isTargetMib = targetIb?.level === 0;
   const parentAccountTypesList = (parentIbNode?.accountTypes && parentIbNode.accountTypes.length > 0)
@@ -374,14 +390,18 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
               <span className="text-amber-950 font-bold text-sm">{targetIb?.email || '---'}</span>
             </div>
             <div className="hidden md:block w-px h-6 bg-gray-200"></div>
+            
+            {/* Vị trí 1 & 2: Dropdown Filter và Badges loại link sở hữu */}
             <div className="flex flex-wrap items-center gap-3">
+              {/* Vị trí 1: Filter Select theo loại link (Có tùy chọn ALL) */}
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-gray-500">Chỉnh sửa cho link:</span>
                 <select
-                  value={selectedAccountType}
-                  onChange={(e) => handleAccountTypeChange(e.target.value)}
+                  value={selectedAccountTypeFilter}
+                  onChange={(e) => setSelectedAccountTypeFilter(e.target.value)}
                   className="font-bold text-gray-900 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-300 shadow-sm focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer text-sm"
                 >
+                  <option value="ALL">All (Tất cả loại link)</option>
                   {availableAccountTypes.map((type) => (
                     <option key={type} value={type}>
                       {type}
@@ -390,6 +410,7 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
                 </select>
               </div>
 
+              {/* Nút Thêm / Xóa loại link */}
               <button
                 type="button"
                 onClick={openManageTypesModal}
@@ -399,7 +420,8 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
                 <span>Thêm / Xóa loại link</span>
               </button>
 
-              <div className="flex items-center gap-1">
+              {/* Vị trí 2: Badges loại link sở hữu */}
+              <div className="flex items-center gap-1 flex-wrap">
                 {availableAccountTypes.map((t) => (
                   <span key={t} className="px-2 py-0.5 text-[11px] font-extrabold rounded bg-gray-100 text-gray-700 border border-gray-200">
                     {t}
@@ -411,79 +433,95 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
 
           <button
             onClick={handleSave}
-            disabled={updateConfigMutation.isPending || isFormInvalid}
+            disabled={isSaving || isFormInvalid}
             className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-extrabold transition-all shadow-md disabled:opacity-50 ${saveSuccess ? 'bg-green-600 hover:bg-green-700 shadow-green-500/20 text-white' : 'bg-[linear-gradient(180deg,#FDE047_0%,#FACC15_60%,#EF4444_100%)] hover:opacity-95 text-gray-900 shadow-amber-500/20'}`}
           >
-            {updateConfigMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5 text-gray-900" />}
+            {isSaving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Save className="h-5 w-5 text-gray-900" />}
             {saveSuccess ? 'Đã lưu thành công' : 'Lưu Thay Đổi'}
           </button>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="font-bold text-lg text-gray-900">Cấu hình Rebate cho từng sản phẩm</h3>
-          <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-3 py-1 rounded-full">
-            Gói Link Markup: {subIbAccountType}
-          </span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-gray-50 text-gray-700 font-semibold border-b border-gray-100">
-              <tr>
-                <th className="px-6 py-4">Tên sản phẩm</th>
-                <th className="px-6 py-4">Hoa hồng được nhận cho MIB và IB</th>
-                <th className="px-6 py-4 w-64">Chia cho cấp dưới</th>
-                <th className="px-6 py-4">Đơn vị</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {activeAssetTypes.map((asset) => {
-                const combinedMax = getCombinedRebateMax(asset); // Trần thật (KHÔNG cộng Markup Pips)
-                const unit = unitMap[asset] || 'pips';
-
-                const currentVal = rebateValues[asset] || '0';
-                const isRebateInvalid = parsePipsValue(currentVal) > combinedMax;
-
-                const isHighlighted = highlightAssets.has(asset);
-
-                return (
-                  <tr
-                    key={asset}
-                    className={`transition-colors ${isHighlighted
-                      ? 'ring-2 ring-inset ring-amber-500 bg-amber-50/70'
-                      : 'hover:bg-gray-50/50'
-                      }`}
-                  >
-                    <td className="px-6 py-4 font-bold text-gray-900">{asset}</td>
-                    <td className="px-6 py-4 text-amber-950 font-bold">
-                      Hoa hồng được nhận: {combinedMax}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col">
-                        <input
-                          type="text"
-                          value={rebateValues[asset] || ''}
-                          onChange={(e) => {
-                            if (e.target.value && !/^\d*\.?\d*$/.test(e.target.value)) return;
-                            setSaveSuccess(false);
-                            setRebateValues(prev => ({ ...prev, [asset]: e.target.value }));
-                          }}
-                          placeholder="0.0"
-                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 transition-all font-medium ${isRebateInvalid ? 'border-red-500 text-red-600 focus:ring-red-500 focus:border-red-500 bg-red-50' : 'border-gray-300 focus:ring-amber-500 focus:border-amber-500 bg-white'}`}
-                        />
-                        {isRebateInvalid && <span className="text-red-500 text-xs mt-1 font-medium">Bạn chỉ còn có thể chia tối đa {combinedMax}</span>}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-gray-500 font-medium uppercase text-sm">
-                      {unit}
-                    </td>
+      {/* Vị trí 3: Hiển thị các bảng cấu hình Rebate tương ứng với các loại tài khoản sở hữu / lọc */}
+      <div className="space-y-8">
+        {displayedAccountTypes.map((accType) => (
+          <div key={accType} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+              <h3 className="font-bold text-lg text-gray-900">Cấu hình Rebate cho từng sản phẩm</h3>
+              <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-3.5 py-1 rounded-full shadow-sm">
+                Gói Link Markup: {accType}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left">
+                <thead className="bg-gray-50 text-gray-700 font-semibold border-b border-gray-100 text-sm">
+                  <tr>
+                    <th className="px-6 py-4">Tên sản phẩm</th>
+                    <th className="px-6 py-4">Hoa hồng được nhận cho MIB và IB</th>
+                    {!isMibNode && <th className="px-6 py-4 w-64">Chia cho cấp dưới</th>}
+                    <th className="px-6 py-4">Đơn vị</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {activeAssetTypes.map((asset) => {
+                    const combinedMax = getCombinedRebateMax(accType, asset);
+                    const unit = unitMap[asset] || 'pips';
+                    const key = `${accType}:${asset}`;
+
+                    const currentVal = rebateValues[key] || '0';
+                    const isRebateInvalid = parsePipsValue(currentVal) > combinedMax;
+                    const isHighlighted = highlightAssets.has(asset);
+
+                    return (
+                      <tr
+                        key={asset}
+                        className={`transition-colors ${
+                          isHighlighted
+                            ? 'ring-2 ring-inset ring-amber-500 bg-amber-50/70'
+                            : 'hover:bg-gray-50/50'
+                        }`}
+                      >
+                        <td className="px-6 py-4 font-bold text-gray-900">{asset}</td>
+                        <td className="px-6 py-4 text-amber-950 font-bold">
+                          Hoa hồng được nhận: {combinedMax}
+                        </td>
+                        {!isMibNode && (
+                          <td className="px-6 py-4">
+                            <div className="flex flex-col">
+                              <input
+                                type="text"
+                                value={rebateValues[key] || ''}
+                                onChange={(e) => {
+                                  if (e.target.value && !/^\d*\.?\d*$/.test(e.target.value)) return;
+                                  setSaveSuccess(false);
+                                  setRebateValues((prev) => ({ ...prev, [key]: e.target.value }));
+                                }}
+                                placeholder="0.0"
+                                className={`w-full px-3 py-2 border rounded-lg focus:ring-2 transition-all font-medium ${
+                                  isRebateInvalid
+                                    ? 'border-red-500 text-red-600 focus:ring-red-500 focus:border-red-500 bg-red-50'
+                                    : 'border-gray-300 focus:ring-amber-500 focus:border-amber-500 bg-white'
+                                }`}
+                              />
+                              {isRebateInvalid && (
+                                <span className="text-red-500 text-xs mt-1 font-medium">
+                                  Bạn chỉ còn có thể chia tối đa {combinedMax}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        )}
+                        <td className="px-6 py-4 text-gray-500 font-medium uppercase text-sm">
+                          {unit}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ))}
       </div>
 
       {isConfirmModalOpen && (

@@ -1,4 +1,4 @@
-import { ApiResponse, IbNode, IbTreeNode, IbPerformanceResponse } from '@/types';
+import { ApiResponse, IbNode, IbTreeNode, IbPerformanceResponse, IbProfile, UpdateProfileDto } from '@/types';
 import { apiClient } from './client';
 
 export const ibApi = {
@@ -76,7 +76,7 @@ export const ibApi = {
 
 
   getChildren: async (id: string, page = 1, limit = 20): Promise<ApiResponse<{ items: IbNode[]; total: number }>> => {
-    const response = await apiClient.get<ApiResponse<any>>(`/ib/${id}/children?page=${page}&limit=${limit}`);
+    const response = await apiClient.get<ApiResponse<any>>(`/ib/${id}/children?page=${page}&limit=${limit}&_t=${Date.now()}`);
     return {
       ...response.data,
       data: {
@@ -89,6 +89,16 @@ export const ibApi = {
   getPerformance: async (id: string, month?: string): Promise<ApiResponse<IbPerformanceResponse>> => {
     const query = month ? `?month=${month}` : '';
     const response = await apiClient.get<ApiResponse<IbPerformanceResponse>>(`/ib/${id}/performance${query}`);
+    return response.data;
+  },
+
+  getProfile: async (id: string): Promise<ApiResponse<IbProfile>> => {
+    const response = await apiClient.get<ApiResponse<IbProfile>>(`/ib/${id}/profile`);
+    return response.data;
+  },
+
+  updateProfile: async (id: string, dto: UpdateProfileDto): Promise<ApiResponse<IbProfile>> => {
+    const response = await apiClient.patch<ApiResponse<IbProfile>>(`/ib/${id}/profile`, dto);
     return response.data;
   },
 

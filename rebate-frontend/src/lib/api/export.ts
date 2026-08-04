@@ -16,4 +16,12 @@ export const exportApi = {
     });
     return response.data;
   },
+
+  getRebateTree: async (ibId?: string): Promise<Blob> => {
+    const response = await apiClient.get('/export/rebate-tree', {
+      params: { ibId },
+      responseType: 'blob',
+    });
+    return response.data;
+  },
 };

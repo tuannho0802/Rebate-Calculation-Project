@@ -130,6 +130,7 @@ export function AdminCreateUserModal({ onClose }: { onClose: () => void }) {
 
       if (result.success) {
         toast.success(mode === 'mib' ? 'Tạo MIB thành công' : 'Tạo Sub-IB thành công');
+        window.dispatchEvent(new CustomEvent('ib-tree-updated'));
         onClose();
         // Redirect to user management page
         router.push('/dashboard/ib-management');

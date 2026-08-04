@@ -21,4 +21,5 @@ scratch/check-neon.js
 scratch/verify-neon.js
 scratch/test-tx.js
 
+*.tsbuildinfo
 /test*

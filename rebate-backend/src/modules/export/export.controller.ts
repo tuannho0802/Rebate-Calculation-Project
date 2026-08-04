@@ -31,6 +31,25 @@ export class ExportController {
     res.end(buffer);
   }
 
+  @Get('rebate-tree')
+  @ApiOperation({ summary: 'Xuất sơ đồ cây Rebate ra Excel chuẩn báo cáo (mẫu 4 hình)' })
+  @ApiQuery({ name: 'ibId', required: false, description: 'ID của MIB root cần xuất, bỏ trống nếu xuất tất cả MIB' })
+  async exportRebateTree(
+    @CurrentUser() user: any,
+    @Query('ibId') ibId: string,
+    @Res() res: any,
+  ) {
+    const buffer = await this.exportService.generateCustomTreeRebateExcel(ibId || undefined);
+    const filename = `rebate-tree-report-${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
+  }
+
   @Get('transactions')
   @ApiOperation({ summary: 'Xuất lịch sử transaction ra Excel' })
   @ApiQuery({ name: 'period', required: false, description: 'Định dạng YYYY-MM' })

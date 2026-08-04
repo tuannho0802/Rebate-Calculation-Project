@@ -1,10 +1,14 @@
 import * as ExcelJS from 'exceljs';
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RebateSimulatorService, SimulatorNodeInput } from '../rebate/rebate-simulator.service';
 
 @Injectable()
 export class ExportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly rebateSimulatorService: RebateSimulatorService,
+  ) {}
 
   private async getIbTreeByLevel(rootIbId: string): Promise<Record<number, any[]>> {
     const root = await this.prisma.ibNode.findUnique({
@@ -47,224 +51,7 @@ export class ExportService {
   }
 
   async generateRebateConfigExcel(rootIbId: string): Promise<Buffer> {
-    const tree = await this.getIbTreeByLevel(rootIbId);
-
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'Rebate System';
-    workbook.created = new Date();
-
-    const sheet = workbook.addWorksheet('Rebate Config', {
-      views: [{ state: 'frozen', ySplit: 7 }],
-    });
-
-    // ── COLORS ──────────────────────────────────────────────────
-    const HEADER_BG    = 'FF1F3864'; // Navy blue
-    const HEADER_BG2   = 'FF2E75B6'; // Lighter blue
-    const YELLOW_BG    = 'FFFFF2CC'; // Soft yellow
-    const YELLOW_FONT  = 'FF7F6000'; // Dark gold
-    const GREEN_BG     = 'FFE2EFDA'; // Soft green
-    const GREEN_FONT   = 'FF375623'; // Dark green
-    const PINK_BG      = 'FFFCE4D6'; // Soft orange-pink
-    const PINK_FONT    = 'FF833C00'; // Dark brown
-    const RED_FONT     = 'FFC00000'; // Deep red
-    const WHITE        = 'FFFFFFFF';
-    const GRAY_BG      = 'FFF2F2F2'; // Light gray for empty cells
-    const SUBHEADER_BG = 'FF4472C4'; // Medium blue
-
-    // ── COLUMN WIDTHS ────────────────────────────────────────────
-    const colWidths = [22, 20, 20, 20, 18, 18, 18, 18, 4, 4, 4, 14];
-    colWidths.forEach((w, i) => {
-      sheet.getColumn(i + 1).width = w;
-    });
-
-    // Helper: apply thin border to a cell
-    const applyBorder = (cell: ExcelJS.Cell, color = 'FFD9D9D9') => {
-      cell.border = {
-        top:    { style: 'thin', color: { argb: color } },
-        left:   { style: 'thin', color: { argb: color } },
-        bottom: { style: 'thin', color: { argb: color } },
-        right:  { style: 'thin', color: { argb: color } },
-      };
-    };
-
-    // ── ROW 1: TITLE ─────────────────────────────────────────────
-    sheet.mergeCells('A1:L1');
-    const titleCell = sheet.getCell('A1');
-    titleCell.value = 'REBATE CONFIGURATION REPORT';
-    titleCell.font = { bold: true, size: 14, color: { argb: WHITE }, name: 'Calibri' };
-    titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_BG } };
-    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-    sheet.getRow(1).height = 28;
-
-    // ── ROW 2: Level labels ───────────────────────────────────────
-    const levelLabels = ['', 'MIB (Level 1)', 'Level 2', 'Level 3', 'Level 4', 'Level 5', 'Sub Level 5', '', '', '', '', 'Max Pips'];
-    const headerRow = sheet.getRow(2);
-    headerRow.height = 22;
-    levelLabels.forEach((label, i) => {
-      const cell = headerRow.getCell(i + 1);
-      cell.value = label;
-      const isFilled = label !== '';
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: isFilled ? SUBHEADER_BG : HEADER_BG },
-      };
-      cell.font = { bold: true, color: { argb: WHITE }, size: 10, name: 'Calibri' };
-      cell.alignment = { horizontal: 'center', vertical: 'middle' };
-      applyBorder(cell, 'FF2F5496');
-    });
-
-    // ── ROW 3: Generated date ─────────────────────────────────────
-    sheet.mergeCells('A3:L3');
-    const dateCell = sheet.getCell('A3');
-    dateCell.value = `Generated: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}`;
-    dateCell.font = { italic: true, size: 9, color: { argb: 'FF808080' }, name: 'Calibri' };
-    dateCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GRAY_BG } };
-    dateCell.alignment = { horizontal: 'right', vertical: 'middle' };
-    sheet.getRow(3).height = 16;
-
-    // ── ROW 4: Blank separator ────────────────────────────────────
-    sheet.getRow(4).height = 6;
-
-    // ── ROW 5: EMAIL row header ───────────────────────────────────
-    const emailLabelCell = sheet.getRow(5).getCell(1);
-    emailLabelCell.value = 'IB Account';
-    emailLabelCell.font = { bold: true, size: 10, color: { argb: YELLOW_FONT }, name: 'Calibri' };
-    emailLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: YELLOW_BG } };
-    emailLabelCell.alignment = { horizontal: 'left', vertical: 'middle' };
-    applyBorder(emailLabelCell, 'FFBF9000');
-    sheet.getRow(5).height = 20;
-
-    for (let i = 0; i <= 6; i++) {
-      const cell = sheet.getRow(5).getCell(i + 2);
-      const nodesAtLevel = tree[i];
-      cell.value = (nodesAtLevel && nodesAtLevel.length > 0) ? nodesAtLevel[0].email : '—';
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: YELLOW_BG } };
-      cell.font = { bold: false, size: 9, color: { argb: YELLOW_FONT }, name: 'Calibri' };
-      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: false };
-      applyBorder(cell, 'FFBF9000');
-    }
-
-    // Fill remaining cols in row 5 (cols 9-12)
-    for (let c = 9; c <= 12; c++) {
-      const cell = sheet.getRow(5).getCell(c);
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: YELLOW_BG } };
-      applyBorder(cell, 'FFBF9000');
-    }
-
-    // ── ROW 6: Blank separator ────────────────────────────────────
-    sheet.getRow(6).height = 6;
-
-    // ── ROW 7: Section label ──────────────────────────────────────
-    const sectionRow = sheet.getRow(7);
-    sectionRow.height = 22;
-
-    const sectionCell = sectionRow.getCell(1);
-    sectionCell.value = 'Rebate (pips)';
-    sectionCell.font = { bold: true, size: 11, color: { argb: WHITE }, name: 'Calibri' };
-    sectionCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_BG2 } };
-    sectionCell.alignment = { horizontal: 'left', vertical: 'middle' };
-    applyBorder(sectionCell, 'FF1F3864');
-
-    for (let c = 2; c <= 12; c++) {
-      const cell = sectionRow.getCell(c);
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: HEADER_BG2 } };
-      applyBorder(cell, 'FF1F3864');
-    }
-
-    // ── ROWS 8+: ASSET DATA ───────────────────────────────────────
-    const assetTypes = [
-      { key: 'D_FOREX',        label: 'D Forex (Pips)',       maxPips: 12   },
-      { key: 'FOREX',          label: 'Forex (Pips)',          maxPips: 12   },
-      { key: 'GOLD',           label: 'Gold (Pips)',           maxPips: 20   },
-      { key: 'SILVER_5000',    label: 'Silver 5000OZ (Pips)', maxPips: 80   },
-      { key: 'SILVER_1000',    label: 'Silver 1000OZ (Pips)', maxPips: 20   },
-      { key: 'OIL',            label: 'Oil (Pips)',            maxPips: 20   },
-      { key: 'NATURE_GAS',     label: 'Nature Gas (Pips)',     maxPips: 35   },
-      { key: 'COMMODITIES',    label: 'Commodities (Pips)',    maxPips: 3    },
-      { key: 'HKG50',          label: 'HKG50 (Pips)',          maxPips: 20   },
-      { key: 'A50',            label: 'A50 (Pips)',             maxPips: 40   },
-      { key: 'JPN225',         label: 'JPN225 (Pips)',          maxPips: 50   },
-      { key: 'US_INDEX',       label: 'US Index (Pips)',        maxPips: 2.3  },
-      { key: 'SHARES',         label: 'Shares',                maxPips: 1.5  },
-      { key: 'ETHEREUM',       label: 'Ethereum',              maxPips: 3    },
-      { key: 'PRECIOUS_METAL', label: 'Precious Metal',        maxPips: 20   },
-      { key: 'BITCOIN',        label: 'Bitcoin',               maxPips: 3    },
-      { key: 'CRYPTO',         label: 'Crypto',                maxPips: 1.5  },
-      { key: 'GAUCNH',         label: 'GAUCNH',                maxPips: 7    },
-    ];
-
-    let rowIdx = 8;
-    for (const asset of assetTypes) {
-      const row = sheet.getRow(rowIdx++);
-      row.height = 18;
-
-      let hasRebate = false;
-      const pipValues: number[] = [];
-
-      for (let i = 0; i <= 6; i++) {
-        const nodesAtLevel = tree[i];
-        let pips = 0;
-        if (nodesAtLevel && nodesAtLevel.length > 0) {
-          const configs = nodesAtLevel[0].rebateConfig;
-          if (Array.isArray(configs)) {
-            const match = configs.find((c: any) => c.assetType === asset.key);
-            if (match) pips = Number(match.rebatePips ?? 0);
-          }
-        }
-        if (pips > 0) hasRebate = true;
-        pipValues.push(pips);
-      }
-
-      // Choose color theme based on whether any pips > 0
-      const bgColor   = hasRebate ? GREEN_BG  : PINK_BG;
-      const fontColor = hasRebate ? GREEN_FONT : PINK_FONT;
-      const borderColor = hasRebate ? 'FFA9D18E' : 'FFF4B183';
-
-      // Col 1: Asset label
-      const labelCell2 = row.getCell(1);
-      labelCell2.value = asset.label;
-      labelCell2.font = { bold: false, size: 10, color: { argb: fontColor }, name: 'Calibri' };
-      labelCell2.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
-      labelCell2.alignment = { horizontal: 'left', vertical: 'middle' };
-      applyBorder(labelCell2, borderColor);
-
-      // Cols 2-8: pips per level
-      for (let i = 0; i <= 6; i++) {
-        const cell = row.getCell(i + 2);
-        const pips = pipValues[i];
-        cell.value = pips;
-        cell.font = {
-          bold: pips > 0,
-          size: 10,
-          color: { argb: pips > 0 ? GREEN_FONT : 'FF999999' },
-          name: 'Calibri',
-        };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: pips > 0 ? GREEN_BG : GRAY_BG } };
-        cell.alignment = { horizontal: 'center', vertical: 'middle' };
-        applyBorder(cell, borderColor);
-        cell.numFmt = '#,##0.##';
-      }
-
-      // Cols 9-11: empty spacer
-      for (let c = 9; c <= 11; c++) {
-        const cell = row.getCell(c);
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: GRAY_BG } };
-        applyBorder(cell, 'FFD9D9D9');
-      }
-
-      // Col 12: Max pips
-      const maxPipsCell = row.getCell(12);
-      maxPipsCell.value = asset.maxPips;
-      maxPipsCell.font = { bold: true, size: 10, color: { argb: RED_FONT }, name: 'Calibri' };
-      maxPipsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2F2' } };
-      maxPipsCell.alignment = { horizontal: 'center', vertical: 'middle' };
-      maxPipsCell.numFmt = '#,##0.##';
-      applyBorder(maxPipsCell, 'FFFF9999');
-    }
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    return buffer as any as Buffer;
+    return this.generateCustomTreeRebateExcel(rootIbId);
   }
 
   async generateTransactionsExcel(
@@ -402,7 +189,6 @@ export class ExportService {
           right:  { style: 'thin', color: { argb: 'FFD9D9D9' } },
         };
 
-        // Alignment per column
         if (colNumber === 1) cell.alignment = { horizontal: 'left' };
         else if (colNumber === 2 || colNumber === 3) cell.alignment = { horizontal: 'left' };
         else if (colNumber === 6 || colNumber === 7) {
@@ -412,7 +198,6 @@ export class ExportService {
           cell.alignment = { horizontal: 'center' };
         }
 
-        // Highlight rebate amount
         if (colNumber === 7) {
           const val = Number(tx.rebateAmount);
           if (val > 0) cell.font = { bold: true, size: 10, color: { argb: 'FF375623' }, name: 'Calibri' };
@@ -420,7 +205,6 @@ export class ExportService {
       });
     });
 
-    // ── TOTALS ROW ─────────────────────────────────────────────
     if (txs.length > 0) {
       const totalRow = sheet.addRow({
         date:         'TOTAL',
@@ -447,6 +231,581 @@ export class ExportService {
           cell.alignment = { horizontal: 'center' };
         }
       });
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return buffer as any as Buffer;
+  }
+
+  /**
+   * Xuất sơ đồ cây Rebate ra Excel theo định dạng báo cáo lũy tiến từng level
+   * - MỖI MIB ĐƯỢC TÁCH THÀNH 1 SHEET RIÊNG BIỆT DỄ QUẢN LÝ
+   * - ĐÚNG 100% THEO FILE MẪU CHUẨN TEST SET REBATE.xlsx (Bao gồm các cột kiểm tra Flag Y, Status can, Maximum Pips)
+   */
+  async generateCustomTreeRebateExcel(rootIbId?: string): Promise<Buffer> {
+    const allNodes = await this.prisma.ibNode.findMany({
+      where: { isActive: true },
+      include: { rebateConfig: true, accountTypeTemplates: true },
+    });
+
+    const nodeMap = new Map<string, any>();
+    const childrenMap = new Map<string, any[]>();
+
+    for (const n of allNodes) {
+      nodeMap.set(n.id, n);
+      if (n.parentId) {
+        const list = childrenMap.get(n.parentId) || [];
+        list.push(n);
+        childrenMap.set(n.parentId, list);
+      }
+    }
+
+    let mibRoots: any[] = [];
+    if (rootIbId) {
+      const selectedNode = nodeMap.get(rootIbId);
+      if (selectedNode) {
+        let topRoot = selectedNode;
+        while (topRoot.parentId && nodeMap.has(topRoot.parentId)) {
+          topRoot = nodeMap.get(topRoot.parentId);
+        }
+        mibRoots = [topRoot];
+      }
+    }
+
+    if (mibRoots.length === 0) {
+      mibRoots = allNodes.filter((n) => n.level === 0 || !n.parentId);
+    }
+
+    if (mibRoots.length === 0 && allNodes.length > 0) {
+      mibRoots = [allNodes[0]];
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Rebate Management System';
+    workbook.created = new Date();
+
+    const ASSET_TYPES = [
+      { key: 'D_FOREX',        label: 'D Forex (Pips)',       maxPips: 12   },
+      { key: 'FOREX',          label: 'Forex (Pips)',          maxPips: 12   },
+      { key: 'GOLD',           label: 'Gold (Pips)',           maxPips: 20   },
+      { key: 'SILVER_5000',    label: 'Silver 5000OZ (Pips)', maxPips: 80   },
+      { key: 'SILVER_1000',    label: 'Silver 1000OZ (Pips)', maxPips: 20   },
+      { key: 'OIL',            label: 'Oil (Pips)',            maxPips: 20   },
+      { key: 'NATURE_GAS',     label: 'Nature Gas (Pips)',     maxPips: 35   },
+      { key: 'COMMODITIES',    label: 'Commodities (Pips)',    maxPips: 3    },
+      { key: 'HKG50',          label: 'HKG50 (Pips)',          maxPips: 20   },
+      { key: 'A50',            label: 'A50 (Pips)',             maxPips: 40   },
+      { key: 'JPN225',         label: 'JPN225 (Pips)',          maxPips: 50   },
+      { key: 'US_INDEX',       label: 'US Index (Pips)',        maxPips: 2.3  },
+      { key: 'SHARES',         label: 'Shares',                maxPips: 1.5  },
+      { key: 'ETHEREUM',       label: 'Ethereum',              maxPips: 3    },
+      { key: 'PRECIOUS_METAL', label: 'Precious Metal',        maxPips: 20   },
+      { key: 'BITCOIN',        label: 'Bitcoin',               maxPips: 3    },
+      { key: 'CRYPTO',         label: 'Crypto',                maxPips: 1.5  },
+      { key: 'GAUCNH',         label: 'GAUCNH',                maxPips: 7    },
+    ];
+
+    const applyCellBorder = (cell: ExcelJS.Cell, color = 'FFD9D9D9') => {
+      cell.border = {
+        top:    { style: 'thin', color: { argb: color } },
+        left:   { style: 'thin', color: { argb: color } },
+        bottom: { style: 'thin', color: { argb: color } },
+        right:  { style: 'thin', color: { argb: color } },
+      };
+    };
+
+    const getBranches = (nodeId: string, currentPath: any[] = []): any[][] => {
+      const node = nodeMap.get(nodeId);
+      if (!node) return [];
+      const path = [...currentPath, node];
+      const children = childrenMap.get(nodeId) || [];
+      if (children.length === 0) {
+        return [path];
+      }
+      let branches: any[][] = [];
+      for (const child of children) {
+        branches.push(...getBranches(child.id, path));
+      }
+      return branches;
+    };
+
+    const getNodeReceivedPips = (
+      node: any,
+      assetKey: string,
+      accType: string,
+      defaultMaxPips: number
+    ): number => {
+      const cfgs = node.rebateConfig || [];
+      const cfg = cfgs.find(
+        (c: any) => c.assetType === assetKey && (c.accountType || 'STD') === accType
+      );
+
+      if (cfg) {
+        if (cfg.rebatePips !== undefined && cfg.rebatePips !== null && Number(cfg.rebatePips) > 0) {
+          return Number(cfg.rebatePips);
+        }
+        if (cfg.maxPips !== undefined && cfg.maxPips !== null && Number(cfg.maxPips) > 0) {
+          return Number(cfg.maxPips);
+        }
+      }
+
+      return 0;
+    };
+
+    /**
+     * Helper tính toán phân bổ Markup Options chia dần đều từ trên xuống dưới (đúng 100% Hình 1 & Hình 2)
+     * - Mỗi bước lũy tiến stepPath [0..k-1], cấp cuối cùng (k-1) là lá của bước đó và nhận nốt 100% Pips Markup còn lại.
+     */
+    const getMarkupAllocation = (
+      stepPath: any[],
+      accType: string,
+      totalMarkupPips: number
+    ): Array<{ pips: number; pct: string }> => {
+      const k = stepPath.length;
+
+      if (totalMarkupPips === 0) {
+        return Array.from({ length: k }, (_, i) => ({
+          pips: 0,
+          pct: i === k - 1 ? '100%' : '0%',
+        }));
+      }
+
+      const rawPips: number[] = new Array(k).fill(0);
+      let remaining = totalMarkupPips;
+
+      for (let i = 0; i < k; i++) {
+        const isLast = i === k - 1;
+        if (isLast) {
+          // Cấp lá của bước này giữ nốt toàn bộ số Pips Markup còn lại
+          rawPips[i] = Math.max(0, remaining);
+        } else {
+          // Các cấp cha ở trên giữ số Pips theo DB config hoặc mặc định (2 Pips cho 10 Pips, 3 Pips cho 15 Pips)
+          const node = stepPath[i];
+          const cfgs = node.rebateConfig || [];
+          const cfg = cfgs.find((c: any) => (c.accountType || 'STD') === accType);
+
+          let hold = 0;
+          if (cfg && cfg.markupPips !== undefined && cfg.markupPips !== null && Number(cfg.markupPips) > 0) {
+            hold = Math.min(Number(cfg.markupPips), remaining);
+          } else {
+            let baseHold = Math.floor(totalMarkupPips / 5);
+            if (baseHold < 1) baseHold = 1;
+            hold = Math.min(baseHold, remaining);
+          }
+
+          rawPips[i] = hold;
+          remaining -= hold;
+        }
+      }
+
+      // Tính phần trăm % Giữ Lại lũy tiến từng cấp
+      const result: Array<{ pips: number; pct: string }> = [];
+      let remainingPool = totalMarkupPips;
+
+      for (let i = 0; i < k; i++) {
+        const holdPips = rawPips[i];
+        const isLast = i === k - 1;
+
+        let pctStr = '0%';
+        if (isLast) {
+          pctStr = '100%';
+        } else if (remainingPool > 0) {
+          const pctVal = (holdPips / remainingPool) * 100;
+          pctStr = `${parseFloat(pctVal.toFixed(2))}%`;
+        }
+
+        result.push({ pips: holdPips, pct: pctStr });
+        remainingPool -= holdPips;
+      }
+
+      return result;
+    };
+
+    const usedSheetNames = new Set<string>();
+
+    // ── MỖI MIB ĐƯỢC XUẤT RA 1 SHEET RIÊNG BIỆT DỄ QUẢN LÝ ──────────────────
+    for (let mibIndex = 0; mibIndex < mibRoots.length; mibIndex++) {
+      const rootNode = mibRoots[mibIndex];
+      let rawName = (rootNode.name || rootNode.email.split('@')[0] || `MIB_${mibIndex + 1}`)
+        .replace(/[:\\/?*\[\]]/g, '')
+        .trim();
+      if (!rawName) rawName = `MIB_${mibIndex + 1}`;
+      let baseName = rawName.slice(0, 28);
+      let sheetName = baseName;
+      let counter = 1;
+      while (usedSheetNames.has(sheetName.toLowerCase())) {
+        sheetName = `${baseName}_${counter}`;
+        counter++;
+      }
+      usedSheetNames.add(sheetName.toLowerCase());
+
+      const sheet = workbook.addWorksheet(sheetName, {
+        views: [{ showGridLines: true }],
+      });
+
+      const branches = getBranches(rootNode.id);
+      let currentRow = 1;
+
+      // ── HÀNG 1: HIỂN THỊ EMAIL MIB ĐẦU SHEET ─────────────────────────────
+      const row1 = sheet.getRow(currentRow);
+      row1.height = 24;
+      const cellA1 = row1.getCell(1);
+      cellA1.value = rootNode.email;
+      cellA1.font = { bold: true, size: 11, color: { argb: 'FF833C00' }, name: 'Calibri' };
+      cellA1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
+      cellA1.alignment = { horizontal: 'left', vertical: 'middle' };
+      applyCellBorder(cellA1, 'FFC55A11');
+
+      currentRow += 2;
+
+      for (let bIdx = 0; bIdx < branches.length; bIdx++) {
+        const branchPath = branches[bIdx];
+
+        // ── HÀNG TIẾP THEO: IN TÊN VÀ EMAIL CỦA NHÁNH ──────────────────
+        const branchTitleParts = branchPath.map((n, idx) => {
+          const roleLabel = idx === 0 ? 'MIB' : `Level ${idx}`;
+          const displayName = n.name ? `${n.name}` : n.email.split('@')[0];
+          return `${roleLabel}: ${displayName}`;
+        });
+        const branchTitleText = `NHÁNH ${bIdx + 1}: ${branchTitleParts.join(' ➔ ')}`;
+
+        const titleRow = sheet.getRow(currentRow);
+        titleRow.height = 26;
+        const titleCell = titleRow.getCell(1);
+        titleCell.value = branchTitleText;
+        titleCell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
+        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+        titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
+
+        const maxMergedCols = Math.max(30, branchPath.length * 15);
+        sheet.mergeCells(currentRow, 1, currentRow, maxMergedCols);
+        for (let c = 1; c <= maxMergedCols; c++) {
+          const cCell = titleRow.getCell(c);
+          cCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+          applyCellBorder(cCell, 'FF1F4E78');
+        }
+
+        currentRow += 2;
+
+        const accountTypesSet = new Set<string>();
+        for (const n of branchPath) {
+          if (n.accountType) accountTypesSet.add(n.accountType);
+          if (Array.isArray(n.accountTypes)) {
+            n.accountTypes.forEach((t: string) => accountTypesSet.add(t));
+          }
+          if (Array.isArray(n.rebateConfig)) {
+            n.rebateConfig.forEach((c: any) => {
+              if (c.accountType) accountTypesSet.add(c.accountType);
+            });
+          }
+          if (Array.isArray(n.accountTypeTemplates)) {
+            n.accountTypeTemplates.forEach((t: any) => {
+              if (t.name) accountTypesSet.add(t.name);
+            });
+          }
+        }
+
+        const priorityOrder = ['STD', 'STD5', 'STD10', 'STD15', 'STD20'];
+        const accountTypes = Array.from(accountTypesSet).filter(Boolean);
+        if (accountTypes.length === 0) accountTypes.push('STD');
+
+        accountTypes.sort((a, b) => {
+          const idxA = priorityOrder.indexOf(a);
+          const idxB = priorityOrder.indexOf(b);
+          if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+          if (idxA !== -1) return -1;
+          if (idxB !== -1) return 1;
+          return a.localeCompare(b);
+        });
+
+        const nodeHasAccType = (n: any, type: string): boolean => {
+          if (Array.isArray(n.accountTypes) && n.accountTypes.length > 0) {
+            return n.accountTypes.includes(type);
+          }
+          if (n.accountType && n.accountType === type) return true;
+          if (Array.isArray(n.rebateConfig) && n.rebateConfig.some((c: any) => c.accountType === type)) return true;
+          if (Array.isArray(n.accountTypeTemplates) && n.accountTypeTemplates.some((t: any) => t.name === type)) return true;
+          if (n.level === 0 && type === 'STD') return true;
+          return false;
+        };
+
+        // ── BẢNG LŨY TIẾN THEO TỪNG LOẠI TÀI KHOẢN ─────────────
+        for (let accIdx = 0; accIdx < accountTypes.length; accIdx++) {
+          const accType = accountTypes[accIdx];
+
+          const accSubPath: any[] = [];
+          for (const node of branchPath) {
+            if (nodeHasAccType(node, accType)) {
+              accSubPath.push(node);
+            } else {
+              break;
+            }
+          }
+
+          if (accSubPath.length === 0) continue;
+
+          const matchPips = accType.match(/(\d+(?:\.\d+)?)/);
+          const totalMarkupPips = matchPips ? parseFloat(matchPips[1]) : 0;
+
+          const startRowForAccType = currentRow;
+          let maxBlockHeight = 25;
+
+          for (let step = 0; step < accSubPath.length; step++) {
+            const stepPath = accSubPath.slice(0, step + 1);
+            const startCol = 1 + step * 15; // 14 cột dữ liệu + 1 cột spacer
+
+            // Set độ rộng cột chuẩn giống TEST SET REBATE.xlsx
+            sheet.getColumn(startCol).width = 22;
+            for (let k = 1; k <= 6; k++) {
+              sheet.getColumn(startCol + k).width = 16;
+            }
+            sheet.getColumn(startCol + 7).width = 4;
+            sheet.getColumn(startCol + 8).width = 4;
+            sheet.getColumn(startCol + 9).width = 4;
+            sheet.getColumn(startCol + 10).width = 4;
+            sheet.getColumn(startCol + 11).width = 8;
+            sheet.getColumn(startCol + 12).width = 8;
+            sheet.getColumn(startCol + 13).width = 14;
+            sheet.getColumn(startCol + 14).width = 3; // Spacer
+
+            let r = startRowForAccType;
+
+            // 1. Header Level Row (Row r)
+            const levelHeaderRow = sheet.getRow(r);
+            levelHeaderRow.height = 22;
+
+            const levelNames = ['MIB level 1', 'level 2', 'level 3', 'level 4', 'level 5', 'Sub 5'];
+            for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
+              const lvCell = levelHeaderRow.getCell(startCol + 1 + lvIdx);
+              lvCell.value = levelNames[lvIdx];
+              lvCell.font = { bold: true, size: 9.5, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
+              lvCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E75B6' } };
+              lvCell.alignment = { horizontal: 'center', vertical: 'middle' };
+              applyCellBorder(lvCell, 'FF1F3864');
+            }
+
+            // Status legend in Col 12, 13, 14
+            const legendCell = levelHeaderRow.getCell(startCol + 11);
+            legendCell.value = 'N = No\nY = Yes\nL= to be confirmed';
+            legendCell.font = { size: 7.5, color: { argb: 'FF595959' }, name: 'Calibri' };
+            legendCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F4F7' } };
+            legendCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            applyCellBorder(legendCell, 'FFD1D5DB');
+
+            r++;
+
+            // 2. Email Path Row (Row r + 1)
+            const emailSubRow = sheet.getRow(r);
+            emailSubRow.height = 20;
+
+            for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
+              const cell = emailSubRow.getCell(startCol + 1 + lvIdx);
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+              applyCellBorder(cell, 'FFD69E2E');
+
+              if (lvIdx < stepPath.length) {
+                cell.value = stepPath[lvIdx].email;
+                cell.font = { bold: true, size: 8.5, color: { argb: 'FF1F4E78' }, name: 'Calibri' };
+                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+              }
+            }
+
+            r++;
+
+            // 3. Rebate (pips) & maximum Pips Header Row (Row r + 2)
+            const pipsHeaderRow = sheet.getRow(r);
+            pipsHeaderRow.height = 20;
+
+            const rebateLabelCell = pipsHeaderRow.getCell(startCol);
+            rebateLabelCell.value = 'Rebate (pips)';
+            rebateLabelCell.font = { bold: true, size: 9.5, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
+            rebateLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F5597' } };
+            rebateLabelCell.alignment = { horizontal: 'left', vertical: 'middle' };
+            applyCellBorder(rebateLabelCell, 'FF1F3864');
+
+            const maxPipsHeaderCell = pipsHeaderRow.getCell(startCol + 13);
+            maxPipsHeaderCell.value = 'maximum Pips';
+            maxPipsHeaderCell.font = { bold: true, size: 9, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
+            maxPipsHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2F5597' } };
+            maxPipsHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
+            applyCellBorder(maxPipsHeaderCell, 'FF1F3864');
+
+            r++;
+
+            const markupAllocations = getMarkupAllocation(stepPath, accType, totalMarkupPips);
+
+            // 4. Asset Data Rows (18 sản phẩm)
+            let assetIdx = 0;
+            for (const asset of ASSET_TYPES) {
+              const dataRow = sheet.getRow(r);
+              dataRow.height = 18;
+
+              const assetLabelCell = dataRow.getCell(startCol);
+              assetLabelCell.value = asset.label;
+              assetLabelCell.font = { bold: true, size: 9, color: { argb: 'FF1E293B' }, name: 'Calibri' };
+              assetLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: assetIdx % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } };
+              assetLabelCell.alignment = { horizontal: 'left', vertical: 'middle' };
+              applyCellBorder(assetLabelCell, 'FFCBD5E1');
+
+              for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
+                const pipsCell = dataRow.getCell(startCol + 1 + lvIdx);
+                pipsCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+                if (lvIdx < stepPath.length) {
+                  let retainedVal = 0;
+
+                  if (lvIdx === 0) {
+                    // MIB (Level 0)
+                    const nextLevelReceived = stepPath.length > 1
+                      ? getNodeReceivedPips(stepPath[1], asset.key, accType, asset.maxPips)
+                      : 0;
+
+                    if (nextLevelReceived > 0) {
+                      // Sản phẩm ĐƯỢC CHIA cho cấp dưới -> tính theo ngân sách MIB + Markup trừ phần cấp con nhận và trừ Markup hold
+                      const mibTotalBudget = asset.maxPips + totalMarkupPips;
+                      const markupHold = markupAllocations[0]?.pips ?? 0;
+                      retainedVal = Math.max(0, mibTotalBudget - nextLevelReceived - markupHold);
+                    } else {
+                      // Sản phẩm KHÔNG ĐƯỢC CHIA cho cấp dưới (Level 1 nhận 0) -> MIB giữ nguyên Pips gốc của sản phẩm (Base Cap)
+                      const mibNode = stepPath[0];
+                      const mibConfigured = getNodeReceivedPips(mibNode, asset.key, accType, asset.maxPips);
+                      retainedVal = mibConfigured > 0 ? mibConfigured : asset.maxPips;
+                    }
+                  } else {
+                    // Sub-IB (Level 1, Level 2...)
+                    const nodeAtLevel = stepPath[lvIdx];
+                    const receivedPips = getNodeReceivedPips(nodeAtLevel, asset.key, accType, asset.maxPips);
+
+                    if (receivedPips > 0) {
+                      const givenPips = lvIdx + 1 < stepPath.length
+                        ? getNodeReceivedPips(stepPath[lvIdx + 1], asset.key, accType, asset.maxPips)
+                        : 0;
+                      const markupHold = markupAllocations[lvIdx]?.pips ?? 0;
+                      retainedVal = Math.max(0, receivedPips - givenPips - markupHold);
+                    } else {
+                      retainedVal = 0;
+                    }
+                  }
+
+                  pipsCell.value = retainedVal;
+                  if (retainedVal > 0) {
+                    pipsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+                    pipsCell.font = { bold: true, size: 9.5, color: { argb: 'FF1E4620' }, name: 'Calibri' };
+                    applyCellBorder(pipsCell, 'FFA9D18E');
+                  } else {
+                    pipsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+                    pipsCell.font = { size: 8.5, color: { argb: 'FF94A3B8' }, name: 'Calibri' };
+                    applyCellBorder(pipsCell, 'FFE2E8F0');
+                  }
+                } else {
+                  pipsCell.value = '';
+                  pipsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
+                  applyCellBorder(pipsCell, 'FFE2E8F0');
+                }
+              }
+
+              // Extra Validation Columns: Col 11=Flag Y, Col 12=Status can, Col 13=Max Pips Limit (Bằng đúng số Pips sản phẩm trong Config)
+              const flagCell = dataRow.getCell(startCol + 11);
+              flagCell.value = 'Y';
+              flagCell.font = { bold: true, size: 9, color: { argb: 'FF1E4620' }, name: 'Calibri' };
+              flagCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+              flagCell.alignment = { horizontal: 'center', vertical: 'middle' };
+              applyCellBorder(flagCell, 'FFA9D18E');
+
+              const statusCell = dataRow.getCell(startCol + 12);
+              statusCell.value = 'can';
+              statusCell.font = { bold: true, size: 9, color: { argb: 'FF1E4620' }, name: 'Calibri' };
+              statusCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+              statusCell.alignment = { horizontal: 'center', vertical: 'middle' };
+              applyCellBorder(statusCell, 'FFA9D18E');
+
+              const maxLimitCell = dataRow.getCell(startCol + 13);
+              maxLimitCell.value = asset.maxPips;
+              maxLimitCell.font = { bold: true, size: 9, color: { argb: 'FF1F4E78' }, name: 'Calibri' };
+              maxLimitCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEDF2F8' } };
+              maxLimitCell.alignment = { horizontal: 'center', vertical: 'middle' };
+              applyCellBorder(maxLimitCell, 'FFB4C6E7');
+
+              r++;
+              assetIdx++;
+            }
+
+            // 5. Markup Option Sub-Table
+            r++;
+
+            const markupHeaderRow = sheet.getRow(r);
+            markupHeaderRow.height = 20;
+            const markupTitleCell = markupHeaderRow.getCell(startCol);
+            markupTitleCell.value = 'Markup Option';
+            markupTitleCell.font = { bold: true, size: 9, color: { argb: 'FF1F4E78' }, name: 'Calibri' };
+            markupTitleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+            applyCellBorder(markupTitleCell, 'FF8EA9DB');
+
+            for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
+              const mCell = markupHeaderRow.getCell(startCol + 1 + lvIdx);
+              mCell.value = levelNames[lvIdx];
+              mCell.font = { bold: true, size: 8.5, color: { argb: 'FF1F4E78' }, name: 'Calibri' };
+              mCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+              mCell.alignment = { horizontal: 'center', vertical: 'middle' };
+              applyCellBorder(mCell, 'FF8EA9DB');
+            }
+
+            // Row 1 of Markup Option: Tỷ Lệ % Giữ Lại
+            r++;
+            const pctRow = sheet.getRow(r);
+            pctRow.height = 18;
+            const pctLabelCell = pctRow.getCell(startCol);
+            pctLabelCell.value = totalMarkupPips > 0 ? `${totalMarkupPips}` : '0';
+            pctLabelCell.font = { bold: true, size: 8.5, color: { argb: 'FF7F6000' }, name: 'Calibri' };
+            pctLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+            applyCellBorder(pctLabelCell, 'FFD69E2E');
+
+            for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
+              const pCell = pctRow.getCell(startCol + 1 + lvIdx);
+              applyCellBorder(pCell, 'FFD69E2E');
+              pCell.alignment = { horizontal: 'center', vertical: 'middle' };
+              pCell.font = { bold: true, size: 8.5, color: { argb: 'FF7F6000' }, name: 'Calibri' };
+              pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+
+              if (lvIdx < stepPath.length) {
+                pCell.value = markupAllocations[lvIdx]?.pct ?? '0%';
+              } else {
+                pCell.value = '';
+              }
+            }
+
+            // Row 2 of Markup Option: Account Type Pips Markup
+            r++;
+            const pipsRow = sheet.getRow(r);
+            pipsRow.height = 18;
+            const pipsLabelCell = pipsRow.getCell(startCol);
+            pipsLabelCell.value = `${totalMarkupPips}`;
+            pipsLabelCell.font = { bold: true, size: 8.5, color: { argb: 'FF1E4620' }, name: 'Calibri' };
+            pipsLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+            applyCellBorder(pipsLabelCell, 'FFA9D18E');
+
+            for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
+              const pValCell = pipsRow.getCell(startCol + 1 + lvIdx);
+              applyCellBorder(pValCell, 'FFA9D18E');
+              pValCell.alignment = { horizontal: 'center', vertical: 'middle' };
+              pValCell.font = { bold: true, size: 8.5, color: { argb: 'FF1E4620' }, name: 'Calibri' };
+              pValCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+
+              if (lvIdx < stepPath.length) {
+                pValCell.value = markupAllocations[lvIdx]?.pips ?? 0;
+              } else {
+                pValCell.value = '';
+              }
+            }
+
+            maxBlockHeight = Math.max(maxBlockHeight, r - startRowForAccType + 1);
+          }
+
+          currentRow += maxBlockHeight + 2;
+        }
+
+        currentRow += 2;
+      }
     }
 
     const buffer = await workbook.xlsx.writeBuffer();

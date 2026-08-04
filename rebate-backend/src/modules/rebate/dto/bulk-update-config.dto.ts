@@ -38,6 +38,11 @@ export class BulkUpdateRebateConfigDto {
   @Type(() => BulkRebateItemDto)
   items!: BulkRebateItemDto[];
 
+  @ApiProperty({ description: 'Loại tài khoản link cho đợt cập nhật này', example: 'STD10', required: false })
+  @IsOptional()
+  @IsString()
+  accountType?: string;
+
   @ApiProperty({
     enum: ['direct', 'cascade'],
     required: false,

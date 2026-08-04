@@ -4,11 +4,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
+import { exportApi } from '@/lib/api/export';
 import { useAuthStore } from '@/store/auth.store';
-import { IbNode } from '@/types';
+import { IbNode, MAX_PIPS, AssetType } from '@/types';
 import {
   Loader2, ChevronDown, ChevronRight, User, Users, Shield, Sparkles, Filter, CheckCircle2,
-  Edit3, Save, RotateCcw, Move, AlertCircle, ZoomIn, ZoomOut, Maximize2
+  Edit3, Save, RotateCcw, Move, AlertCircle, ZoomIn, ZoomOut, Maximize2, ArrowRightLeft, Send, Mail,
+  FileSpreadsheet, Download
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -91,10 +93,43 @@ export function IbViewTree() {
   const [showSuccessModal, setShowSuccessModal] = useState<boolean>(false);
   const [isSavingMove, setIsSavingMove] = useState<boolean>(false);
 
+  // Cross-Tree Move Modal States
+  const [crossTreeModalOpen, setCrossTreeModalOpen] = useState<boolean>(false);
+  const [crossTreeNode, setCrossTreeNode] = useState<TreeNodeItem | null>(null);
+  const [targetParentEmail, setTargetParentEmail] = useState<string>('');
+  const [isSubmittingCrossTree, setIsSubmittingCrossTree] = useState<boolean>(false);
+
+  // Excel Export State & Handler
+  const [isExportingExcel, setIsExportingExcel] = useState<boolean>(false);
+
+  const handleExportExcel = async () => {
+    setIsExportingExcel(true);
+    toast.info('Đang khởi tạo file báo cáo Excel...');
+    try {
+      const blob = await exportApi.getRebateTree(selectedMibId || undefined);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Rebate_Tree_Report_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success('Xuất file Excel báo cáo Rebate thành công!');
+    } catch (err: any) {
+      console.error('Failed to export excel:', err);
+      toast.error('Lỗi khi xuất file Excel báo cáo Rebate.');
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
+
   // 2. Fetch list of MIBs for top-left dropdown (only active MIBs)
   const { data: mibsRes, isLoading: isLoadingMibs } = useQuery({
     queryKey: ['mibsList'],
     queryFn: () => ibApi.getMibs(),
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   const rawMibs = mibsRes?.data || [];
@@ -115,6 +150,8 @@ export function IbViewTree() {
     queryKey: ['ibChildren', selectedMibId],
     queryFn: () => ibApi.getChildren(selectedMibId, 1, 100),
     enabled: !!selectedMibId,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
   // When Level 1 loads, filter active children and store
@@ -129,6 +166,21 @@ export function IbViewTree() {
       setExpandedNodes((prev) => ({ ...prev, [selectedMibId]: true }));
     }
   }, [selectedMibId, level1Res]);
+
+  // Auto refresh tree when switching to page, focusing window, or tree update event is dispatched
+  useEffect(() => {
+    const handleTreeUpdate = () => {
+      reloadTreeData();
+    };
+
+    window.addEventListener('ib-tree-updated', handleTreeUpdate);
+    window.addEventListener('focus', handleTreeUpdate);
+
+    return () => {
+      window.removeEventListener('ib-tree-updated', handleTreeUpdate);
+      window.removeEventListener('focus', handleTreeUpdate);
+    };
+  }, [selectedMibId]);
 
   // Handler to toggle/expand a node and load its children if needed
   const handleToggleNode = async (node: TreeNodeItem) => {
@@ -182,6 +234,16 @@ export function IbViewTree() {
   };
 
   // ─── REBATE PIPS VALIDATION HELPER ──────────────────────────────────────────
+  const parseAccountTypePips = (accType?: string): number => {
+    if (!accType || accType === 'STD') return 0;
+    const match = accType.match(/(\d+(?:\.\d+)?)/);
+    if (match) {
+      const num = parseFloat(match[1]);
+      return isNaN(num) ? 0 : num;
+    }
+    return 0;
+  };
+
   const validateRebatePips = async (movedIb: TreeNodeItem, targetParent: TreeNodeItem): Promise<boolean> => {
     try {
       const [parentConfigRes, movedIbConfigRes] = await Promise.all([
@@ -189,8 +251,8 @@ export function IbViewTree() {
         rebateApi.getConfig(movedIb.id),
       ]);
 
-      const parentAssets = parentConfigRes?.data?.assets || [];
-      const movedAssets = movedIbConfigRes?.data?.assets || [];
+      const parentAssets: any[] = parentConfigRes?.data?.assets || [];
+      const movedAssets: any[] = movedIbConfigRes?.data?.assets || [];
 
       if (movedAssets.length === 0) return true;
 
@@ -198,10 +260,24 @@ export function IbViewTree() {
         const movedPips = Number(movedAsset.rebatePips || 0);
         if (movedPips <= 0) continue;
 
-        const parentAsset = parentAssets.find((a) => a.assetType === movedAsset.assetType);
-        const parentPips = targetParent.level === 0
-          ? Number(parentAsset?.maxPips || parentAsset?.rebatePips || 0)
-          : Number(parentAsset?.rebatePips || 0);
+        const movedAccType = movedAsset.accountType || 'STD';
+
+        const parentAsset = parentAssets.find(
+          (a) =>
+            a.assetType === movedAsset.assetType &&
+            (a.accountType || 'STD') === movedAccType
+        );
+
+        let parentPips = 0;
+        if (targetParent.level === 0) {
+          const addedMarkup = parseAccountTypePips(movedAccType);
+          const baseMax = (parentAsset && Number(parentAsset.maxPips) > 0)
+            ? Number(parentAsset.maxPips)
+            : (MAX_PIPS[movedAsset.assetType as AssetType] || 0);
+          parentPips = baseMax + addedMarkup;
+        } else {
+          parentPips = Number(parentAsset?.rebatePips || parentAsset?.maxPips || 0);
+        }
 
         if (movedPips > parentPips) {
           return false;
@@ -211,6 +287,119 @@ export function IbViewTree() {
     } catch (err) {
       console.error('Failed to validate rebate pips:', err);
       return true;
+    }
+  };
+
+  // ─── CROSS-TREE MOVE HANDLERS ────────────────────────────────────────────────
+  const handleOpenCrossTreeModal = (node: TreeNodeItem) => {
+    setCrossTreeNode(node);
+    setTargetParentEmail('');
+    setCrossTreeModalOpen(true);
+  };
+
+  const handleConfirmCrossTreeMove = async () => {
+    if (!crossTreeNode) return;
+    const email = targetParentEmail.trim();
+    if (!email) {
+      toast.error('Vui lòng nhập Email của IB cha mới.');
+      return;
+    }
+
+    setIsSubmittingCrossTree(true);
+    try {
+      // 1. Search for target parent IB by email
+      const searchRes = await ibApi.search(email, false, 1, 10, 'all');
+      const items = searchRes?.data?.items || [];
+      const foundParent = items.find((i) => i.email.toLowerCase() === email.toLowerCase()) || items[0];
+
+      if (!foundParent) {
+        toast.error(`Không tìm thấy IB nào với Email: ${email}`);
+        return;
+      }
+
+      if (foundParent.id === crossTreeNode.id) {
+        toast.error('Không thể di chuyển IB sang làm con của chính nó.');
+        return;
+      }
+
+      // 2. Cycle Detection
+      if (isDescendant(foundParent.id, crossTreeNode.id)) {
+        toast.error('Không thể di chuyển IB sang làm con của chính con/cháu trong nhánh của nó.');
+        return;
+      }
+
+      // 3. Account Types Matching Check
+      const getLoadedSubtreeAccountTypes = (node: TreeNodeItem, map: Record<string, TreeNodeItem[]>): string[] => {
+        const typesSet = new Set<string>();
+        if (node.accountType) typesSet.add(node.accountType);
+        if (node.accountTypes && Array.isArray(node.accountTypes)) {
+          node.accountTypes.forEach((t) => typesSet.add(t));
+        }
+
+        const traverse = (nodeId: string) => {
+          const children = map[nodeId] || [];
+          for (const child of children) {
+            if (child.accountType) typesSet.add(child.accountType);
+            if (child.accountTypes && Array.isArray(child.accountTypes)) {
+              child.accountTypes.forEach((t) => typesSet.add(t));
+            }
+            traverse(child.id);
+          }
+        };
+        traverse(node.id);
+
+        const result = Array.from(typesSet).filter(Boolean);
+        return result.length > 0 ? result : ['STD'];
+      };
+
+      const movedTypes = getLoadedSubtreeAccountTypes(crossTreeNode, nodeChildrenMap);
+      const parentTypes = (foundParent.accountTypes && foundParent.accountTypes.length > 0)
+        ? foundParent.accountTypes
+        : [foundParent.accountType || 'STD'];
+
+      const missingAccountTypes = movedTypes.filter((t) => !parentTypes.includes(t));
+      if (missingAccountTypes.length > 0) {
+        toast.error(
+          `Chuyển nhánh thất bại: IB cha (${foundParent.name || foundParent.email}) chưa có loại tài khoản (${missingAccountTypes.join(', ')}). Vui lòng yêu cầu ADMIN cấp loại tài khoản mà IB cha đang thiếu để có thể chuyển nhánh.`
+        );
+        return;
+      }
+
+      // 4. Rebate Pips Validation
+      const targetParentItem: TreeNodeItem = {
+        ...foundParent,
+        level: foundParent.level,
+        accountType: foundParent.accountType || 'STD',
+        isActive: foundParent.isActive,
+        createdAt: foundParent.createdAt,
+      };
+
+      const isRebateValid = await validateRebatePips(crossTreeNode, targetParentItem);
+      if (!isRebateValid) {
+        toast.error('Chuyển nhánh thất bại do số Rebate cấp trên không đủ.');
+        return;
+      }
+
+      // Validation passed! Open confirmation dialog
+      setPendingMove({
+        movedIbId: crossTreeNode.id,
+        targetParentId: foundParent.id,
+        movedIbName: crossTreeNode.name || crossTreeNode.email,
+        targetParentName: foundParent.name || foundParent.email,
+        oldParentId: crossTreeNode.parentId,
+        oldLevel: crossTreeNode.level,
+        newLevel: foundParent.level + 1,
+        accountType: foundParent.accountType || crossTreeNode.accountType || 'STD',
+      });
+
+      setCrossTreeModalOpen(false);
+      setShowSuccessModal(true);
+      toast.success('Đã kiểm tra điều kiện chuyển nhánh hợp lệ! Vui lòng xác nhận để lưu.');
+    } catch (err: any) {
+      const msg = err?.response?.data?.error?.message || err?.response?.data?.message || err?.message;
+      toast.error(msg || 'Lỗi khi kiểm tra thông tin IB cha mới.');
+    } finally {
+      setIsSubmittingCrossTree(false);
     }
   };
 
@@ -252,7 +441,47 @@ export function IbViewTree() {
       return;
     }
 
-    // 2. Rebate Pips Validation
+    // 2. Account Types Matching Check
+    const getLoadedSubtreeAccountTypes = (node: TreeNodeItem, map: Record<string, TreeNodeItem[]>): string[] => {
+      const typesSet = new Set<string>();
+      if (node.accountType) typesSet.add(node.accountType);
+      if (node.accountTypes && Array.isArray(node.accountTypes)) {
+        node.accountTypes.forEach((t) => typesSet.add(t));
+      }
+
+      const traverse = (nodeId: string) => {
+        const children = map[nodeId] || [];
+        for (const child of children) {
+          if (child.accountType) typesSet.add(child.accountType);
+          if (child.accountTypes && Array.isArray(child.accountTypes)) {
+            child.accountTypes.forEach((t) => typesSet.add(t));
+          }
+          traverse(child.id);
+        }
+      };
+      traverse(node.id);
+
+      const result = Array.from(typesSet).filter(Boolean);
+      return result.length > 0 ? result : ['STD'];
+    };
+
+    const movedTypes = getLoadedSubtreeAccountTypes(draggedNode, nodeChildrenMap);
+
+    const parentTypes = (targetParent.accountTypes && targetParent.accountTypes.length > 0)
+      ? targetParent.accountTypes
+      : [targetParent.accountType || 'STD'];
+
+    const missingAccountTypes = movedTypes.filter((t) => !parentTypes.includes(t));
+
+    if (missingAccountTypes.length > 0) {
+      toast.error(
+        `Chuyển nhánh thất bại: IB cha (${targetParent.name || targetParent.email}) chưa có loại tài khoản (${missingAccountTypes.join(', ')}). Vui lòng yêu cầu ADMIN cấp loại tài khoản mà IB cha đang thiếu để có thể chuyển nhánh.`
+      );
+      setDraggedNode(null);
+      return;
+    }
+
+    // 3. Rebate Pips Validation
     const isRebateValid = await validateRebatePips(draggedNode, targetParent);
     if (!isRebateValid) {
       // Thông báo lỗi chuẩn theo đúng yêu cầu
@@ -261,9 +490,9 @@ export function IbViewTree() {
       return;
     }
 
-    // 3. Validation Passed! Perform Optimistic Local Subtree Move
+    // 4. Validation Passed! Perform Optimistic Local Subtree Move
     const oldParentId = draggedNode.parentId;
-    const newAccountType = targetParent.accountType || draggedNode.accountType || 'Standard';
+    const newAccountType = targetParent.accountType || draggedNode.accountType || 'STD';
 
     const updateSubtreeLevelsAndAccountType = (
       items: TreeNodeItem[],
@@ -355,6 +584,62 @@ export function IbViewTree() {
     setDraggedNode(null);
   };
 
+  // Helper to safely reload tree data without losing tree structure or requiring F5 refresh
+  const reloadTreeData = async () => {
+    if (!selectedMibId) return;
+    try {
+      await queryClient.invalidateQueries({ queryKey: ['mibsList'] });
+      await queryClient.invalidateQueries({ queryKey: ['ibChildren'] });
+      await queryClient.invalidateQueries({ queryKey: ['ibTree'] });
+
+      // 1. Fetch fresh Level 1 children for selected MIB
+      const freshL1 = await ibApi.getChildren(selectedMibId, 1, 100);
+      const activeL1 = freshL1?.data?.items
+        ? (freshL1.data.items as TreeNodeItem[]).filter((item) => item.isActive !== false)
+        : [];
+
+      // 2. Identify all parent nodes currently expanded/loaded
+      const expandedParentIds = Object.keys(nodeChildrenMap).filter(
+        (id) => id !== selectedMibId && expandedNodes[id]
+      );
+
+      // 3. Fetch fresh children for all expanded sub-nodes in parallel
+      const subFetchPromises = expandedParentIds.map(async (pId) => {
+        try {
+          const res = await ibApi.getChildren(pId, 1, 100);
+          if (res.data?.items) {
+            const activeItems = (res.data.items as TreeNodeItem[]).filter(
+              (item) => item.isActive !== false
+            );
+            return { pId, activeItems };
+          }
+        } catch (e) {
+          console.error(`Error reloading children for node ${pId}:`, e);
+        }
+        return null;
+      });
+
+      const subResults = await Promise.all(subFetchPromises);
+      const updatedMap: Record<string, TreeNodeItem[]> = {
+        [selectedMibId]: activeL1,
+      };
+
+      subResults.forEach((r) => {
+        if (r) {
+          updatedMap[r.pId] = r.activeItems;
+        }
+      });
+
+      setNodeChildrenMap(updatedMap);
+      setExpandedNodes((prev) => ({
+        ...prev,
+        [selectedMibId]: true,
+      }));
+    } catch (err) {
+      console.error('Error reloading tree data:', err);
+    }
+  };
+
   // Save pending move to PostgreSQL DB
   const handleSaveMove = async () => {
     if (!pendingMove) return;
@@ -363,22 +648,8 @@ export function IbViewTree() {
       const res = await ibApi.moveIb(pendingMove.movedIbId, pendingMove.targetParentId);
       if (res && (res.success || res.data)) {
         toast.success(`Đã lưu vị trí nhánh mới cho IB (${pendingMove.movedIbName}) vào cơ sở dữ liệu thành công!`);
-
-        // Reset local cached children map to ensure fresh DB reload
-        setNodeChildrenMap({});
-        await queryClient.invalidateQueries({ queryKey: ['mibsList'] });
-        await queryClient.invalidateQueries({ queryKey: ['ibChildren'] });
-        await queryClient.invalidateQueries({ queryKey: ['ibTree'] });
-
-        // Re-fetch Level 1 children immediately for selected MIB
-        if (selectedMibId) {
-          const freshL1 = await ibApi.getChildren(selectedMibId, 1, 100);
-          if (freshL1?.data?.items) {
-            const activeItems = (freshL1.data.items as TreeNodeItem[]).filter((item) => item.isActive !== false);
-            setNodeChildrenMap({ [selectedMibId]: activeItems });
-          }
-        }
-
+        window.dispatchEvent(new CustomEvent('ib-tree-updated'));
+        await reloadTreeData();
         setPendingMove(null);
         setShowSuccessModal(false);
         setIsEditingMode(false);
@@ -386,24 +657,22 @@ export function IbViewTree() {
         toast.error('Lỗi khi lưu vị trí di chuyển nhánh IB.');
       }
     } catch (err: any) {
-      const msg = err?.response?.data?.message || err?.response?.data?.error?.message || err?.message;
-      if (msg && msg.includes('Rebate')) {
-        toast.error(msg);
-      } else {
-        toast.error('Chuyển nhánh thất bại do số Rebate cấp trên không đủ.');
-      }
-      handleCancelMove();
+      const msg = err?.response?.data?.error?.message || err?.response?.data?.message || err?.message;
+      toast.error(msg || 'Lỗi khi lưu vị trí di chuyển nhánh IB.');
+      await reloadTreeData();
+      setPendingMove(null);
+      setShowSuccessModal(false);
+      setIsEditingMode(false);
     } finally {
       setIsSavingMove(false);
     }
   };
 
-  const handleCancelMove = () => {
+  const handleCancelMove = async () => {
     setPendingMove(null);
     setShowSuccessModal(false);
     setIsEditingMode(false);
-    setNodeChildrenMap({});
-    queryClient.invalidateQueries({ queryKey: ['ibChildren'] });
+    await reloadTreeData();
     toast.info('Đã hủy bỏ thao tác di chuyển nhánh.');
   };
 
@@ -459,17 +728,33 @@ export function IbViewTree() {
               </div>
             </div>
 
-            {hasChildren && (
-              <span className="p-1.5 rounded-full bg-slate-100 group-hover:bg-amber-100 text-slate-600 transition-colors">
-                {isLoading ? (
-                  <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
-                ) : isExpanded ? (
-                  <ChevronDown className="h-4 w-4 text-amber-700" />
-                ) : (
-                  <ChevronRight className="h-4 w-4 text-slate-500" />
-                )}
-              </span>
-            )}
+            <div className="flex items-center gap-1">
+              {isEditingMode && isAdmin && (
+                <button
+                  type="button"
+                  title="Chuyển sang cây MIB khác"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleOpenCrossTreeModal(node);
+                  }}
+                  className="p-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-all hover:scale-110 active:scale-95"
+                >
+                  <ArrowRightLeft className="h-3.5 w-3.5" />
+                </button>
+              )}
+
+              {hasChildren && (
+                <span className="p-1.5 rounded-full bg-slate-100 group-hover:bg-amber-100 text-slate-600 transition-colors">
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+                  ) : isExpanded ? (
+                    <ChevronDown className="h-4 w-4 text-amber-700" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-slate-500" />
+                  )}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Email */}
@@ -478,11 +763,26 @@ export function IbViewTree() {
           </div>
 
           {/* Account Type Footer (Only displayed for Sub-IBs) */}
-          <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[11px]">
-            <span className="text-slate-500 font-medium">Loại tài khoản:</span>
-            <span className="font-bold text-amber-900 bg-amber-100/80 px-2.5 py-0.5 rounded-md border border-amber-200/70 truncate max-w-[130px]">
-              {node.accountType || 'Standard'}
-            </span>
+          <div className="mt-3 pt-2 border-t border-slate-100 flex flex-col gap-1.5 text-[11px]">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-500 font-medium">Loại tài khoản sở hữu:</span>
+              <span className="text-[10px] font-bold text-slate-400">
+                ({(node.accountTypes && node.accountTypes.length > 0 ? node.accountTypes : [node.accountType || 'STD']).length})
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {((node.accountTypes && node.accountTypes.length > 0)
+                ? node.accountTypes
+                : [node.accountType || 'STD']
+              ).map((accType) => (
+                <span
+                  key={accType}
+                  className="font-bold text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded-md border border-amber-200/70 text-[10px] leading-none shadow-2xs"
+                >
+                  {accType}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -604,13 +904,29 @@ export function IbViewTree() {
                 >
                   {mibs.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.name ? `${m.name} (${m.email})` : m.email}
+                      {m.name ? m.name + ' (' + m.email + ')' : m.email}
                     </option>
                   ))}
                 </select>
               )}
             </div>
           </div>
+
+          {/* Export Excel Button */}
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            disabled={isExportingExcel}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs rounded-2xl shadow-md transition-all cursor-pointer disabled:opacity-50"
+            title="Xuất file báo cáo Excel lũy tiến theo mẫu cây MIB"
+          >
+            {isExportingExcel ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="h-4 w-4" />
+            )}
+            {isExportingExcel ? 'Đang Xuất Excel...' : 'Xuất File Excel'}
+          </button>
         </div>
       </div>
 
@@ -795,8 +1111,12 @@ export function IbViewTree() {
                 </span>
               </div>
               <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
-                <span className="text-slate-500 font-medium">Loại tài khoản:</span>
-                <span className="font-bold text-slate-800">{pendingMove.accountType}</span>
+                <span className="text-slate-500 font-medium">Loại tài khoản sở hữu:</span>
+                <span className="font-bold text-slate-800">
+                  {(draggedNode?.accountTypes && draggedNode.accountTypes.length > 0)
+                    ? draggedNode.accountTypes.join(', ')
+                    : (draggedNode?.accountType || pendingMove.accountType)}
+                </span>
               </div>
               <div className="pt-2 text-xs text-emerald-800 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200/80 flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
@@ -824,6 +1144,79 @@ export function IbViewTree() {
               >
                 {isSavingMove ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Xác Nhận & Lưu Vị Trí Mới
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── CROSS-TREE MOVE MODAL FORM ────────────────────────────────────────── */}
+      {crossTreeModalOpen && crossTreeNode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl shadow-2xl border border-amber-200 max-w-md w-full p-6 space-y-5 relative overflow-hidden">
+            <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+              <div className="p-2.5 bg-amber-100 text-amber-800 rounded-2xl">
+                <ArrowRightLeft className="h-6 w-6 text-amber-700" />
+              </div>
+              <div>
+                <h3 className="text-lg font-black text-slate-900">
+                  Chuyển Nhánh Sang Cây MIB Khác
+                </h3>
+                <p className="text-xs text-slate-500 font-medium">
+                  Gắn nhánh sang làm tuyến dưới của một IB cha mới
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/80 text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-amber-800 font-medium">Nhánh IB di chuyển:</span>
+                <span className="font-bold text-amber-950">{crossTreeNode.name || crossTreeNode.email}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-amber-800 font-medium">Email hiện tại:</span>
+                <span className="font-mono text-amber-900">{crossTreeNode.email}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-slate-700">
+                Email IB cha mới <span className="text-red-500">*</span>
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                <input
+                  type="email"
+                  placeholder="Nhập email IB cha mới (ví dụ: parent@gmail.com)"
+                  value={targetParentEmail}
+                  onChange={(e) => setTargetParentEmail(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleConfirmCrossTreeMove();
+                  }}
+                  className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                />
+              </div>
+              <p className="text-[11px] text-slate-500 italic">
+                * IB cha mới sẽ được kiểm tra loại tài khoản và giới hạn Rebate trước khi chuyển.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setCrossTreeModalOpen(false)}
+                className="px-4 py-2.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
+              >
+                Hủy bỏ
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCrossTreeMove}
+                disabled={isSubmittingCrossTree || !targetParentEmail.trim()}
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-xs font-black text-white bg-amber-600 hover:bg-amber-700 rounded-xl shadow-md transition cursor-pointer disabled:opacity-50"
+              >
+                {isSubmittingCrossTree ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                Kiểm Tra & Chuyển
               </button>
             </div>
           </div>

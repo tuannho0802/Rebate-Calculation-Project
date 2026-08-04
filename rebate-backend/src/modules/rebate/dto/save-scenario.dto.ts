@@ -1,11 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsNotEmpty, IsNumber, IsString, IsUUID, ValidateNested, Min, Max } from 'class-validator';
+import { IsArray, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, ValidateNested, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class BranchScenarioNodeDto {
   @ApiProperty({ description: 'UUID của IB Node' })
   @IsUUID()
   ibId!: string;
+
+  @ApiProperty({ description: 'Loại tài khoản link', example: 'STD10', required: false })
+  @IsOptional()
+  @IsString()
+  accountType?: string;
 
   @ApiProperty({ description: 'Tỷ lệ % giữ lại (0 - 100)' })
   @IsNumber()
@@ -25,4 +30,9 @@ export class SaveBranchScenarioDto {
   @ValidateNested({ each: true })
   @Type(() => BranchScenarioNodeDto)
   nodes!: BranchScenarioNodeDto[];
+
+  @ApiProperty({ description: 'Loại tài khoản link cho đợt lưu kịch bản này', example: 'STD10', required: false })
+  @IsOptional()
+  @IsString()
+  accountType?: string;
 }

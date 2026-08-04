@@ -53,6 +53,17 @@ export class RebateService {
    * chưa cấp gì cho asset này"), KHÔNG được fallback — nếu không child
    * sẽ tưởng nhầm mình có full budget.
    */
+  private parseAccountTypePips(accType?: string): number {
+    if (!accType) return 0;
+    if (accType === 'STD') return 0;
+    const match = accType.match(/(\d+(?:\.\d+)?)/);
+    if (match) {
+      const num = parseFloat(match[1]);
+      return isNaN(num) ? 0 : num;
+    }
+    return 0;
+  }
+
   private resolveEffectiveMaxPips(rawMaxPips: number, isMib: boolean, assetType: AssetType): number {
     return isMib && rawMaxPips <= 0 ? (MAX_PIPS[assetType] || 0) : rawMaxPips;
   }
@@ -328,8 +339,9 @@ export class RebateService {
             assetType,
           );
 
+          const accountTypePips = this.parseAccountTypePips(targetAccountType);
           const parentRebateMax = parentIsMib
-            ? effectiveParentMaxPips + Number(markupPips || 0)
+            ? effectiveParentMaxPips + accountTypePips
             : Number(parentConfig?.rebatePips || 0);
 
           const parentMarkupMax = 100;
@@ -576,11 +588,16 @@ export class RebateService {
 
     for (const item of sortedItems) {
       try {
+        const itemAccountType = item.accountType || dto.accountType;
         const config = await this.updateConfig(
           currentUserId,
           currentUserLevel,
           item.ibId,
-          { assets: item.assets, notifyScope: dto.notifyScope },
+          {
+            accountType: itemAccountType,
+            assets: item.assets.map(a => ({ ...a, accountType: a.accountType || itemAccountType })),
+            notifyScope: dto.notifyScope,
+          },
           callerRole,
           proposedById,
         );
@@ -645,8 +662,12 @@ export class RebateService {
 
     await this.prisma.$transaction(async (tx: any) => {
       for (const node of dto.nodes) {
+        const targetAccType = node.accountType || dto.accountType;
         await tx.rebateConfig.updateMany({
-          where: { ibId: node.ibId },
+          where: {
+            ibId: node.ibId,
+            ...(targetAccType ? { accountType: targetAccType } : {}),
+          },
           data: {
             markupPercent: node.markupPercent,
             markupPips: node.markupPips,

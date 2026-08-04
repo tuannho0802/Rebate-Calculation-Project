@@ -20,7 +20,7 @@ export class AccountTypeRowDto {
 }
 
 export class AccountTypeTemplateDto {
-  @ApiProperty({ description: 'Tên bảng account type', example: 'SEA STD' })
+  @ApiProperty({ description: 'Tên bảng account type', example: 'STD' })
   @IsString()
   @IsNotEmpty()
   name!: string;

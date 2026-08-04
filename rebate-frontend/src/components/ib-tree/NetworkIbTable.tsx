@@ -46,7 +46,10 @@ export function NetworkIbTable() {
     const roots = normalizeTreeRoots(treeData.data);
     return (roots[0]?.children || []).filter((ib) => ib.isActive !== false);
   }, [treeData?.data, isAdmin]);
-  const getAccountType = (ib: any) => ib.accountType || 'Markup 0%';
+  const getAccountType = (ib: any) =>
+    (ib.accountTypes && ib.accountTypes.length > 0)
+      ? ib.accountTypes.join(', ')
+      : (ib.accountType || 'STD');
 
   return (
     <div className="space-y-6">
@@ -89,8 +92,20 @@ export function NetworkIbTable() {
                         Level {ib.level}
                       </span>
                     </td>
-                    <td className="px-6 py-4 font-semibold text-gray-800">
-                      {getAccountType(ib)}
+                    <td className="px-6 py-4">
+                      <div className="flex flex-wrap items-center gap-1.5 max-w-[240px]">
+                        {((ib.accountTypes && ib.accountTypes.length > 0)
+                          ? ib.accountTypes
+                          : [ib.accountType || 'STD']
+                        ).map((accType: string) => (
+                          <span
+                            key={accType}
+                            className="inline-block bg-amber-100/90 text-amber-900 border border-amber-300/80 text-[11px] px-2.5 py-0.5 rounded-md font-bold shadow-2xs"
+                          >
+                            {accType}
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex justify-end gap-2">

@@ -24,11 +24,13 @@ export const rebateApi = {
   },
 
   bulkUpdateConfig: async (
-    items: { ibId: string; assets: RebateConfig['assets'] }[],
+    items: { ibId: string; accountType?: string; assets: RebateConfig['assets'] }[],
     notifyScope?: 'direct' | 'cascade',
+    accountType?: string,
   ): Promise<BulkUpdateResponse> => {
     const response = await apiClient.put<ApiResponse<BulkUpdateResponse>>('/rebate/config/bulk', {
       items,
+      accountType,
       notifyScope,
     });
     return response.data.data;
@@ -74,8 +76,11 @@ export const rebateApi = {
     return response.data;
   },
 
-  saveBranchScenario: async (nodes: { ibId: string; markupPercent: number; markupPips: number }[]): Promise<ApiResponse<{ success: boolean; message: string }>> => {
-    const response = await apiClient.put<ApiResponse<{ success: boolean; message: string }>>('/rebate/config/scenario/save', { nodes });
+  saveBranchScenario: async (
+    nodes: { ibId: string; accountType?: string; markupPercent: number; markupPips: number }[],
+    accountType?: string,
+  ): Promise<ApiResponse<{ success: boolean; message: string }>> => {
+    const response = await apiClient.put<ApiResponse<{ success: boolean; message: string }>>('/rebate/config/scenario/save', { nodes, accountType });
     return response.data;
   },
 

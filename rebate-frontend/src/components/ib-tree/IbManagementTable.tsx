@@ -210,9 +210,9 @@ export function IbManagementTable() {
                   <tbody className="divide-y divide-gray-100">
                     {items.map((ib: any) => {
                       const isMib = ib.level === 0;
-                      const displayAccountTypes = (ib.accountTypes && ib.accountTypes.length > 0)
-                        ? ib.accountTypes.join(', ')
-                        : (ib.accountType || 'STD');
+                      const accountTypesList = (ib.accountTypes && Array.isArray(ib.accountTypes) && ib.accountTypes.length > 0)
+                        ? ib.accountTypes
+                        : [ib.accountType || 'STD'];
 
                       return (
                         <tr key={ib.id} className="hover:bg-gray-50/70 transition-colors">
@@ -231,9 +231,16 @@ export function IbManagementTable() {
                             )}
                           </td>
                           <td className="px-6 py-4">
-                            <span className="inline-block bg-amber-50 text-amber-900 border border-amber-200 text-xs px-2.5 py-1 rounded-md font-bold">
-                              {displayAccountTypes}
-                            </span>
+                            <div className="flex flex-wrap items-center gap-1.5 max-w-[240px]">
+                              {accountTypesList.map((accType: string) => (
+                                <span
+                                  key={accType}
+                                  className="inline-block bg-amber-100/90 text-amber-900 border border-amber-300/80 text-[11px] px-2.5 py-0.5 rounded-md font-bold shadow-2xs"
+                                >
+                                  {accType}
+                                </span>
+                              ))}
+                            </div>
                           </td>
                           <td className="px-6 py-4">
                             {ib.isActive ? (

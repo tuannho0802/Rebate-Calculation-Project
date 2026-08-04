@@ -24,7 +24,7 @@ model IbNode {
   parentId    String?
   parent      IbNode?  @relation("IbTree", fields: [parentId], references: [id])
   children    IbNode[] @relation("IbTree")
-  accountType String   @default("Markup 0%")
+  accountType String   @default("STD")
   accountTypes String[] @default([])
 
   rebateConfig         RebateConfig[]

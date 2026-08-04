@@ -41,16 +41,43 @@ export interface CompactPivotTableProps {
   onActiveScenarioChange?: (nodes: Array<{ nodeId: string; pct: string; white_hold: number }>) => void;
   // IB cần tô sáng cột tương ứng (đến từ deep-link click thông báo ở trang Notification)
   highlightIbId?: string;
+  selectedAccountType?: string;
+}
+
+export function nodeHasAccountType(
+  node: IbTreeNode | null | undefined,
+  targetAccountType: string,
+  configs?: Record<string, RebateConfig>
+): boolean {
+  if (!node) return false;
+
+  if (node.accountTypes && Array.isArray(node.accountTypes) && node.accountTypes.length > 0) {
+    if (node.accountTypes.includes(targetAccountType)) return true;
+  }
+
+  if ((node.accountType || 'STD') === targetAccountType) {
+    return true;
+  }
+
+  if (configs && configs[node.id]?.assets && configs[node.id].assets.length > 0) {
+    if (configs[node.id].accountType === targetAccountType) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function directChildren(
+function eligibleChildren(
   parentId: string,
   ibs: IbTreeNode[],
   parentById: Record<string, string | null>,
+  targetAccountType: string,
+  configs?: Record<string, RebateConfig>,
 ): IbTreeNode[] {
-  return ibs.filter(ib => parentById[ib.id] === parentId);
+  return ibs.filter(ib => parentById[ib.id] === parentId && nodeHasAccountType(ib, targetAccountType, configs));
 }
 
 function optionLabel(
@@ -72,6 +99,8 @@ function buildColumns(
   ibs: IbTreeNode[],
   parentById: Record<string, string | null>,
   selection: CompactSelection,
+  targetAccountType: string,
+  configs?: Record<string, RebateConfig>,
 ): Array<{ level: number; selectedIbId: string; options: IbTreeNode[] }> {
   const cols: Array<{ level: number; selectedIbId: string; options: IbTreeNode[] }> = [];
 
@@ -79,7 +108,7 @@ function buildColumns(
   let level = 1;
 
   while (true) {
-    const children = directChildren(parentId, ibs, parentById);
+    const children = eligibleChildren(parentId, ibs, parentById, targetAccountType, configs);
     if (children.length === 0) break;
 
     const stored = selection[rootId]?.[level];
@@ -118,6 +147,7 @@ export function CompactPivotTable({
   onCellEdit,
   onActiveScenarioChange,
   highlightIbId,
+  selectedAccountType = 'STD',
 }: CompactPivotTableProps) {
   const { activeAssetTypes } = useDisabledAssetTypes();
   const assetTypes = useMemo(
@@ -138,21 +168,21 @@ export function CompactPivotTable({
     return Number(cfg?.rebatePips || 0);
   };
 
-  // Dynamic columns — recomputed mỗi render (dựa trên selection)
-  const columns = buildColumns(rootId, rootIb, ibs, parentById, selection);
+  // Dynamic columns — recomputed mỗi render (dựa trên selection, selectedAccountType và configs)
+  const columns = buildColumns(rootId, rootIb, ibs, parentById, selection, selectedAccountType, configs);
 
   const activeBranchKey = [rootId, ...columns.map(c => c.selectedIbId)].join(',');
   useEffect(() => {
     setUserHasSelected(false);
   }, [activeBranchKey]);
 
-  // Lấy level1 node và số Markup Pips của level 1
+  // Lấy level1 node và số Markup Pips của selectedAccountType
   const level1Id = columns[0]?.selectedIbId;
   const level1Node = level1Id ? ibNodesById[level1Id] : null;
 
   const parseAccountTypePips = (accType?: string): number => {
     if (!accType) return 0;
-    if (accType === 'STD' || accType === 'SEA STD') return 0;
+    if (accType === 'STD') return 0;
     const match = accType.match(/(\d+(?:\.\d+)?)/);
     if (match) {
       const num = parseFloat(match[1]);
@@ -161,11 +191,11 @@ export function CompactPivotTable({
     return 0;
   };
 
-  const level1MarkupPips = parseAccountTypePips(level1Node?.accountType);
+  const level1MarkupPips = parseAccountTypePips(selectedAccountType);
 
   // ── 🤖 AI REBATE ENGINE SOLVER COMPUTATION (TÍNH TOÁN KỊCH BẢN TỐI ƯU CHO NHÁNH) ──
   const branchIds = [rootId, ...columns.map(c => c.selectedIbId)];
-  const totalMarkupPips = level1MarkupPips || 10;
+  const totalMarkupPips = level1MarkupPips;
 
   const solverInput: SolverNodeInput[] = branchIds.map((id, idx) => {
     const isRoot = idx === 0;
@@ -345,6 +375,9 @@ export function CompactPivotTable({
                   const childHold = scenarioMap[selectedIbId]?.white_hold || 0;
                   const retained = Math.max(0, rawRetained - childHold);
 
+                  const prevLevelIbId = idx === 0 ? null : columns[idx - 1]?.selectedIbId;
+                  const maxAllowed = idx === 0 ? mibCap : getRebatePips(prevLevelIbId, asset);
+
                   return (
                     <td key={level} className={`px-3 py-2 border-r border-slate-200 text-center ${isEditing ? 'bg-amber-50/30' : ''}`}>
                       <div className="flex flex-col items-center justify-center gap-1">
@@ -355,10 +388,16 @@ export function CompactPivotTable({
                               type="number"
                               step="0.5"
                               min="0"
+                              max={maxAllowed}
                               value={received}
                               onChange={(e) => {
-                                const val = parseFloat(e.target.value);
-                                if (!isNaN(val) && onCellEdit) {
+                                let val = parseFloat(e.target.value);
+                                if (isNaN(val)) val = 0;
+                                if (val > maxAllowed) {
+                                  toast.error(`Số Pips cho ${asset} không được vượt quá trần cấp trên (${maxAllowed} pips)`);
+                                  val = maxAllowed;
+                                }
+                                if (onCellEdit) {
                                   onCellEdit(selectedIbId, asset, val);
                                 }
                               }}
@@ -538,7 +577,7 @@ export function CompactPivotTable({
               {/* Hàng 2: Pips thực giữ lại tính từ AI Rebate Engine */}
               <tr className="hover:bg-blue-50/20 transition-colors">
                 <td className="px-4 py-3 border-r border-slate-200 font-bold text-slate-800 bg-slate-50">
-                  {level1Node?.accountType || 'STD'} <span className="text-xs font-normal text-slate-500">({totalMarkupPips} Pips)</span>
+                  {selectedAccountType || 'STD'} <span className="text-xs font-normal text-slate-500">({totalMarkupPips} Pips)</span>
                 </td>
                 <td className="px-4 py-3 border-r border-slate-200 text-center text-blue-700 font-bold text-base bg-slate-50/30">
                   {scenarioMap[rootId]?.white_hold ?? 0}
