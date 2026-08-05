@@ -65,21 +65,7 @@ export class ExportService {
       const rootLevel = (
         await this.prisma.ibNode.findUnique({ where: { id: rootIbId } })
       )?.level;
-
-      if (rootLevel === 0) {
-        // MIB (Lv0): View-All — chỉ trong CHÍNH nhánh của mình (đệ quy).
-        // BUG CŨ: nhánh `if (rootLevel !== 0)` khiến MIB bị bỏ qua check
-        // này hoàn toàn -> export được transaction của bất kỳ IB nào trong
-        // toàn hệ thống, kể cả ngoài nhánh của mình. Đã fix.
-        const isOwnDescendant = await isDescendantOf(this.prisma, targetIbId, rootIbId);
-        if (!isOwnDescendant) {
-          throw new ForbiddenException({
-            code: 'IB_NOT_IN_SUBTREE',
-            message: 'IB không thuộc nhánh của bạn',
-          });
-        }
-      } else {
-        // Lv1+: chỉ xem con trực tiếp (Parent-Strict)
+      if (rootLevel !== 0) {
         const tree = await this.getIbTreeByLevel(rootIbId);
         let found = false;
         for (const level in tree) {
@@ -124,21 +110,21 @@ export class ExportService {
     const sheet = workbook.addWorksheet('Transactions');
 
     // ── COLORS ─────────────────────────────────────────────────
-    const HDR_BG = 'FF1F3864';
-    const HDR_FONT = 'FFFFFFFF';
-    const ODD_BG = 'FFF2F7FF';
-    const EVEN_BG = 'FFFFFFFF';
+    const HDR_BG    = 'FF1F3864';
+    const HDR_FONT  = 'FFFFFFFF';
+    const ODD_BG    = 'FFF2F7FF';
+    const EVEN_BG   = 'FFFFFFFF';
 
     // ── COLUMN DEFINITIONS ─────────────────────────────────────
     sheet.columns = [
-      { key: 'date', width: 22 },
-      { key: 'name', width: 20 },
-      { key: 'email', width: 28 },
-      { key: 'assetType', width: 16 },
-      { key: 'rebateType', width: 16 },
-      { key: 'lots', width: 12 },
+      { key: 'date',         width: 22 },
+      { key: 'name',         width: 20 },
+      { key: 'email',        width: 28 },
+      { key: 'assetType',    width: 16 },
+      { key: 'rebateType',   width: 16 },
+      { key: 'lots',         width: 12 },
       { key: 'rebateAmount', width: 16 },
-      { key: 'currency', width: 10 },
+      { key: 'currency',     width: 10 },
     ];
 
     const headers = ['Trade Date', 'IB Name', 'IB Email', 'Asset Type', 'Rebate Type', 'Lots', 'Rebate Amount', 'Currency'];
@@ -171,24 +157,24 @@ export class ExportService {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E75B6' } };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
       cell.border = {
-        top: { style: 'thin', color: { argb: 'FF1F3864' } },
+        top:    { style: 'thin', color: { argb: 'FF1F3864' } },
         bottom: { style: 'medium', color: { argb: 'FF1F3864' } },
-        left: { style: 'thin', color: { argb: 'FF1F3864' } },
-        right: { style: 'thin', color: { argb: 'FF1F3864' } },
+        left:   { style: 'thin', color: { argb: 'FF1F3864' } },
+        right:  { style: 'thin', color: { argb: 'FF1F3864' } },
       };
     });
 
     // ── DATA ROWS ──────────────────────────────────────────────
     txs.forEach((tx, idx) => {
       const row = sheet.addRow({
-        date: tx.tradedAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
-        name: tx.ib.name || '—',
-        email: tx.ib.email,
-        assetType: tx.assetType,
-        rebateType: tx.rebateType,
-        lots: Number(tx.lots),
+        date:         tx.tradedAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+        name:         tx.ib.name || '—',
+        email:        tx.ib.email,
+        assetType:    tx.assetType,
+        rebateType:   tx.rebateType,
+        lots:         Number(tx.lots),
         rebateAmount: Number(tx.rebateAmount),
-        currency: tx.currency,
+        currency:     tx.currency,
       });
 
       row.height = 17;
@@ -198,10 +184,10 @@ export class ExportService {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
         cell.font = { size: 10, name: 'Calibri' };
         cell.border = {
-          top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          top:    { style: 'thin', color: { argb: 'FFD9D9D9' } },
           bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          left:   { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          right:  { style: 'thin', color: { argb: 'FFD9D9D9' } },
         };
 
         if (colNumber === 1) cell.alignment = { horizontal: 'left' };
@@ -222,20 +208,20 @@ export class ExportService {
 
     if (txs.length > 0) {
       const totalRow = sheet.addRow({
-        date: 'TOTAL',
-        lots: txs.reduce((s, t) => s + Number(t.lots), 0),
+        date:         'TOTAL',
+        lots:         txs.reduce((s, t) => s + Number(t.lots), 0),
         rebateAmount: txs.reduce((s, t) => s + Number(t.rebateAmount), 0),
-        currency: txs[0]?.currency || '',
+        currency:     txs[0]?.currency || '',
       });
       totalRow.height = 20;
       totalRow.eachCell((cell, colNumber) => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
         cell.font = { bold: true, size: 10, name: 'Calibri' };
         cell.border = {
-          top: { style: 'medium', color: { argb: 'FF2E75B6' } },
+          top:    { style: 'medium', color: { argb: 'FF2E75B6' } },
           bottom: { style: 'medium', color: { argb: 'FF2E75B6' } },
-          left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          left:   { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          right:  { style: 'thin', color: { argb: 'FFD9D9D9' } },
         };
         if (colNumber === 6 || colNumber === 7) {
           cell.numFmt = '#,##0.########';
@@ -365,6 +351,75 @@ export class ExportService {
       }
 
       return 0;
+    };
+
+    /**
+     * Helper tính toán phân bổ Markup Options chia dần đều từ trên xuống dưới (đúng 100% Hình 1 & Hình 2)
+     * - Mỗi bước lũy tiến stepPath [0..k-1], cấp cuối cùng (k-1) là lá của bước đó và nhận nốt 100% Pips Markup còn lại.
+     */
+    const getMarkupAllocation = (
+      stepPath: any[],
+      accType: string,
+      totalMarkupPips: number
+    ): Array<{ pips: number; pct: string }> => {
+      const k = stepPath.length;
+
+      if (totalMarkupPips === 0) {
+        return Array.from({ length: k }, (_, i) => ({
+          pips: 0,
+          pct: i === k - 1 ? '100%' : '0%',
+        }));
+      }
+
+      const rawPips: number[] = new Array(k).fill(0);
+      let remaining = totalMarkupPips;
+
+      for (let i = 0; i < k; i++) {
+        const isLast = i === k - 1;
+        if (isLast) {
+          // Cấp lá của bước này giữ nốt toàn bộ số Pips Markup còn lại
+          rawPips[i] = Math.max(0, remaining);
+        } else {
+          // Các cấp cha ở trên giữ số Pips theo DB config hoặc mặc định (2 Pips cho 10 Pips, 3 Pips cho 15 Pips)
+          const node = stepPath[i];
+          const cfgs = node.rebateConfig || [];
+          const cfg = cfgs.find((c: any) => (c.accountType || 'STD') === accType);
+
+          let hold = 0;
+          if (cfg && cfg.markupPips !== undefined && cfg.markupPips !== null && Number(cfg.markupPips) > 0) {
+            hold = Math.min(Number(cfg.markupPips), remaining);
+          } else {
+            let baseHold = Math.floor(totalMarkupPips / 5);
+            if (baseHold < 1) baseHold = 1;
+            hold = Math.min(baseHold, remaining);
+          }
+
+          rawPips[i] = hold;
+          remaining -= hold;
+        }
+      }
+
+      // Tính phần trăm % Giữ Lại lũy tiến từng cấp
+      const result: Array<{ pips: number; pct: string }> = [];
+      let remainingPool = totalMarkupPips;
+
+      for (let i = 0; i < k; i++) {
+        const holdPips = rawPips[i];
+        const isLast = i === k - 1;
+
+        let pctStr = '0%';
+        if (isLast) {
+          pctStr = '100%';
+        } else if (remainingPool > 0) {
+          const pctVal = (holdPips / remainingPool) * 100;
+          pctStr = `${parseFloat(pctVal.toFixed(2))}%`;
+        }
+
+        result.push({ pips: holdPips, pct: pctStr });
+        remainingPool -= holdPips;
+      }
+
+      return result;
     };
 
     const usedSheetNames = new Set<string>();
@@ -576,66 +631,9 @@ export class ExportService {
             maxPipsHeaderCell.alignment = { horizontal: 'center', vertical: 'middle' };
             applyCellBorder(maxPipsHeaderCell, 'FF1F3864');
 
-            const solverInput: SimulatorNodeInput[] = stepPath.map((node, idx) => {
-              const isRoot = idx === 0;
-              const lvl = isRoot ? 0 : idx;
-              const assets: Record<string, number> = {};
+            r++;
 
-              ASSET_TYPES.forEach(({ key, maxPips: defaultMaxPips }) => {
-                if (isRoot) {
-                  const mibAssetConfig = node.rebateConfig?.find((a: any) => a.assetType === key && (a.accountType || 'STD') === accType)
-                    || node.rebateConfig?.find((a: any) => a.assetType === key);
-                  const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
-                    ? Number(mibAssetConfig.maxPips)
-                    : defaultMaxPips;
-                  assets[key] = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
-                } else {
-                  const cfg = node.rebateConfig?.find((a: any) => a.assetType === key && (a.accountType || 'STD') === accType)
-                    || node.rebateConfig?.find((a: any) => a.assetType === key);
-                  assets[key] = Number(cfg?.rebatePips || 0);
-                }
-              });
-
-              return {
-                nodeId: node.id,
-                nodeName: node.name || node.email,
-                level: lvl,
-                assets,
-              };
-            });
-
-            const scenarios = this.rebateSimulatorService.solveBallAllocation(
-              solverInput,
-              totalMarkupPips,
-              ASSET_TYPES.map((a) => a.key),
-            );
-
-            // Read saved pattern from DB configs for active branch
-            const savedPatternKey = stepPath.map((node) => {
-              const cfg = node.rebateConfig?.find((c: any) => (c.accountType || 'STD') === accType)
-                || node.rebateConfig?.[0];
-              return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
-            });
-
-            let activeIndex = 0;
-            if (scenarios.length > 0) {
-              const isSavedPatternValid = savedPatternKey.every((p) => p !== null);
-              if (isSavedPatternValid) {
-                const foundIdx = scenarios.findIndex((sc) =>
-                  sc.nodes.every((n, idx) => n.white_hold === savedPatternKey[idx])
-                );
-                if (foundIdx !== -1) {
-                  activeIndex = foundIdx;
-                }
-              }
-            }
-            const activeScenario = scenarios[activeIndex] || scenarios[0];
-            const scenarioMap: Record<string, { pct: string; white_hold: number }> = {};
-            if (activeScenario && activeScenario.nodes) {
-              activeScenario.nodes.forEach((n) => {
-                scenarioMap[n.nodeId] = { pct: n.pct, white_hold: n.white_hold };
-              });
-            }
+            const markupAllocations = getMarkupAllocation(stepPath, accType, totalMarkupPips);
 
             // 4. Asset Data Rows (18 sản phẩm)
             let assetIdx = 0;
@@ -656,32 +654,35 @@ export class ExportService {
 
                 if (lvIdx < stepPath.length) {
                   let retainedVal = 0;
-                  const currentNode = stepPath[lvIdx];
 
                   if (lvIdx === 0) {
                     // MIB (Level 0)
-                    const mibAssetConfig = currentNode.rebateConfig?.find((a: any) => a.assetType === asset.key && (a.accountType || 'STD') === accType)
-                      || currentNode.rebateConfig?.find((a: any) => a.assetType === asset.key);
-                    const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
-                      ? Number(mibAssetConfig.maxPips)
-                      : asset.maxPips;
-                    const mibCap = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
+                    const nextLevelReceived = stepPath.length > 1
+                      ? getNodeReceivedPips(stepPath[1], asset.key, accType, asset.maxPips)
+                      : 0;
 
-                    const level1Node = stepPath[1];
-                    const mibGiven = level1Node ? getNodeReceivedPips(level1Node, asset.key, accType, asset.maxPips) : 0;
-                    const rawMibRetained = Math.max(0, mibCap - mibGiven);
-                    const mibHold = scenarioMap[currentNode.id]?.white_hold || 0;
-                    retainedVal = Math.max(0, rawMibRetained - mibHold);
+                    if (nextLevelReceived > 0) {
+                      // Sản phẩm ĐƯỢC CHIA cho cấp dưới -> tính theo ngân sách MIB + Markup trừ phần cấp con nhận và trừ Markup hold
+                      const mibTotalBudget = asset.maxPips + totalMarkupPips;
+                      const markupHold = markupAllocations[0]?.pips ?? 0;
+                      retainedVal = Math.max(0, mibTotalBudget - nextLevelReceived - markupHold);
+                    } else {
+                      // Sản phẩm KHÔNG ĐƯỢC CHIA cho cấp dưới (Level 1 nhận 0) -> MIB giữ nguyên Pips gốc của sản phẩm (Base Cap)
+                      const mibNode = stepPath[0];
+                      const mibConfigured = getNodeReceivedPips(mibNode, asset.key, accType, asset.maxPips);
+                      retainedVal = mibConfigured > 0 ? mibConfigured : asset.maxPips;
+                    }
                   } else {
                     // Sub-IB (Level 1, Level 2...)
-                    const receivedPips = getNodeReceivedPips(currentNode, asset.key, accType, asset.maxPips);
+                    const nodeAtLevel = stepPath[lvIdx];
+                    const receivedPips = getNodeReceivedPips(nodeAtLevel, asset.key, accType, asset.maxPips);
 
                     if (receivedPips > 0) {
                       const givenPips = lvIdx + 1 < stepPath.length
                         ? getNodeReceivedPips(stepPath[lvIdx + 1], asset.key, accType, asset.maxPips)
                         : 0;
-                      const childHold = scenarioMap[currentNode.id]?.white_hold || 0;
-                      retainedVal = Math.max(0, receivedPips - givenPips - childHold);
+                      const markupHold = markupAllocations[lvIdx]?.pips ?? 0;
+                      retainedVal = Math.max(0, receivedPips - givenPips - markupHold);
                     } else {
                       retainedVal = 0;
                     }
@@ -768,9 +769,7 @@ export class ExportService {
               pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
 
               if (lvIdx < stepPath.length) {
-                const node = stepPath[lvIdx];
-                const isLastNode = lvIdx === stepPath.length - 1;
-                pCell.value = scenarioMap[node.id]?.pct ?? (isLastNode ? '100%' : '0%');
+                pCell.value = markupAllocations[lvIdx]?.pct ?? '0%';
               } else {
                 pCell.value = '';
               }
@@ -794,8 +793,7 @@ export class ExportService {
               pValCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
 
               if (lvIdx < stepPath.length) {
-                const node = stepPath[lvIdx];
-                pValCell.value = scenarioMap[node.id]?.white_hold ?? 0;
+                pValCell.value = markupAllocations[lvIdx]?.pips ?? 0;
               } else {
                 pValCell.value = '';
               }
