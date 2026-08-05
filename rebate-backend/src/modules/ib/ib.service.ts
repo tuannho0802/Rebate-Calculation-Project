@@ -221,7 +221,19 @@ export class IbService {
     };
   }
 
-  async create(currentUserId: string, currentUserLevel: number, createIbDto: CreateIbDto) {
+  async create(currentUserId: string, currentUserLevel: number, createIbDto: CreateIbDto, callerRole?: string) {
+    // FIX (đảm bảo Admin không tham gia cây IB): Admin chỉ được tạo Sub-IB
+    // qua route riêng của Admin (POST /admin/users/ib/sub, chọn tường minh
+    // node cha), KHÔNG được dùng route tự-phục-vụ này (parentId ngầm định
+    // = chính người gọi) — vì Admin không bao giờ được là 1 node trong cây
+    // IB (không tham gia nhánh, không có cấp dưới trực thuộc).
+    if (callerRole === 'ADMIN') {
+      throw new ForbiddenException({
+        code: 'ADMIN_NOT_ALLOWED_IN_TREE',
+        message: 'Admin không tham gia vào cây IB — dùng route Admin tạo Sub-IB (chọn node cha tường minh) thay vì tự tạo dưới chính mình.',
+      });
+    }
+
     if (currentUserLevel >= 5) {
       throw new UnprocessableEntityException({
         code: 'IB_MAX_LEVEL_REACHED',
@@ -603,17 +615,14 @@ export class IbService {
     // KHÔNG được sửa sang nhánh của MIB khác (fix: trước đây bypass thẳng
     // không hề kiểm tra target có thuộc nhánh mình hay không).
     // Lv1+: chỉ được sửa con trực tiếp (parentId === callerId) hoặc chính mình
+    // FIX: đây là hành động GHI (sửa profile), phải Parent-Strict — MIB
+    // KHÔNG có ngoại lệ Edit-All (chỉ View-All), trước đây bị cho phép sửa
+    // đệ quy cả cháu/chắt qua isDescendantOf, không nhất quán với
+    // updateIb() (route PUT :id) vốn đã đúng dùng SubtreeEditGuard.
     if (callerRole !== 'ADMIN' && callerId !== targetIbId) {
-      if (callerLevel === 0) {
-        const isOwnDescendant = await this.isDescendantOf(targetIbId, callerId);
-        if (!isOwnDescendant) {
-          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc nhánh của bạn' });
-        }
-      } else {
-        const target = await this.prisma.ibNode.findUnique({ where: { id: targetIbId }, select: { parentId: true } });
-        if (!target || target.parentId !== callerId) {
-          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn' });
-        }
+      const target = await this.prisma.ibNode.findUnique({ where: { id: targetIbId }, select: { parentId: true } });
+      if (!target || target.parentId !== callerId) {
+        throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE', message: 'IB này không thuộc subtree của bạn — chỉ được sửa cấp dưới trực tiếp' });
       }
     }
 
@@ -974,6 +983,16 @@ export class IbService {
 
     if (!newParent) {
       throw new NotFoundException({ code: 'TARGET_PARENT_NOT_FOUND', message: 'Không tìm thấy parent IB đích' });
+    }
+
+    // FIX (đảm bảo Admin không tham gia cây IB): chặn di chuyển 1 nhánh
+    // sang làm con của tài khoản Admin — Admin không bao giờ được là 1
+    // node trong cây IB (kể cả khi level trùng 0 với MIB).
+    if (newParent.role === 'ADMIN') {
+      throw new BadRequestException({
+        code: 'PARENT_CANNOT_BE_ADMIN',
+        message: 'Không thể di chuyển nhánh IB sang làm con của tài khoản Admin',
+      });
     }
 
     // 1. Cycle Detection: Verify targetParentId is not a child/descendant of targetIbId

@@ -7,7 +7,7 @@ import { SaveBranchScenarioDto } from './dto/save-scenario.dto';
 import { AssetType } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.constants';
-import { getSubtreeIds } from '../../common/utils/subtree.util';
+import { getSubtreeIds, isDescendantOf } from '../../common/utils/subtree.util';
 import { NotificationService } from '../notification/notification.service';
 
 export const MAX_PIPS: Record<AssetType, number> = {
@@ -1034,12 +1034,25 @@ export class RebateService {
     page: number,
     limit: number,
     callerRole?: string,
+    callerLevel?: number,
   ) {
     // Verify ibId trong subtree (ADMIN bypass)
+    // FIX: đây là hành động XEM (lịch sử thay đổi config), nên phải có ngoại
+    // lệ MIB View-All giống các hàm xem khác (getProfile, getIbPerformance,
+    // wallet.getBalance, export...) — trước đây check Parent-Strict cứng cho
+    // MỌI level kể cả MIB, khiến MIB không xem được lịch sử config của
+    // cháu/chắt (Lv2+) dù đáng lẽ được phép xem toàn bộ nhánh của mình.
     if (callerRole !== 'ADMIN' && currentUserId !== ibId) {
-      const target = await this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { parentId: true } });
-      if (!target || target.parentId !== currentUserId) {
-        throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+      if (callerLevel === 0) {
+        const isOwnDescendant = await isDescendantOf(this.prisma, ibId, currentUserId);
+        if (!isOwnDescendant) {
+          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+        }
+      } else {
+        const target = await this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { parentId: true } });
+        if (!target || target.parentId !== currentUserId) {
+          throw new ForbiddenException({ code: 'IB_NOT_IN_SUBTREE' });
+        }
       }
     }
 

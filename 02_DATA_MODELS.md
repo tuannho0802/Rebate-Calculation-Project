@@ -4,6 +4,15 @@
 > FE copy vào `src/types/`, BE dùng làm Prisma schema reference.
 
 ## Changelog
+- **2026-07-28 (đối chiếu trực tiếp `schema.prisma` thật qua repo clone)**:
+  - **Thêm 2 model thiếu hoàn toàn khỏi docs** dù đã tồn tại sẵn trong schema: `SystemConfig`
+    (`system_configs` — hiện dùng cho key `DISABLED_ASSET_TYPES`, xem `GET/PUT
+    /rebate/disabled-asset-types` trong `01_API_CONTRACT.md`) và `AuditLogDismissal`
+    (`audit_log_dismissals` — cho phép từng user tự ẩn 1 audit log entry khỏi danh sách của
+    riêng mình mà không xoá log gốc).
+  - Do có 2 model thiếu, dòng tiêu đề "ĐÚNG 100% với `schema.prisma` thật" ở mục bên dưới trước
+    đây **không chính xác** tại thời điểm rà soát — đã bổ sung đủ, giờ khớp lại 100% (đối chiếu
+    `grep "^model " schema.prisma` = 13 model, khớp đủ 13 trong docs).
 - **2026-07-15 (bổ sung — cross-reference)**:
   - Schema Prisma **vẫn không đổi** (xác nhận qua `prisma/schema.prisma` thật — không migration mới kể từ `20260714031045_add_root_admin_flag`).
   - Shared FE types dùng cho `PUT /rebate/config/bulk` (định nghĩa tại `rebate-frontend/src/types/index.ts`, chưa liệt kê ở block types bên dưới): `BulkUpdateResult { ibId, success, config?, error? }` và `BulkUpdateResponse { results: BulkUpdateResult[], successCount, failCount }`. FE gửi `items: { ibId, assets }[]` (shape khớp `BulkUpdateRebateItemDto` ở BE).
@@ -284,6 +293,34 @@ model RebateConfigHistory {
   @@index([changedById])
   @@map("rebate_config_history")
 }
+
+// THÊM 2026-07-28 — 2 model có thật trong schema.prisma nhưng thiếu hoàn toàn khỏi docs
+// (phát hiện qua `grep "^model " schema.prisma` khi đối chiếu trực tiếp repo thật).
+model SystemConfig {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("system_configs")
+}
+// Dùng bởi rebate.service.ts: getDisabledAssetTypes() / updateDisabledAssetTypes()
+// (xem GET/PUT /rebate/disabled-asset-types trong 01_API_CONTRACT.md). Hiện chỉ có
+// đúng 1 key đang dùng: "DISABLED_ASSET_TYPES" (value: AssetType[] dạng JSON).
+
+model AuditLogDismissal {
+  id          String   @id @default(uuid())
+  auditLogId  String
+  auditLog    AuditLog @relation(fields: [auditLogId], references: [id])
+  userId      String
+  user        IbNode   @relation(fields: [userId], references: [id])
+  dismissedAt DateTime @default(now())
+
+  @@unique([auditLogId, userId])
+  @@index([userId])
+  @@map("audit_log_dismissals")
+}
+// Cho phép từng Admin/IB tự "dismiss" (ẩn khỏi danh sách của riêng mình) 1 audit log entry
+// mà không xoá log gốc — audit log vẫn còn nguyên cho các user khác / mục đích tra soát.
 
 enum AssetType {
   D_FOREX

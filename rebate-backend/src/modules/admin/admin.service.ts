@@ -209,6 +209,17 @@ export class AdminService {
       });
     }
 
+    // FIX (đảm bảo Admin không tham gia cây IB): chặn Admin chọn 1 tài
+    // khoản Admin khác (hoặc chính mình) làm node cha — Admin không bao
+    // giờ được là 1 node trong cây IB (level=0 của Admin chỉ là giá trị
+    // mặc định lúc tạo, không mang nghĩa "MIB").
+    if (targetParent.role === 'ADMIN') {
+      throw new ConflictException({
+        code: 'PARENT_CANNOT_BE_ADMIN',
+        message: 'Không thể chọn tài khoản Admin làm node cha — Admin không tham gia vào cây IB',
+      });
+    }
+
     // Validate level cha < 5
     if (targetParent.level >= 5) {
       throw new ConflictException({

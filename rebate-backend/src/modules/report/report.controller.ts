@@ -2,7 +2,6 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { ReportService } from './report.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { SubtreeGuard } from '../../common/guards/subtree.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AssetType, RebateType } from '@prisma/client';
 
@@ -11,17 +10,20 @@ import { AssetType, RebateType } from '@prisma/client';
 @Controller('report')
 @UseGuards(JwtAuthGuard)
 export class ReportController {
-  constructor(private readonly reportService: ReportService) {}
+  constructor(private readonly reportService: ReportService) { }
 
   @Get('summary')
   @ApiBearerAuth('Bearer')
-  @UseGuards(SubtreeGuard)
   @ApiOperation({
     summary: 'Get rebate summary report',
     description:
       'Returns aggregated rebate summary for a specific IB or the authenticated user\'s entire subtree, optionally filtered by period (YYYY-MM).\n\n' +
-      '**Lv0**: có thể truyền bất kỳ `ibId` trong cây.\n' +
-      '**Lv1+**: `ibId` phải nằm trong subtree của mình — 403 nếu ngoài subtree.',
+      '**Lv0**: có thể truyền bất kỳ `ibId` trong CHÍNH nhánh của mình.\n' +
+      '**Lv1+**: `ibId` phải nằm trong subtree của mình — 403 nếu ngoài subtree.\n\n' +
+      '_FIX: trước đây gắn SubtreeGuard ở route này — guard fail-closed khi KHÔNG có `ibId`' +
+      ' (trường hợp mặc định, xem báo cáo của chính mình), khiến MỌI non-Admin bị 403 khi vào' +
+      ' trang Báo cáo mà không chỉ định ibId. Đã gỡ guard, việc kiểm tra quyền nay hoàn toàn' +
+      ' do reportService.validateFilterIbId() đảm nhiệm (đã fix đệ quy đúng cho MIB)._',
   })
   @ApiQuery({ name: 'ibId', required: false, description: 'Filter by specific IB account ID. Defaults to the authenticated user\'s subtree.', example: 'clxyz123' })
   @ApiQuery({ name: 'period', required: false, description: 'Filter by month in YYYY-MM format', example: '2025-01' })
@@ -37,13 +39,13 @@ export class ReportController {
 
   @Get('transactions')
   @ApiBearerAuth('Bearer')
-  @UseGuards(SubtreeGuard)
   @ApiOperation({
     summary: 'Get rebate transactions list',
     description:
       'Returns a paginated list of rebate transactions with optional filters.\n\n' +
-      '**Lv0**: có thể truyền bất kỳ `ibId` trong cây.\n' +
-      '**Lv1+**: `ibId` phải nằm trong subtree của mình — 403 nếu ngoài subtree.',
+      '**Lv0**: có thể truyền bất kỳ `ibId` trong CHÍNH nhánh của mình.\n' +
+      '**Lv1+**: `ibId` phải nằm trong subtree của mình — 403 nếu ngoài subtree.\n\n' +
+      '_FIX: gỡ SubtreeGuard cùng lý do với /report/summary — xem mô tả ở đó._',
   })
   @ApiQuery({ name: 'ibId', required: false, description: 'Filter by specific IB account ID', example: 'clxyz123' })
   @ApiQuery({ name: 'period', required: false, description: 'Filter by month in YYYY-MM format', example: '2025-01' })

@@ -139,6 +139,7 @@ export class RebateController {
       parseInt(page, 10) || 1,
       Math.min(parseInt(limit, 10) || 20, 100),
       user.role,
+      user.level,
     );
   }
 
@@ -190,10 +191,13 @@ export class RebateController {
   }
 
   @Get('simulate')
+  @ApiBearerAuth('Bearer')
+  @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Chạy thuật toán AI Rebate Simulator cho một nhánh IB' })
   @ApiQuery({ name: 'ibId', description: 'ID của IB node ở cuối hoặc trong nhánh cần mô phỏng' })
   @ApiQuery({ name: 'markupPips', required: false, description: 'Số pips Markup (bi trắng) truyền vào (mặc định đọc từ accountType)' })
   @ApiResponse({ status: 200, description: 'Trả về các kịch bản phân bổ sắp xếp theo độ cân bằng (variance)' })
+  @ApiResponse({ status: 403, description: 'Forbidden — not in subtree' })
   async simulateBranch(
     @Query('ibId') ibId: string,
     @Query('markupPips') markupPips?: string,

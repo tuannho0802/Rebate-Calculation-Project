@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { getSubtreeIds } from '../../common/utils/subtree.util';
+import { getDescendantIds } from '../../common/utils/subtree.util';
 import { PrismaService } from '../../prisma/prisma.service';
 import { QueryAuditDto } from './dto/query-audit.dto';
 
@@ -48,12 +48,71 @@ export class AuditService {
    * GET /audit/logs — lấy danh sách audit log trong subtree của currentUser
    */
   async getLogs(currentUserId: string, query: QueryAuditDto, callerRole?: string) {
+    const where = await this.buildLogsWhere(currentUserId, query, callerRole);
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    // Lấy danh sách audit log đã bị user này ẩn
+    const dismissedLogIds = await this.prisma.auditLogDismissal.findMany({
+      where: { userId: currentUserId },
+      select: { auditLogId: true },
+    });
+    const dismissedIds = dismissedLogIds.map((d) => d.auditLogId);
+
+    const [items, total] = await Promise.all([
+      this.prisma.auditLog.findMany({
+        where: {
+          ...where,
+          id: dismissedIds.length ? { notIn: dismissedIds } : undefined,
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          actor: {
+            select: { id: true, email: true, level: true },
+          },
+        },
+      }),
+      this.prisma.auditLog.count({ where: dismissedIds.length ? { ...where, id: { notIn: dismissedIds } } : where }),
+    ]);
+
+    // Resolve targetId thành targetLabel cho các targetType map được IB
+    const IB_TARGET_TYPES = ['IB', 'REBATE_CONFIG', 'REBATE_TEMPLATES', 'REBATE_CONFIG_BRANCH'];
+    const targetIbIds = [...new Set(items.filter(i => IB_TARGET_TYPES.includes(i.targetType)).map(i => i.targetId))];
+    const targetNodes = targetIbIds.length
+      ? await this.prisma.ibNode.findMany({ where: { id: { in: targetIbIds } }, select: { id: true, email: true, name: true } })
+      : [];
+    const targetMap = new Map(targetNodes.map((n: any) => [n.id, n]));
+
+    const decoratedItems = items.map((item: any) => {
+      const targetNode = targetMap.get(item.targetId);
+      const targetLabel = targetNode
+        ? (targetNode.name ? `${targetNode.name} (${targetNode.email})` : targetNode.email)
+        : null;
+
+      return {
+        ...item,
+        targetLabel,
+      };
+    });
+
+    return {
+      data: decoratedItems,
+      meta: { page, limit, total },
+    };
+  }
+
+  /**
+   * Private method để build where clause chung cho getLogs, deleteBulk, deleteAll
+   */
+  private async buildLogsWhere(currentUserId: string, query: QueryAuditDto, callerRole?: string) {
     const where: any = {};
-    
+
     if (callerRole !== 'ADMIN') {
-      const children = await this.prisma.ibNode.findMany({ where: { parentId: currentUserId }, select: { id: true } });
-      const targetIds = [currentUserId, ...children.map((c) => c.id)];
-      where.actorId = { in: targetIds };
+      const myDescendantIds = await getDescendantIds(this.prisma, currentUserId);
+      where.actorId = { in: myDescendantIds };
     }
 
     if (query.actorId) where.actorId = query.actorId;
@@ -65,34 +124,79 @@ export class AuditService {
       where.createdAt = {};
       if (query.from) where.createdAt.gte = new Date(query.from);
       if (query.to) {
-        // to ngày cuối — bao gồm cả cuối ngày đó
         const toDate = new Date(query.to);
         toDate.setHours(23, 59, 59, 999);
         where.createdAt.lte = toDate;
       }
     }
 
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
+    return where;
+  }
 
-    const [items, total] = await Promise.all([
-      this.prisma.auditLog.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
-        include: {
-          actor: {
-            select: { id: true, email: true, level: true },
-          },
-        },
-      }),
-      this.prisma.auditLog.count({ where }),
-    ]);
+  /**
+   * Ẩn một audit log khỏi danh sách của riêng user này (KHÔNG xoá thật dữ liệu).
+   */
+  async dismissLog(currentUserId: string, auditLogId: string) {
+    const log = await this.prisma.auditLog.findUnique({ where: { id: auditLogId } });
+    if (!log) throw new NotFoundException({ code: 'AUDIT_LOG_NOT_FOUND' });
 
-    return {
-      data: items,
-      meta: { page, limit, total },
-    };
+    // Không cần check subtree ở đây — nếu user đã thấy được log này qua
+    // getLogs() (nghĩa là nó nằm trong phạm vi quyền xem của họ), họ được
+    // phép ẩn nó khỏi danh sách CỦA CHÍNH HỌ. Việc ẩn không ảnh hưởng gì
+    // tới người khác (Admin, hoặc MIB khác nếu có overlap quyền xem).
+    await this.prisma.auditLogDismissal.upsert({
+      where: { auditLogId_userId: { auditLogId, userId: currentUserId } },
+      create: { auditLogId, userId: currentUserId },
+      update: {},
+    });
+
+    return { message: 'Đã ẩn khỏi danh sách của bạn' };
+  }
+
+  /**
+   * DELETE /audit/logs/bulk — xoá nhiều dòng log cùng lúc theo danh sách id.
+   * ADMIN: xoá THẬT (deleteMany trên AuditLog — cleanup dữ liệu thật).
+   * MIB (non-Admin): CHỈ ẩn khỏi danh sách của riêng mình (dismissal), không
+   * đụng tới row AuditLog thật — vì bảng này Admin vẫn cần dùng để đối soát.
+   */
+  async deleteBulk(currentUserId: string, ids: string[], callerRole?: string) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+      throw new BadRequestException({ code: 'IDS_REQUIRED', message: 'Cần danh sách id' });
+    }
+
+    if (callerRole === 'ADMIN') {
+      const result = await this.prisma.auditLog.deleteMany({ where: { id: { in: ids } } });
+      return { deleted: result.count, permanent: true, message: `Đã xóa vĩnh viễn ${result.count} dòng nhật ký` };
+    }
+
+    const result = await this.prisma.auditLogDismissal.createMany({
+      data: ids.map((auditLogId) => ({ auditLogId, userId: currentUserId })),
+      skipDuplicates: true,
+    });
+
+    return { deleted: result.count, permanent: false, message: `Đã ẩn ${result.count} dòng khỏi danh sách của bạn` };
+  }
+
+  /**
+   * DELETE /audit/logs/all — xoá toàn bộ log KHỚP đúng filter/scope hiện tại
+   * đang áp dụng trên UI (không phải toàn bộ hệ thống bất kể filter).
+   * ADMIN: xoá THẬT. MIB: ẩn khỏi danh sách của riêng mình.
+   */
+  async deleteAll(currentUserId: string, query: QueryAuditDto, callerRole?: string) {
+    const where = await this.buildLogsWhere(currentUserId, query, callerRole);
+
+    if (callerRole === 'ADMIN') {
+      const result = await this.prisma.auditLog.deleteMany({ where });
+      return { deleted: result.count, permanent: true, message: `Đã xóa vĩnh viễn ${result.count} dòng nhật ký` };
+    }
+
+    const matchingIds = await this.prisma.auditLog.findMany({ where, select: { id: true } });
+
+    const result = await this.prisma.auditLogDismissal.createMany({
+      data: matchingIds.map((log) => ({ auditLogId: log.id, userId: currentUserId })),
+      skipDuplicates: true,
+    });
+
+    return { deleted: result.count, permanent: false, message: `Đã ẩn ${result.count} dòng khỏi danh sách của bạn` };
   }
 }

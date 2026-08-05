@@ -64,7 +64,21 @@ export class ExportService {
       const rootLevel = (
         await this.prisma.ibNode.findUnique({ where: { id: rootIbId } })
       )?.level;
-      if (rootLevel !== 0) {
+
+      if (rootLevel === 0) {
+        // MIB (Lv0): View-All — chỉ trong CHÍNH nhánh của mình (đệ quy).
+        // BUG CŨ: nhánh `if (rootLevel !== 0)` khiến MIB bị bỏ qua check
+        // này hoàn toàn -> export được transaction của bất kỳ IB nào trong
+        // toàn hệ thống, kể cả ngoài nhánh của mình. Đã fix.
+        const isOwnDescendant = await isDescendantOf(this.prisma, targetIbId, rootIbId);
+        if (!isOwnDescendant) {
+          throw new ForbiddenException({
+            code: 'IB_NOT_IN_SUBTREE',
+            message: 'IB không thuộc nhánh của bạn',
+          });
+        }
+      } else {
+        // Lv1+: chỉ xem con trực tiếp (Parent-Strict)
         const tree = await this.getIbTreeByLevel(rootIbId);
         let found = false;
         for (const level in tree) {
@@ -109,21 +123,21 @@ export class ExportService {
     const sheet = workbook.addWorksheet('Transactions');
 
     // ── COLORS ─────────────────────────────────────────────────
-    const HDR_BG    = 'FF1F3864';
-    const HDR_FONT  = 'FFFFFFFF';
-    const ODD_BG    = 'FFF2F7FF';
-    const EVEN_BG   = 'FFFFFFFF';
+    const HDR_BG = 'FF1F3864';
+    const HDR_FONT = 'FFFFFFFF';
+    const ODD_BG = 'FFF2F7FF';
+    const EVEN_BG = 'FFFFFFFF';
 
     // ── COLUMN DEFINITIONS ─────────────────────────────────────
     sheet.columns = [
-      { key: 'date',         width: 22 },
-      { key: 'name',         width: 20 },
-      { key: 'email',        width: 28 },
-      { key: 'assetType',    width: 16 },
-      { key: 'rebateType',   width: 16 },
-      { key: 'lots',         width: 12 },
+      { key: 'date', width: 22 },
+      { key: 'name', width: 20 },
+      { key: 'email', width: 28 },
+      { key: 'assetType', width: 16 },
+      { key: 'rebateType', width: 16 },
+      { key: 'lots', width: 12 },
       { key: 'rebateAmount', width: 16 },
-      { key: 'currency',     width: 10 },
+      { key: 'currency', width: 10 },
     ];
 
     const headers = ['Trade Date', 'IB Name', 'IB Email', 'Asset Type', 'Rebate Type', 'Lots', 'Rebate Amount', 'Currency'];
@@ -156,24 +170,24 @@ export class ExportService {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E75B6' } };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
       cell.border = {
-        top:    { style: 'thin', color: { argb: 'FF1F3864' } },
+        top: { style: 'thin', color: { argb: 'FF1F3864' } },
         bottom: { style: 'medium', color: { argb: 'FF1F3864' } },
-        left:   { style: 'thin', color: { argb: 'FF1F3864' } },
-        right:  { style: 'thin', color: { argb: 'FF1F3864' } },
+        left: { style: 'thin', color: { argb: 'FF1F3864' } },
+        right: { style: 'thin', color: { argb: 'FF1F3864' } },
       };
     });
 
     // ── DATA ROWS ──────────────────────────────────────────────
     txs.forEach((tx, idx) => {
       const row = sheet.addRow({
-        date:         tx.tradedAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
-        name:         tx.ib.name || '—',
-        email:        tx.ib.email,
-        assetType:    tx.assetType,
-        rebateType:   tx.rebateType,
-        lots:         Number(tx.lots),
+        date: tx.tradedAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+        name: tx.ib.name || '—',
+        email: tx.ib.email,
+        assetType: tx.assetType,
+        rebateType: tx.rebateType,
+        lots: Number(tx.lots),
         rebateAmount: Number(tx.rebateAmount),
-        currency:     tx.currency,
+        currency: tx.currency,
       });
 
       row.height = 17;
@@ -183,10 +197,10 @@ export class ExportService {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
         cell.font = { size: 10, name: 'Calibri' };
         cell.border = {
-          top:    { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
           bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          left:   { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          right:  { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
         };
 
         if (colNumber === 1) cell.alignment = { horizontal: 'left' };
@@ -207,20 +221,20 @@ export class ExportService {
 
     if (txs.length > 0) {
       const totalRow = sheet.addRow({
-        date:         'TOTAL',
-        lots:         txs.reduce((s, t) => s + Number(t.lots), 0),
+        date: 'TOTAL',
+        lots: txs.reduce((s, t) => s + Number(t.lots), 0),
         rebateAmount: txs.reduce((s, t) => s + Number(t.rebateAmount), 0),
-        currency:     txs[0]?.currency || '',
+        currency: txs[0]?.currency || '',
       });
       totalRow.height = 20;
       totalRow.eachCell((cell, colNumber) => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
         cell.font = { bold: true, size: 10, name: 'Calibri' };
         cell.border = {
-          top:    { style: 'medium', color: { argb: 'FF2E75B6' } },
+          top: { style: 'medium', color: { argb: 'FF2E75B6' } },
           bottom: { style: 'medium', color: { argb: 'FF2E75B6' } },
-          left:   { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          right:  { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
         };
         if (colNumber === 6 || colNumber === 7) {
           cell.numFmt = '#,##0.########';

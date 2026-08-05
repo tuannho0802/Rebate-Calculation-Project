@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Patch, Body, Param, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse } from '@nestjs/swagger';
 import { PayoutService } from './payout.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { Lv0Guard } from '../../common/guards/lv0.guard';
@@ -15,7 +15,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 @Controller('payouts')
 @UseGuards(JwtAuthGuard)
 export class PayoutController {
-  constructor(private readonly payoutService: PayoutService) {}
+  constructor(private readonly payoutService: PayoutService) { }
 
   @Post()
   @UseGuards(SelfFinanceGuard)
@@ -26,9 +26,13 @@ export class PayoutController {
 
   @Get('pending')
   @UseGuards(Lv0Guard)
-  @ApiOperation({ summary: 'Lấy danh sách payout đang chờ duyệt (Lv0 only)' })
-  getPendingPayouts(@Query('page') page: number = 1, @Query('limit') limit: number = 20) {
-    return this.payoutService.getPendingPayouts(Number(page), Number(limit));
+  @ApiOperation({ summary: 'Lấy danh sách payout đang chờ duyệt (Lv0 xem trong nhánh của mình, Admin xem toàn hệ thống)' })
+  getPendingPayouts(
+    @CurrentUser() user: any,
+    @Query('page') page: number = 1,
+    @Query('limit') limit: number = 20,
+  ) {
+    return this.payoutService.getPendingPayouts(Number(page), Number(limit), user.sub, user.role);
   }
 
   @Get()
@@ -39,24 +43,27 @@ export class PayoutController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Xem chi tiết 1 payout' })
+  @ApiResponse({ status: 403, description: 'Payout không thuộc subtree/nhánh của bạn' })
+  @ApiResponse({ status: 404, description: 'Không tìm thấy payout' })
   async getPayout(@CurrentUser() user: any, @Param('id') id: string) {
-    // Để cho nhanh, call service. listPayouts có thể tái dùng, hoặc chỉ query trực tiếp
-    const { data } = await this.payoutService.listPayouts(user.sub, user.level, { page: 1, limit: 1 }, user.role);
-    // Ở đây đơn giản hóa theo yêu cầu, có thể bổ sung check chi tiết
-    return data;
+    // FIX: bản cũ bỏ qua hẳn tham số `id`, luôn trả về payout đầu tiên
+    // trong listPayouts({limit:1}) bất kể client hỏi payout nào.
+    return this.payoutService.getPayoutById(id, user.sub, user.level, user.role);
   }
 
   @Patch(':id/approve')
   @UseGuards(Lv0Guard)
-  @ApiOperation({ summary: 'Duyệt payout (Lv0 only)' })
+  @ApiOperation({ summary: 'Duyệt payout (Lv0/Admin — Lv0 chỉ trong nhánh của mình)' })
+  @ApiResponse({ status: 403, description: 'Payout không thuộc nhánh của bạn' })
   approvePayout(@CurrentUser() user: any, @Param('id') id: string) {
-    return this.payoutService.approvePayout(id, user.sub);
+    return this.payoutService.approvePayout(id, user.sub, user.role);
   }
 
   @Patch(':id/reject')
   @UseGuards(Lv0Guard)
-  @ApiOperation({ summary: 'Từ chối payout (Lv0 only)' })
+  @ApiOperation({ summary: 'Từ chối payout (Lv0/Admin — Lv0 chỉ trong nhánh của mình)' })
+  @ApiResponse({ status: 403, description: 'Payout không thuộc nhánh của bạn' })
   rejectPayout(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: RejectPayoutDto) {
-    return this.payoutService.rejectPayout(id, user.sub, dto.rejectedReason);
+    return this.payoutService.rejectPayout(id, user.sub, dto.rejectedReason, user.role);
   }
 }

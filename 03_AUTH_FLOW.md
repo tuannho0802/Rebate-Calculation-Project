@@ -5,6 +5,21 @@
   - JWT payload: `role` được lấy trực tiếp từ database thay vì suy diễn.
   - Thêm đặc quyền Admin (parentId=null, bỏ qua subtree filter).
   - Cập nhật logic SubtreeGuard: chỉ kiểm tra 1 cấp trực tiếp, không dùng đệ quy CTE.
+- **2026-07-28 (rà soát qua repo clone thật)**:
+  - **Sửa** lỗi đánh máy trong sơ đồ "Luồng refresh token": code thật là `AUTH_TOKEN_EXPIRED`
+    (không phải `TOKEN_EXPIRED`).
+  - **Làm rõ** mục "Guard logic (BE)": hàm ví dụ `isInSubtree()` chỉ đúng cho quy tắc
+    Parent-Strict (IB thường, Lv1+). Bổ sung ghi chú về ngoại lệ **MIB View-All** (MIB được xem
+    đệ quy toàn bộ nhánh cho các hành động XEM) — xem `00_PROJECT_OVERVIEW.md` § Phân quyền
+    tổng quan và `subtree.util.ts` (`getDescendantIds`/`isDescendantOf`).
+  - **Sửa** mục "Mã lỗi Auth": bảng cũ chỉ liệt kê 5 mã chung chung, trong đó `AUTH_FORBIDDEN`
+    dễ gây hiểu nhầm là code thật cho mọi lỗi 403 — thực tế `AUTH_FORBIDDEN` **chỉ** là fallback
+    khi HttpException không có `code` cụ thể (`http-exception.filter.ts`). Phần lớn lỗi 403
+    thật trong hệ thống dùng mã **cụ thể hơn** theo từng guard (`IB_NOT_IN_SUBTREE`,
+    `FORBIDDEN_ROLES_ONLY`, `FORBIDDEN_LV0_ONLY`, `ROOT_ADMIN_PROTECTED`,
+    `ADMIN_FINANCE_NOT_ALLOWED`, `IB_NOT_DIRECT_CHILD`, `SUBTREE_TARGET_UNRESOLVED`...) — xem
+    đầy đủ + nguồn `file:dòng` tại `06_ERROR_CODES.md`, không lặp lại ở đây để tránh 2 nơi có
+    thể lệch nhau.
 
 ---
 
@@ -59,7 +74,7 @@ FE                                    BE
 FE                                    BE
  │                                     │
  │── GET /any-api ─────────────────────>│
- │<── 401 { code: "TOKEN_EXPIRED" } ───│
+ │<── 401 { code: "AUTH_TOKEN_EXPIRED" }│
  │                                     │
  │── POST /auth/refresh ───────────────>│
  │   { refreshToken }                  │── verify refreshToken
