@@ -2,6 +2,7 @@ import * as ExcelJS from 'exceljs';
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RebateSimulatorService, SimulatorNodeInput } from '../rebate/rebate-simulator.service';
+import { isDescendantOf } from '../../common/utils/subtree.util';
 
 @Injectable()
 export class ExportService {
