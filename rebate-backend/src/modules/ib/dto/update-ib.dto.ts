@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, MaxLength, IsArray } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateIbDto {
@@ -29,6 +29,11 @@ export class UpdateIbDto {
   @IsOptional()
   @MaxLength(100)
   accountType?: string;
+
+  @ApiPropertyOptional({ description: 'Danh sách các loại tài khoản link', type: [String] })
+  @IsArray()
+  @IsOptional()
+  accountTypes?: string[];
 
   @IsString()
   @IsOptional()

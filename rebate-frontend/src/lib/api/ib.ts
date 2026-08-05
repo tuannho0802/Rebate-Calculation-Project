@@ -48,6 +48,7 @@ export const ibApi = {
     name?: string,
     accountType?: string,
     accountTypeTemplateId?: string,
+    accountTypes?: string[],
   ): Promise<ApiResponse<IbNode>> => {
     const response = await apiClient.post<ApiResponse<IbNode>>('/ib', {
       email,
@@ -55,12 +56,14 @@ export const ibApi = {
       name,
       accountType,
       accountTypeTemplateId,
+      accountTypes,
     });
     return response.data;
   },
 
-  search: async (q: string, includeInactive = false, page = 1, limit = 20): Promise<ApiResponse<{ items: IbNode[]; total: number }>> => {
-    const response = await apiClient.get<ApiResponse<any>>(`/ib/search?q=${encodeURIComponent(q)}&includeInactive=${includeInactive}&page=${page}&limit=${limit}`);
+  search: async (q: string, includeInactive = false, page = 1, limit = 20, type?: 'mib' | 'sub-ib' | 'all'): Promise<ApiResponse<{ items: IbNode[]; total: number }>> => {
+    const typeParam = type && type !== 'all' ? `&type=${type}` : '';
+    const response = await apiClient.get<ApiResponse<any>>(`/ib/search?q=${encodeURIComponent(q)}&includeInactive=${includeInactive}&page=${page}&limit=${limit}${typeParam}`);
     return {
       ...response.data,
       data: {
@@ -70,7 +73,7 @@ export const ibApi = {
     };
   },
 
-  update: async (id: string, dto: { name?: string; email?: string; accountType?: string }): Promise<ApiResponse<IbNode>> => {
+  update: async (id: string, dto: { name?: string; email?: string; accountType?: string; accountTypes?: string[] }): Promise<ApiResponse<IbNode>> => {
     const response = await apiClient.put<ApiResponse<IbNode>>(`/ib/${id}`, dto);
     return response.data;
   },
@@ -83,7 +86,7 @@ export const ibApi = {
 
 
   getChildren: async (id: string, page = 1, limit = 20): Promise<ApiResponse<{ items: IbNode[]; total: number }>> => {
-    const response = await apiClient.get<ApiResponse<any>>(`/ib/${id}/children?page=${page}&limit=${limit}`);
+    const response = await apiClient.get<ApiResponse<any>>(`/ib/${id}/children?page=${page}&limit=${limit}&_t=${Date.now()}`);
     return {
       ...response.data,
       data: {
@@ -109,6 +112,7 @@ export const ibApi = {
     name: string;
     password: string;
     accountType?: string;
+    accountTypes?: string[];
     phone?: string;
     country?: string;
   }): Promise<ApiResponse<IbNode>> => {
@@ -121,6 +125,7 @@ export const ibApi = {
     name: string;
     password: string;
     accountType?: string;
+    accountTypes?: string[];
     phone?: string;
     country?: string;
     bankAccount?: string;

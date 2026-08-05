@@ -29,6 +29,11 @@ export class RebateAssetConfigDto {
   @Min(0, { message: 'markupPercent tối thiểu là 0%' })
   @Max(100, { message: 'markupPercent tối đa là 100%' })
   markupPercent!: number;
+
+  @ApiProperty({ example: 'STD10', description: 'Loại tài khoản link', required: false })
+  @IsOptional()
+  @IsString()
+  accountType?: string;
 }
 
 export class UpdateRebateConfigDto {
@@ -37,6 +42,11 @@ export class UpdateRebateConfigDto {
   @ValidateNested({ each: true })
   @Type(() => RebateAssetConfigDto)
   assets!: RebateAssetConfigDto[];
+
+  @ApiProperty({ example: 'STD10', description: 'Loại tài khoản link cho đợt cập nhật này', required: false })
+  @IsOptional()
+  @IsString()
+  accountType?: string;
 
   @ApiProperty({
     enum: ['direct', 'cascade'],

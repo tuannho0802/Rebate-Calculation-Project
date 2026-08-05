@@ -23,17 +23,17 @@ function makePrismaMock(nodes: Record<string, any>) {
     const store = new Map<string, any>();
 
     const findConfig = (where: any) => {
-        const k = where.ibId_assetType_rebateType;
+        const k = where.ibId_accountType_assetType_rebateType || where.ibId_assetType_rebateType;
         const key = `${k.ibId}:${k.assetType}:${k.rebateType}`;
         return store.get(key) || null;
     };
     const upsertConfig = (where: any, update: any, create: any) => {
-        const k = where.ibId_assetType_rebateType;
+        const k = where.ibId_accountType_assetType_rebateType || where.ibId_assetType_rebateType;
         const key = `${k.ibId}:${k.assetType}:${k.rebateType}`;
         const existing = store.get(key);
         const data = existing ? { ...existing, ...update } : create;
         store.set(key, data);
-        return data;
+        return Promise.resolve(data);
     };
 
     return {

@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { UpdateAdminDto } from './dto/update-admin.dto';
@@ -163,6 +163,11 @@ export class AdminService {
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
+    const accountTypes = (dto.accountTypes && dto.accountTypes.length > 0)
+      ? Array.from(new Set(dto.accountTypes))
+      : [dto.accountType || 'STD'];
+    const accountType = accountTypes[0] || 'STD';
+
     const mib = await this.prisma.ibNode.create({
       data: {
         email: dto.email,
@@ -172,7 +177,8 @@ export class AdminService {
         level: 0,
         parentId: null,
         referralCode: `IB-${Date.now().toString(36).toUpperCase()}`,
-        accountType: dto.accountType || 'STD',
+        accountType,
+        accountTypes,
         phone: dto.phone,
         country: dto.country,
       },
@@ -184,7 +190,7 @@ export class AdminService {
       action: AUDIT_ACTIONS.MIB_CREATE,
       targetType: 'IB',
       targetId: mib.id,
-      after: { email: mib.email, name: mib.name, level: mib.level },
+      after: { email: mib.email, name: mib.name, level: mib.level, accountTypes },
     });
 
     const { password, ...result } = mib;
@@ -235,8 +241,35 @@ export class AdminService {
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
-    // Kế thừa accountType từ parent nếu không có trong DTO
-    const accountType = dto.accountType || targetParent.accountType || 'STD';
+    // Kế thừa/validate accountTypes từ parent
+    const parentAccountTypes = (targetParent.accountTypes && targetParent.accountTypes.length > 0)
+      ? targetParent.accountTypes
+      : [targetParent.accountType || 'STD'];
+
+    let accountTypes: string[];
+    if (dto.accountTypes && dto.accountTypes.length > 0) {
+      const requestedTypes = Array.from(new Set(dto.accountTypes));
+      const invalidTypes = requestedTypes.filter((t) => !parentAccountTypes.includes(t));
+      if (invalidTypes.length > 0) {
+        throw new BadRequestException({
+          code: 'IB_INVALID_ACCOUNT_TYPE',
+          message: `Loại tài khoản link (${invalidTypes.join(', ')}) vượt quá phạm vi được cấp của cấp trên`,
+        });
+      }
+      accountTypes = requestedTypes;
+    } else if (dto.accountType) {
+      if (!parentAccountTypes.includes(dto.accountType)) {
+        throw new BadRequestException({
+          code: 'IB_INVALID_ACCOUNT_TYPE',
+          message: `Loại tài khoản link (${dto.accountType}) vượt quá phạm vi được cấp của cấp trên`,
+        });
+      }
+      accountTypes = [dto.accountType];
+    } else {
+      accountTypes = parentAccountTypes;
+    }
+
+    const accountType = accountTypes[0] || 'STD';
 
     const subIb = await this.prisma.ibNode.create({
       data: {
@@ -248,6 +281,7 @@ export class AdminService {
         parentId: dto.targetParentId,
         referralCode: `IB-${Date.now().toString(36).toUpperCase()}`,
         accountType,
+        accountTypes,
         phone: dto.phone,
         country: dto.country,
         bankAccount: dto.bankAccount,

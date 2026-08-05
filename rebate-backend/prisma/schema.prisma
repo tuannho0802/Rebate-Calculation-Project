@@ -24,7 +24,8 @@ model IbNode {
   parentId    String?
   parent      IbNode?  @relation("IbTree", fields: [parentId], references: [id])
   children    IbNode[] @relation("IbTree")
-  accountType String   @default("Markup 0%")
+  accountType String   @default("STD")
+  accountTypes String[] @default([])
 
   rebateConfig         RebateConfig[]
   transactions         RebateTransaction[]   @relation("TransactionOwner")
@@ -62,6 +63,7 @@ model RebateConfig {
   id            String     @id @default(uuid())
   ibId          String
   ib            IbNode     @relation(fields: [ibId], references: [id])
+  accountType   String     @default("STD")
   assetType     AssetType
   rebateType    RebateType @default(STP_REBATE)
   rebatePips    Decimal    @db.Decimal(10, 4)
@@ -74,7 +76,8 @@ model RebateConfig {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([ibId, assetType, rebateType])
+  @@unique([ibId, accountType, assetType, rebateType])
+  @@index([ibId, accountType])
   @@map("rebate_configs")
 }
 

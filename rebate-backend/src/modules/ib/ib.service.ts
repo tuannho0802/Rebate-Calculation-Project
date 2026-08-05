@@ -15,6 +15,7 @@ import { AUDIT_ACTIONS } from '../audit/audit.constants';
 import { getSubtreeIds } from '../../common/utils/subtree.util';
 import { NotificationService } from '../notification/notification.service';
 import { NotificationType } from '@prisma/client';
+import { MAX_PIPS } from '../rebate/rebate.service';
 
 @Injectable()
 export class IbService {
@@ -38,6 +39,7 @@ export class IbService {
         name: true,
         email: true,
         accountType: true,
+        accountTypes: true,
         level: true,
         isActive: true,
       },
@@ -132,7 +134,7 @@ export class IbService {
 
     const children = await this.prisma.ibNode.findMany({
       where: { parentId: rootId },
-      select: { id: true, name: true, email: true, level: true, accountType: true, isActive: true },
+      select: { id: true, name: true, email: true, level: true, accountType: true, accountTypes: true, isActive: true },
     });
 
     return {
@@ -141,6 +143,7 @@ export class IbService {
       email: current.email,
       level: current.level,
       accountType: current.accountType,
+      accountTypes: current.accountTypes,
       isActive: current.isActive,
       children: children.map((c) => ({ ...c, children: [] })),
     };
@@ -155,6 +158,7 @@ export class IbService {
         email: node.email,
         level: node.level,
         accountType: node.accountType,
+        accountTypes: node.accountTypes,
         isActive: node.isActive,
         children: [],
       });
@@ -211,6 +215,7 @@ export class IbService {
       level: user.level,
       parentId: user.parentId,
       accountType: user.accountType,
+      accountTypes: user.accountTypes,
       rebateConfig: formattedConfig,
       createdAt: user.createdAt,
     };
@@ -250,14 +255,36 @@ export class IbService {
     const hashedPassword = await bcrypt.hash(createIbDto.password, 10);
     const newLevel = currentUserLevel + 1;
 
-    let parentAccountType = createIbDto.accountType || 'STD';
-    let selectedTemplate: { id: string; name: string; rows: any[] } | null = null;
-    if (currentUserLevel > 0) {
-      const parentNode = await this.prisma.ibNode.findUnique({ where: { id: currentUserId } });
-      if (parentNode?.accountType) {
-        parentAccountType = parentNode.accountType;
+    const parentNode = await this.prisma.ibNode.findUnique({ where: { id: currentUserId } });
+    const parentAccountTypes = (parentNode?.accountTypes && parentNode.accountTypes.length > 0)
+      ? parentNode.accountTypes
+      : [parentNode?.accountType || 'STD'];
+
+    let accountTypes: string[];
+    if (createIbDto.accountTypes && createIbDto.accountTypes.length > 0) {
+      const requestedTypes = Array.from(new Set(createIbDto.accountTypes));
+      const invalidTypes = requestedTypes.filter((t) => !parentAccountTypes.includes(t));
+      if (invalidTypes.length > 0) {
+        throw new BadRequestException({
+          code: 'IB_INVALID_ACCOUNT_TYPE',
+          message: `Loại tài khoản link (${invalidTypes.join(', ')}) vượt quá phạm vi được cấp của cấp trên`,
+        });
       }
+      accountTypes = requestedTypes;
+    } else if (createIbDto.accountType) {
+      if (currentUserLevel > 0 && !parentAccountTypes.includes(createIbDto.accountType)) {
+        throw new BadRequestException({
+          code: 'IB_INVALID_ACCOUNT_TYPE',
+          message: `Loại tài khoản link (${createIbDto.accountType}) vượt quá phạm vi được cấp của cấp trên`,
+        });
+      }
+      accountTypes = [createIbDto.accountType];
+    } else {
+      accountTypes = parentAccountTypes;
     }
+
+    let parentAccountType = accountTypes[0] || 'STD';
+    let selectedTemplate: { id: string; name: string; rows: any[] } | null = null;
 
     if (createIbDto.accountTypeTemplateId) {
       const template = await this.prisma.accountTypeTemplate.findUnique({
@@ -295,6 +322,7 @@ export class IbService {
           phone: createIbDto.phone,
           country: createIbDto.country,
           accountType: parentAccountType,
+          accountTypes,
           bankAccount: createIbDto.bankAccount,
           paymentInfo: createIbDto.paymentInfo,
           notes: createIbDto.notes,
@@ -403,6 +431,25 @@ export class IbService {
       }
     }
 
+    if (dto.accountTypes && dto.accountTypes.length > 0 && existing.parentId) {
+      const parentNode = await this.prisma.ibNode.findUnique({
+        where: { id: existing.parentId },
+        select: { accountType: true, accountTypes: true },
+      });
+      if (parentNode) {
+        const parentTypes = (parentNode.accountTypes && parentNode.accountTypes.length > 0)
+          ? parentNode.accountTypes
+          : [parentNode.accountType || 'STD'];
+        const invalidTypes = dto.accountTypes.filter((t) => !parentTypes.includes(t));
+        if (invalidTypes.length > 0) {
+          throw new BadRequestException({
+            code: 'IB_INVALID_ACCOUNT_TYPE',
+            message: `Loại tài khoản link (${invalidTypes.join(', ')}) vượt quá phạm vi được cấp của cấp trên`,
+          });
+        }
+      }
+    }
+
     const before = { name: existing.name, email: existing.email };
 
     const updated = await this.prisma.ibNode.update({
@@ -440,6 +487,7 @@ export class IbService {
       level: updated.level,
       parentId: updated.parentId,
       accountType: updated.accountType,
+      accountTypes: updated.accountTypes,
     };
   }
 
@@ -520,15 +568,24 @@ export class IbService {
 
     const childrenWithDetails = await Promise.all(
       data.map(async (child: any) => {
-        const totalChildren = await this.prisma.ibNode.count({
-          where: { parentId: child.id, isActive: true },
-        });
+        const [totalChildren, subtreeTypes] = await Promise.all([
+          this.prisma.ibNode.count({ where: { parentId: child.id, isActive: true } }),
+          this.getSubtreeAccountTypes(child.id),
+        ]);
+
+        const directTypes = (child.accountTypes && Array.isArray(child.accountTypes) && child.accountTypes.length > 0)
+          ? child.accountTypes
+          : [child.accountType || 'STD'];
+
+        const combinedTypes = Array.from(new Set([...directTypes, ...subtreeTypes].filter(Boolean)));
+
         return {
           id: child.id,
           name: child.name,
           email: child.email,
           level: child.level,
-          accountType: child.accountType || 'Standard',
+          accountType: child.accountType || 'STD',
+          accountTypes: combinedTypes.length > 0 ? combinedTypes : ['STD'],
           isActive: child.isActive,
           totalChildren,
           createdAt: child.createdAt,
@@ -657,6 +714,7 @@ export class IbService {
     limit: number,
     callerRole?: string,
     callerLevel?: number,
+    type?: 'mib' | 'sub-ib' | 'all',
   ) {
     let searchableIds: string[];
 
@@ -683,6 +741,12 @@ export class IbService {
       id: { in: searchableIds },
     };
 
+    if (type === 'mib') {
+      where.level = 0;
+    } else if (type === 'sub-ib') {
+      where.level = { gte: 1 };
+    }
+
     if (q && typeof q === 'string' && q.trim().length >= 2) {
       const keyword = q.trim();
       where.OR = [
@@ -708,6 +772,8 @@ export class IbService {
           email: true,
           name: true,
           level: true,
+          accountType: true,
+          accountTypes: true,
           isActive: true,
           parentId: true,
           createdAt: true,
@@ -903,7 +969,7 @@ export class IbService {
 
     const movedIb = await this.prisma.ibNode.findUnique({
       where: { id: targetIbId },
-      select: { id: true, email: true, name: true, level: true, parentId: true },
+      select: { id: true, email: true, name: true, level: true, parentId: true, accountType: true, accountTypes: true },
     });
 
     if (!movedIb) {
@@ -912,7 +978,7 @@ export class IbService {
 
     const newParent = await this.prisma.ibNode.findUnique({
       where: { id: targetParentId },
-      select: { id: true, email: true, name: true, level: true, accountType: true, parentId: true, role: true },
+      select: { id: true, email: true, name: true, level: true, accountType: true, accountTypes: true, parentId: true },
     });
 
     if (!newParent) {
@@ -944,7 +1010,27 @@ export class IbService {
       });
     }
 
-    // 2. Rebate Validation: Verify movedIb's rebate <= newParent's rebate max limit
+    // 2. Account Types Matching Check: Verify newParent possesses all account types owned by movedIb and its subtree
+    const subtreeTypes = await this.getSubtreeAccountTypes(targetIbId);
+    const directMovedTypes = (movedIb.accountTypes && movedIb.accountTypes.length > 0)
+      ? movedIb.accountTypes
+      : [movedIb.accountType || 'STD'];
+    const movedTypes = Array.from(new Set([...directMovedTypes, ...subtreeTypes].filter(Boolean)));
+
+    const parentTypes = (newParent.accountTypes && newParent.accountTypes.length > 0)
+      ? newParent.accountTypes
+      : [newParent.accountType || 'STD'];
+
+    const missingAccountTypes = movedTypes.filter((t) => !parentTypes.includes(t));
+
+    if (missingAccountTypes.length > 0) {
+      throw new BadRequestException({
+        code: 'ACCOUNT_TYPES_MISMATCH',
+        message: `Chuyển nhánh thất bại: IB cha (${newParent.name || newParent.email}) chưa có loại tài khoản (${missingAccountTypes.join(', ')}). Vui lòng yêu cầu ADMIN cấp loại tài khoản mà IB cha đang thiếu để có thể chuyển nhánh.`,
+      });
+    }
+
+    // 3. Rebate Validation: Verify movedIb's rebate <= newParent's rebate max limit for matching accountTypes
     const movedIbConfigs = await this.prisma.rebateConfig.findMany({
       where: { ibId: targetIbId },
     });
@@ -958,17 +1044,27 @@ export class IbService {
         const movedPips = Number(movedConfig.rebatePips || 0);
         if (movedPips > 0) {
           const parentConfig = newParentConfigs.find(
-            (pc) => pc.assetType === movedConfig.assetType && pc.rebateType === movedConfig.rebateType,
+            (pc) =>
+              pc.accountType === movedConfig.accountType &&
+              pc.assetType === movedConfig.assetType &&
+              pc.rebateType === movedConfig.rebateType,
           );
 
-          const parentLimit = newParent.level === 0
-            ? Number(parentConfig?.maxPips || parentConfig?.rebatePips || 0)
-            : Number(parentConfig?.rebatePips || 0);
+          let parentLimit = 0;
+          if (newParent.level === 0) {
+            const addedMarkup = this.parseAccountTypePips(movedConfig.accountType);
+            const baseMax = (parentConfig && Number(parentConfig.maxPips) > 0)
+              ? Number(parentConfig.maxPips)
+              : (MAX_PIPS[movedConfig.assetType as AssetType] || 0);
+            parentLimit = baseMax + addedMarkup;
+          } else {
+            parentLimit = Number(parentConfig?.rebatePips || 0);
+          }
 
           if (movedPips > parentLimit) {
             throw new BadRequestException({
               code: 'REBATE_INSUFFICIENT',
-              message: 'Chuyển nhánh thất bại do số Rebate cấp trên không đủ.',
+              message: `Chuyển nhánh thất bại do số Rebate cấp trên không đủ cho loại link ${movedConfig.accountType} (${movedConfig.assetType}).`,
             });
           }
         }
@@ -1076,6 +1172,52 @@ export class IbService {
     }
 
     return results;
+  }
+
+  private async getSubtreeAccountTypes(rootId: string): Promise<string[]> {
+    const queue = [rootId];
+    const typesSet = new Set<string>();
+
+    while (queue.length > 0) {
+      const currId = queue.shift()!;
+      const node = await this.prisma.ibNode.findUnique({
+        where: { id: currId },
+        select: { accountType: true, accountTypes: true },
+      });
+      if (node) {
+        if (node.accountType) typesSet.add(node.accountType);
+        if (node.accountTypes && Array.isArray(node.accountTypes)) {
+          node.accountTypes.forEach((t) => typesSet.add(t));
+        }
+      }
+
+      const configs = await this.prisma.rebateConfig.findMany({
+        where: { ibId: currId },
+        select: { accountType: true },
+      });
+      configs.forEach((c) => {
+        if (c.accountType) typesSet.add(c.accountType);
+      });
+
+      const children = await this.prisma.ibNode.findMany({
+        where: { parentId: currId },
+        select: { id: true },
+      });
+      children.forEach((c) => queue.push(c.id));
+    }
+
+    const result = Array.from(typesSet).filter(Boolean);
+    return result.length > 0 ? result : ['STD'];
+  }
+
+  private parseAccountTypePips(accType?: string): number {
+    if (!accType || accType === 'STD') return 0;
+    const match = accType.match(/(\d+(?:\.\d+)?)/);
+    if (match) {
+      const num = parseFloat(match[1]);
+      return isNaN(num) ? 0 : num;
+    }
+    return 0;
   }
 
   /**

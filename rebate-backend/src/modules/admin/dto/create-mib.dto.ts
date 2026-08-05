@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength, IsArray } from 'class-validator';
 
 export class CreateMibDto {
   @ApiProperty({ description: 'Email của MIB mới' })
@@ -22,6 +22,11 @@ export class CreateMibDto {
   @IsOptional()
   @MaxLength(100)
   accountType?: string;
+
+  @ApiPropertyOptional({ description: 'Danh sách các loại tài khoản link được cấp', type: [String] })
+  @IsArray()
+  @IsOptional()
+  accountTypes?: string[];
 
   @ApiPropertyOptional({ description: 'Số điện thoại' })
   @IsString()

@@ -47,11 +47,13 @@ function makePrismaMock() {
       const tx = {
         rebateConfig: {
           findUnique: jest.fn().mockImplementation(({ where }) => {
-            const key = `${where.ibId_assetType_rebateType.ibId}:${where.ibId_assetType_rebateType.assetType}:${where.ibId_assetType_rebateType.rebateType}`;
+            const w = where.ibId_accountType_assetType_rebateType || where.ibId_assetType_rebateType;
+            const key = `${w.ibId}:${w.assetType}:${w.rebateType}`;
             return Promise.resolve(store.get(key) || null);
           }),
           upsert: jest.fn().mockImplementation(({ where, update, create }) => {
-            const key = `${where.ibId_assetType_rebateType.ibId}:${where.ibId_assetType_rebateType.assetType}:${where.ibId_assetType_rebateType.rebateType}`;
+            const w = where.ibId_accountType_assetType_rebateType || where.ibId_assetType_rebateType;
+            const key = `${w.ibId}:${w.assetType}:${w.rebateType}`;
             const existing = store.get(key);
             const data = existing ? { ...existing, ...update } : create;
             store.set(key, data);

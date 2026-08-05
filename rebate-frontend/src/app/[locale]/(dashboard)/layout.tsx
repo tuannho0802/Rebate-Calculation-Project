@@ -79,6 +79,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const handleLogout = async () => {
     try {
       await authApi.logout();
+    } catch (error) {
+      console.warn('Logout API failed, proceeding with client logout:', error);
     } finally {
       queryClient.clear();
       logout();

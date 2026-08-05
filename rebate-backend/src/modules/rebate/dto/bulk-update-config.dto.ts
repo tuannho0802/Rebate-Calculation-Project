@@ -17,6 +17,11 @@ export class BulkRebateItemDto {
   @IsNotEmpty()
   ibId!: string;
 
+  @ApiProperty({ description: 'Loại tài khoản link', example: 'STD10', required: false })
+  @IsOptional()
+  @IsString()
+  accountType?: string;
+
   @ApiProperty({ type: [RebateAssetConfigDto], description: 'Danh sách cấu hình asset cần cập nhật' })
   @IsArray()
   @ValidateNested({ each: true })
@@ -32,6 +37,11 @@ export class BulkUpdateRebateConfigDto {
   @ValidateNested({ each: true })
   @Type(() => BulkRebateItemDto)
   items!: BulkRebateItemDto[];
+
+  @ApiProperty({ description: 'Loại tài khoản link cho đợt cập nhật này', example: 'STD10', required: false })
+  @IsOptional()
+  @IsString()
+  accountType?: string;
 
   @ApiProperty({
     enum: ['direct', 'cascade'],

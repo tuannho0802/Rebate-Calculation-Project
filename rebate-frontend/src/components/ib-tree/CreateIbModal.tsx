@@ -21,12 +21,29 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('123456');
-  const [accountType, setAccountType] = useState('Markup 0%');
-  const [accountTypeOptions, setAccountTypeOptions] = useState<string[]>(['Markup 0%']);
+  const [selectedAccountTypes, setSelectedAccountTypes] = useState<string[]>(['STD']);
+  const [accountTypeOptions, setAccountTypeOptions] = useState<string[]>(['STD']);
   const [errorMsg, setErrorMsg] = useState('');
 
+  const toggleAccountType = (type: string) => {
+    setSelectedAccountTypes((prev) =>
+      prev.includes(type)
+        ? prev.length > 1
+          ? prev.filter((t) => t !== type)
+          : prev
+        : [...prev, type]
+    );
+  };
+
   const createMutation = useMutation({
-    mutationFn: () => ibApi.create(email, password, name, accountType),
+    mutationFn: () => ibApi.create(
+      email,
+      password,
+      name,
+      selectedAccountTypes[0] || 'STD',
+      undefined,
+      selectedAccountTypes,
+    ),
     onSuccess: (res) => {
       if (res.success) {
         queryClient.invalidateQueries({ queryKey: ['ibTree'] });
@@ -34,7 +51,7 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
         setName('');
         setEmail('');
         setPassword('123456');
-        setAccountType(accountTypeOptions[0] || 'Markup 0%');
+        setSelectedAccountTypes(accountTypeOptions.slice(0, 1));
         setErrorMsg('');
       } else {
         setErrorMsg(getErrorMessage((res as any).error?.code));
@@ -66,40 +83,43 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
   useEffect(() => {
     if (!isOpen) return;
 
-    const isParentSubIb = parentIbData?.success && parentIbData.data.level > 0;
+    const configuredTemplates = (templateData?.success && templateData.data?.markupLinkTemplates)
+      ? templateData.data.markupLinkTemplates.map((item) => item.name).filter(Boolean)
+      : [];
 
-    if (isParentSubIb) {
-      const pAccountType = parentIbData.data.accountType || 'Markup 0%';
-      setAccountTypeOptions([pAccountType]);
-      setAccountType(pAccountType);
-    } else {
-      if (templateData?.success) {
-        const options = Array.from(new Set(templateData.data.markupLinkTemplates.map((item) => item.name))).filter(Boolean);
-        const normalizedOptions = options.length > 0 ? options : ['Markup 0%'];
-        setAccountTypeOptions(normalizedOptions);
-        setAccountType((prev) => normalizedOptions.includes(prev) ? prev : normalizedOptions[0]);
-      } else if (isTemplateError || templateData?.success === false) {
-        setAccountTypeOptions(['Markup 0%']);
-        setAccountType('Markup 0%');
+    let availableOptions: string[] = [];
+
+    if (parentIbData?.success && parentIbData.data) {
+      const pTypes = (parentIbData.data.accountTypes && parentIbData.data.accountTypes.length > 0)
+        ? parentIbData.data.accountTypes
+        : [parentIbData.data.accountType || 'STD'];
+
+      // Nếu parent là level 0 (MIB), MIB có thể cấp mọi loại link markup được định nghĩa ở trang Config + parentTypes
+      if (parentIbData.data.level === 0) {
+        availableOptions = Array.from(new Set([...configuredTemplates, ...pTypes]));
+      } else {
+        availableOptions = pTypes;
       }
+    } else if (configuredTemplates.length > 0) {
+      availableOptions = Array.from(new Set(configuredTemplates));
+    } else {
+      availableOptions = ['STD'];
     }
-  }, [isOpen, templateData, isTemplateError, parentId, parentIbData]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const isParentSubIb = parentIbData?.success && parentIbData.data.level > 0;
-    if (!isParentSubIb && accountTypeOptions.length === 0) {
-      setAccountTypeOptions(['Markup 0%']);
-      setAccountType('Markup 0%');
+    if (availableOptions.length === 0) {
+      availableOptions = ['STD'];
     }
-  }, [isOpen, accountTypeOptions.length, parentIbData]);
+
+    setAccountTypeOptions(availableOptions);
+    setSelectedAccountTypes(availableOptions);
+  }, [isOpen, templateData, parentIbData]);
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !email || !password || !accountType) {
-      setErrorMsg('Vui lòng nhập đầy đủ thông tin');
+    if (!name || !email || !password || selectedAccountTypes.length === 0) {
+      setErrorMsg('Vui lòng nhập đầy đủ thông tin và chọn ít nhất 1 loại tài khoản link');
       return;
     }
     createMutation.mutate();
@@ -182,21 +202,30 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Loại tài khoản</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Briefcase className="h-5 w-5 text-gray-400" />
-                </div>
-                <select
-                  value={accountType}
-                  onChange={(e) => setAccountType(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-amber-500 focus:border-amber-500 transition-all font-medium appearance-none"
-                  required
-                >
-                  {accountTypeOptions.map((option) => (
-                    <option key={option} value={option}>{option}</option>
-                  ))}
-                </select>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Cấp loại tài khoản link cho cấp dưới</label>
+              <p className="text-xs text-gray-500 mb-2">Chọn các loại link cấp dưới được phép sở hữu (từ danh sách bạn đang có)</p>
+              <div className="grid grid-cols-2 gap-2 rounded-xl border border-gray-200 p-3 bg-gray-50/50">
+                {accountTypeOptions.map((option) => {
+                  const isSelected = selectedAccountTypes.includes(option);
+                  return (
+                    <label
+                      key={option}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer text-sm font-medium transition-all ${
+                        isSelected
+                          ? 'bg-amber-50 border-amber-500 text-amber-950 shadow-sm font-bold'
+                          : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleAccountType(option)}
+                        className="rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{option}</span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
 

@@ -86,6 +86,7 @@ export interface IbNode {
   parentEmail?: string;
   parentName?: string | null;
   accountType?: string;
+  accountTypes?: string[];
   isActive: boolean;
   totalChildren?: number;
   createdAt: string;
@@ -118,12 +119,14 @@ export interface IbProfile {
   bankAccount?: BankAccountInfo | null;
   paymentInfo?: PaymentInfo | null;
   notes?: string | null;
+  accountType?: string;
+  accountTypes?: string[];
   referralCode?: string | null;
   profileUpdatedAt?: string | null;
-  wallet: {
-    balance: number;
-    totalEarned: number;
-  };
+  wallet?: {
+    balance: number | string;
+    totalEarned: number | string;
+  } | null;
 }
 
 export interface UpdateProfileDto {
@@ -132,12 +135,12 @@ export interface UpdateProfileDto {
   bankAccount?: string; // JSON.stringify(BankAccountInfo)
   paymentInfo?: string; // JSON.stringify(PaymentInfo)
 }
-
 // ─── Rebate Config ────────────────────────────────────────────────
 
 export interface RebateAssetConfig {
   assetType: AssetType;
   rebateType: RebateType;
+  accountType?: string;
   rebatePips: number;
   markupPips: number;
   markupPercent: number;  // 80 hoặc 100
@@ -146,6 +149,7 @@ export interface RebateAssetConfig {
 
 export interface RebateConfig {
   ibId: string;
+  accountType?: string;
   assets: RebateAssetConfig[];
   updatedAt: string;
 }

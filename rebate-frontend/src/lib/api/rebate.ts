@@ -2,32 +2,35 @@ import { ApiResponse, RebateConfig, RebateCalculation, AssetType, BulkUpdateResp
 import { apiClient } from './client';
 
 export const rebateApi = {
-  getConfig: async (ibId: string): Promise<ApiResponse<RebateConfig>> => {
+  getConfig: async (ibId: string, accountType?: string): Promise<ApiResponse<RebateConfig>> => {
     try {
-      console.log('rebateApi.getConfig', { url: `/rebate/config/${ibId}`, ibId });
+      console.log('rebateApi.getConfig', { url: `/rebate/config/${ibId}`, ibId, accountType });
     } catch (e) {
       // ignore logging errors
     }
-    const response = await apiClient.get<ApiResponse<RebateConfig>>(`/rebate/config/${ibId}`);
+    const query = accountType ? `?accountType=${encodeURIComponent(accountType)}` : '';
+    const response = await apiClient.get<ApiResponse<RebateConfig>>(`/rebate/config/${ibId}${query}`);
     return response.data;
   },
 
-  updateConfig: async (ibId: string, assets: any): Promise<ApiResponse<RebateConfig>> => {
+  updateConfig: async (ibId: string, assets: any, accountType?: string): Promise<ApiResponse<RebateConfig>> => {
     try {
-      console.log('rebateApi.updateConfig', { url: `/rebate/config/${ibId}`, ibId, assets });
+      console.log('rebateApi.updateConfig', { url: `/rebate/config/${ibId}`, ibId, accountType, assets });
     } catch (e) {
       // ignore logging errors
     }
-    const response = await apiClient.put<ApiResponse<RebateConfig>>(`/rebate/config/${ibId}`, { assets });
+    const response = await apiClient.put<ApiResponse<RebateConfig>>(`/rebate/config/${ibId}`, { assets, accountType });
     return response.data;
   },
 
   bulkUpdateConfig: async (
-    items: { ibId: string; assets: RebateConfig['assets'] }[],
+    items: { ibId: string; accountType?: string; assets: RebateConfig['assets'] }[],
     notifyScope?: 'direct' | 'cascade',
+    accountType?: string,
   ): Promise<BulkUpdateResponse> => {
     const response = await apiClient.put<ApiResponse<BulkUpdateResponse>>('/rebate/config/bulk', {
       items,
+      accountType,
       notifyScope,
     });
     return response.data.data;
@@ -73,8 +76,11 @@ export const rebateApi = {
     return response.data;
   },
 
-  saveBranchScenario: async (nodes: { ibId: string; markupPercent: number; markupPips: number }[]): Promise<ApiResponse<{ success: boolean; message: string }>> => {
-    const response = await apiClient.put<ApiResponse<{ success: boolean; message: string }>>('/rebate/config/scenario/save', { nodes });
+  saveBranchScenario: async (
+    nodes: { ibId: string; accountType?: string; markupPercent: number; markupPips: number }[],
+    accountType?: string,
+  ): Promise<ApiResponse<{ success: boolean; message: string }>> => {
+    const response = await apiClient.put<ApiResponse<{ success: boolean; message: string }>>('/rebate/config/scenario/save', { nodes, accountType });
     return response.data;
   },
 

@@ -32,17 +32,21 @@ export class RebateController {
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Get rebate config for an IB', description: 'Returns the rebate configuration for all asset types for a given IB. Requires the requesting user to be in the IB\'s upline subtree.' })
   @ApiParam({ name: 'ibId', description: 'The IB account ID', example: 'clxyz123' })
+  @ApiQuery({ name: 'accountType', required: false, description: 'Filter config by specific account type' })
   @ApiResponse({ status: 200, description: 'Rebate configuration returned successfully' })
   @ApiResponse({ status: 403, description: 'Forbidden — not in subtree' })
   @ApiResponse({ status: 404, description: 'IB not found' })
-  async getConfig(@Param('ibId') ibId: string) {
+  async getConfig(
+    @Param('ibId') ibId: string,
+    @Query('accountType') accountType?: string,
+  ) {
     try {
       // eslint-disable-next-line no-console
-      console.log('RebateController.getConfig called', { ibId, requestPath: `/rebate/config/${ibId}` });
+      console.log('RebateController.getConfig called', { ibId, accountType, requestPath: `/rebate/config/${ibId}` });
     } catch (e) {
       // ignore logging errors
     }
-    return this.rebateService.getConfig(ibId);
+    return this.rebateService.getConfig(ibId, accountType);
   }
 
   @Put('config/bulk')

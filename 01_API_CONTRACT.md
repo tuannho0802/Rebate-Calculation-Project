@@ -786,14 +786,14 @@ Nghĩa là mọi IB trong cùng 1 nhánh MIB đều nhìn thấy chung 1 bộ te
     "accountTypeTemplates": [
       {
         "id": "uuid",
-        "name": "SEA STD",
+        "name": "STD",
         "rows": [
           { "assetType": "FOREX", "maxCeiling": "8", "calcUnit": "pips" }
         ]
       }
     ],
     "markupLinkTemplates": [
-      { "id": "uuid", "name": "SEA STD", "share": 8 }
+      { "id": "uuid", "name": "STD", "share": 8 }
     ]
   }
 }
@@ -816,14 +816,14 @@ Admin) truy cập, luôn gọi PUT với `ibId` = root MIB.
 {
   "accountTypeTemplates": [
     {
-      "name": "SEA STD",
+      "name": "STD",
       "rows": [
         { "assetType": "FOREX", "maxCeiling": "8", "calcUnit": "pips" }
       ]
     }
   ],
   "markupLinkTemplates": [
-    { "name": "SEA STD", "share": 8 }
+    { "name": "STD", "share": 8 }
   ]
 }
 ```

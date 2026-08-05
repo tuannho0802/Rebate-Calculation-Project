@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
+import { exportApi } from '@/lib/api/export';
 import { AssetType, RebateConfig, MAX_PIPS, IbTreeNode } from '@/types';
 import { Loader2, Table2, Sheet, LayoutGrid, Eye, Download, GitBranch, Search, Edit3, RotateCcw, Save } from 'lucide-react';
 import { toast } from 'sonner';
@@ -13,7 +14,7 @@ import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { normalizeTreeRoots, flattenIbTree } from '@/lib/tree-utils';
 import { PivotArrowOverlay } from '@/components/rebate/PivotArrowOverlay';
-import { CompactPivotTable, CompactSelection } from '@/components/rebate/CompactPivotTable';
+import { CompactPivotTable, CompactSelection, nodeHasAccountType } from '@/components/rebate/CompactPivotTable';
 import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
 import { solveBallAllocation, SolverNodeInput } from '@/lib/ai-rebate-solver';
 
@@ -31,6 +32,7 @@ function RebateManagementPageInner() {
   // Search & Pagination state (2 MIBs per page)
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [selectedAccountType, setSelectedAccountType] = useState<string>('STD');
   const ITEMS_PER_PAGE = 2;
 
   const mounted = useSyncExternalStore(
@@ -71,13 +73,22 @@ function RebateManagementPageInner() {
   }, [roots]);
 
   const filteredGroups = useMemo(() => {
-    if (!searchQuery.trim()) return groups;
-    const q = searchQuery.toLowerCase();
-    return groups.filter(g =>
-      (g.root.name && g.root.name.toLowerCase().includes(q)) ||
-      (g.root.email && g.root.email.toLowerCase().includes(q))
-    );
-  }, [groups, searchQuery]);
+    let result = groups;
+
+    if (selectedAccountType) {
+      result = result.filter(g => nodeHasAccountType(g.root, selectedAccountType, configs));
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(g =>
+        (g.root.name && g.root.name.toLowerCase().includes(q)) ||
+        (g.root.email && g.root.email.toLowerCase().includes(q))
+      );
+    }
+
+    return result;
+  }, [groups, searchQuery, selectedAccountType, configs]);
 
   const totalPages = Math.ceil(filteredGroups.length / ITEMS_PER_PAGE) || 1;
 
@@ -124,7 +135,7 @@ function RebateManagementPageInner() {
     if (allNodes.length > 0) {
       const loadConfigs = async () => {
         const results = await Promise.allSettled(
-          allNodes.map(ib => rebateApi.getConfig(ib.id))
+          allNodes.map(ib => rebateApi.getConfig(ib.id, selectedAccountType))
         );
 
         const newConfigs: Record<string, RebateConfig> = {};
@@ -137,7 +148,7 @@ function RebateManagementPageInner() {
       };
       loadConfigs();
     }
-  }, [allNodes, configRefreshTrigger]);
+  }, [allNodes, configRefreshTrigger, selectedAccountType]);
 
   const assetTypes = activeAssetTypes;
 
@@ -214,337 +225,77 @@ function RebateManagementPageInner() {
     deepLinkAppliedRef.current = deepLinkIbId;
   }, [deepLinkIbId, allNodes.length, parentById, ibNodesById, groups]);
 
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+
   const handleExportExcel = async () => {
-    if (!roots || roots.length === 0) return;
-
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'Rebate Calculation System';
-    workbook.lastModifiedBy = 'Admin';
-    workbook.created = new Date();
-
-    function findLeafBranches(rootNode: IbTreeNode): IbTreeNode[][] {
-      const branches: IbTreeNode[][] = [];
-
-      function walk(currentNode: IbTreeNode, currentPath: IbTreeNode[]) {
-        const activeChildren = (currentNode.children ?? []).filter(c => c.isActive);
-        const newPath = [...currentPath, currentNode];
-
-        if (activeChildren.length === 0) {
-          branches.push(newPath);
-        } else {
-          for (const child of activeChildren) {
-            walk(child, newPath);
-          }
-        }
-      }
-
-      walk(rootNode, []);
-      return branches;
+    setIsExportingExcel(true);
+    toast.info('Đang khởi tạo file báo cáo Excel toàn bộ các MIB...');
+    try {
+      const blob = await exportApi.getRebateTree();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Bao_Cao_Rebate_Tat_Ca_MIB_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success('Xuất file Excel báo cáo toàn bộ MIB thành công!');
+    } catch (err: any) {
+      console.error('Failed to export excel:', err);
+      toast.error('Lỗi khi xuất file Excel báo cáo Rebate.');
+    } finally {
+      setIsExportingExcel(false);
     }
-
-    roots.forEach((rootIb, rIdx) => {
-      const mibName = rootIb.name || rootIb.email;
-      const rawSheetName = `MIB_${rIdx + 1}_${mibName.replace(/[^a-zA-Z0-9]/g, '_')}`;
-      const sheetName = rawSheetName.slice(0, 30);
-
-      const worksheet = workbook.addWorksheet(sheetName, {
-        views: [{ showGridLines: true }],
-      });
-
-      const branches = findLeafBranches(rootIb);
-
-      branches.forEach((branch, bIdx) => {
-        const colCount = Math.max(branch.length + 3, 5);
-
-        // 1. Branch Banner Header
-        const branchTitle = branch
-          .map((n, idx) => (idx === 0 ? `MIB: ${n.name || n.email}` : `Level ${idx}: ${n.name || n.email}`))
-          .join(' ➔ ');
-
-        const titleRow = worksheet.addRow([`NHÁNH ${bIdx + 1}: ${branchTitle}`]);
-        worksheet.mergeCells(titleRow.number, 1, titleRow.number, colCount);
-        const titleCell = titleRow.getCell(1);
-        titleCell.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FFFFFF' } };
-        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '1E40AF' } }; // Royal Blue
-        titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
-        titleRow.height = 28;
-
-        worksheet.addRow([]);
-
-        // 2. REBATE TABLE
-        const rebateSubTitle = worksheet.addRow(['I. BẢNG REBATE CÒN LẠI (RETAINED PIPS)']);
-        worksheet.mergeCells(rebateSubTitle.number, 1, rebateSubTitle.number, colCount);
-        const subCell1 = rebateSubTitle.getCell(1);
-        subCell1.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: '0F172A' } };
-        rebateSubTitle.height = 22;
-
-        const rebateHeaderRow = worksheet.addRow([
-          'Asset Type',
-          ...branch.map((n, idx) => (idx === 0 ? `MIB (${n.name || n.email})` : `Level ${idx} (${n.name || n.email})`)),
-          'Company Cap',
-          'Allocated',
-        ]);
-        rebateHeaderRow.height = 24;
-
-        rebateHeaderRow.eachCell((cell) => {
-          cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFF' } };
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '334155' } }; // Dark Slate
-          cell.alignment = { vertical: 'middle', horizontal: 'center' };
-          cell.border = {
-            top: { style: 'thin', color: { argb: '94A3B8' } },
-            left: { style: 'thin', color: { argb: '94A3B8' } },
-            bottom: { style: 'thin', color: { argb: '94A3B8' } },
-            right: { style: 'thin', color: { argb: '94A3B8' } },
-          };
-        });
-
-        const level1NodeInBranch = branch[1];
-        const parseAccountTypePips = (accType?: string): number => {
-          if (!accType) return 0;
-          if (accType === 'STD' || accType === 'SEA STD') return 0;
-          const match = accType.match(/(\d+(?:\.\d+)?)/);
-          if (match) {
-            const num = parseFloat(match[1]);
-            return isNaN(num) ? 0 : num;
-          }
-          return 0;
-        };
-
-        const level1MarkupPips = parseAccountTypePips(level1NodeInBranch?.accountType);
-
-        // 1. Chạy AI Rebate Engine Solver trước cho nhánh này để lấy kịch bản Markup
-        const solverInput: SolverNodeInput[] = branch.map((node, idx) => {
-          const isRoot = idx === 0;
-          const name = isRoot ? (rootIb.name ?? rootIb.email) : (node.name ?? node.email);
-          const lvl = node.level;
-          const assets: Record<string, number> = {};
-
-          assetTypes.forEach((asset) => {
-            if (isRoot) {
-              const mibAssetConfig = configs[rootIb.id]?.assets?.find(a => a.assetType === asset);
-              const mibBaseCap = getMibMaxDisplay(rootIb.id, asset) ?? Number(mibAssetConfig?.maxPips || 0);
-              assets[asset] = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
-            } else {
-              const cfg = configs[node.id]?.assets?.find(a => a.assetType === asset);
-              assets[asset] = Number(cfg?.rebatePips || 0);
-            }
-          });
-
-          return {
-            nodeId: node.id,
-            nodeName: name,
-            level: lvl,
-            assets,
-          };
-        });
-
-        const scenarios = solveBallAllocation(solverInput, level1MarkupPips || 10, assetTypes);
-
-        // Lấy pattern đã lưu trong DB nếu có
-        const savedPatternKey = branch.map(node => {
-          const cfg = configs[node.id]?.assets?.[0];
-          return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
-        });
-
-        let topScenario = scenarios[0];
-        const isSavedPatternValid = savedPatternKey.every(p => p !== null);
-        if (isSavedPatternValid && scenarios.length > 0) {
-          const foundIdx = scenarios.findIndex(sc =>
-            sc.nodes.every((n, idx) => n.white_hold === savedPatternKey[idx])
-          );
-          if (foundIdx !== -1) {
-            topScenario = scenarios[foundIdx];
-          }
-        }
-
-        const scenarioMap: Record<string, { pct: string; white_hold: number }> = {};
-        if (topScenario) {
-          topScenario.nodes.forEach((n) => {
-            scenarioMap[n.nodeId] = { pct: n.pct, white_hold: n.white_hold };
-          });
-        }
-
-        // 2. TẠO CÁC HÀNG BẢNG REBATE TÍNH SỐ PIPS GIỮ LẠI (ĐÃ TRỪ MARKUP PIPS HELD)
-        assetTypes.forEach((asset, aIdx) => {
-          const companyCap = MAX_PIPS[asset];
-          const mibBaseCap = getMibMaxDisplay(rootIb.id, asset) ?? Number(configs[rootIb.id]?.assets?.find(a => a.assetType === asset)?.maxPips || 0);
-          const mibCap = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
-
-          const rowCells: any[] = [asset];
-          let branchSum = 0;
-
-          for (let i = 0; i < branch.length; i++) {
-            const currentNode = branch[i];
-            // Lấy pips hold thực tế từ DB hoặc từ scenarioMap
-            const cfg = configs[currentNode.id]?.assets?.[0];
-            const nodeHold = cfg?.markupPips !== undefined && cfg?.markupPips !== null
-              ? Number(cfg.markupPips)
-              : (scenarioMap[currentNode.id]?.white_hold || 0);
-
-            if (i === 0) {
-              const nextNode = branch[1];
-              const nextRebate = nextNode ? Number(configs[nextNode.id]?.assets?.find(a => a.assetType === asset)?.rebatePips || 0) : 0;
-              const rawMibRetained = nextNode ? Math.max(0, mibCap - nextRebate) : mibCap;
-              const mibRetained = Math.max(0, rawMibRetained - nodeHold);
-              rowCells.push(mibRetained);
-              branchSum += mibRetained;
-            } else {
-              const currentRebate = Number(configs[currentNode.id]?.assets?.find(a => a.assetType === asset)?.rebatePips || 0);
-              const nextNode = branch[i + 1];
-              const nextRebate = nextNode ? Number(configs[nextNode.id]?.assets?.find(a => a.assetType === asset)?.rebatePips || 0) : 0;
-              const rawRetained = nextNode ? Math.max(0, currentRebate - nextRebate) : currentRebate;
-              const retained = Math.max(0, rawRetained - nodeHold);
-              rowCells.push(retained);
-              branchSum += retained;
-            }
-          }
-
-          rowCells.push(companyCap);
-          rowCells.push(branchSum);
-
-          const dataRow = worksheet.addRow(rowCells);
-          dataRow.height = 20;
-
-          const isEven = aIdx % 2 === 0;
-          const bgColor = isEven ? 'FFFFFF' : 'F8FAFC';
-
-          dataRow.eachCell((cell, colIdx) => {
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
-            cell.alignment = { vertical: 'middle', horizontal: colIdx === 1 ? 'left' : 'center' };
-            cell.font = {
-              name: 'Segoe UI',
-              size: 10,
-              bold: colIdx > 1,
-              color: { argb: colIdx === rowCells.length ? '059669' : (colIdx === rowCells.length - 1 ? '047857' : '0F172A') },
-            };
-            cell.border = {
-              top: { style: 'thin', color: { argb: 'E2E8F0' } },
-              left: { style: 'thin', color: { argb: 'E2E8F0' } },
-              bottom: { style: 'thin', color: { argb: 'E2E8F0' } },
-              right: { style: 'thin', color: { argb: 'E2E8F0' } },
-            };
-          });
-        });
-
-        worksheet.addRow([]);
-
-        // 3. MARKUP OPTION TABLE (AI REBATE ENGINE)
-        const markupSubTitle = worksheet.addRow(['II. BẢNG CẤU HÌNH MARKUP OPTION (TỶ LỆ % & PIPS THỰC NHẬN)']);
-        worksheet.mergeCells(markupSubTitle.number, 1, markupSubTitle.number, branch.length + 1);
-        const subCell2 = markupSubTitle.getCell(1);
-        subCell2.font = { name: 'Segoe UI', size: 11, bold: true, color: { argb: '0F172A' } };
-        markupSubTitle.height = 22;
-
-        const markupHeaderRow = worksheet.addRow([
-          'Markup Option',
-          ...branch.map((n, idx) => (idx === 0 ? `MIB (${n.name || n.email})` : `Level ${idx} (${n.name || n.email})`)),
-        ]);
-        markupHeaderRow.height = 24;
-
-        markupHeaderRow.eachCell((cell) => {
-          cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFF' } };
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: '4338CA' } }; // Indigo Header
-          cell.alignment = { vertical: 'middle', horizontal: 'center' };
-          cell.border = {
-            top: { style: 'thin', color: { argb: '818CF8' } },
-            left: { style: 'thin', color: { argb: '818CF8' } },
-            bottom: { style: 'thin', color: { argb: '818CF8' } },
-            right: { style: 'thin', color: { argb: '818CF8' } },
-          };
-        });
-
-        const percentRowVals: any[] = ['Tỷ Lệ % Giữ Lại'];
-        branch.forEach((n) => {
-          const cfg = configs[n.id]?.assets?.[0];
-          const pctFromDb = cfg?.markupPercent !== undefined && cfg?.markupPercent !== null ? `${cfg.markupPercent}%` : null;
-          percentRowVals.push(pctFromDb ?? scenarioMap[n.id]?.pct ?? '0%');
-        });
-        const percentRow = worksheet.addRow(percentRowVals);
-        percentRow.height = 22;
-
-        percentRow.eachCell((cell, colIdx) => {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FEF3C7' } }; // Warm Amber
-          cell.alignment = { vertical: 'middle', horizontal: colIdx === 1 ? 'left' : 'center' };
-          cell.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: '92400E' } };
-          cell.border = {
-            top: { style: 'thin', color: { argb: 'FDE68A' } },
-            left: { style: 'thin', color: { argb: 'FDE68A' } },
-            bottom: { style: 'thin', color: { argb: 'FDE68A' } },
-            right: { style: 'thin', color: { argb: 'FDE68A' } },
-          };
-        });
-
-        const optRowVals: any[] = [`${level1NodeInBranch?.accountType || 'STD'} (${level1MarkupPips || 10} Pips)`];
-        branch.forEach((n) => {
-          const cfg = configs[n.id]?.assets?.[0];
-          const pipsFromDb = cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
-          optRowVals.push(pipsFromDb ?? scenarioMap[n.id]?.white_hold ?? 0);
-        });
-        const optRow = worksheet.addRow(optRowVals);
-        optRow.height = 20;
-
-        optRow.eachCell((cell, colIdx) => {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'F0F9FF' } }; // Light Sky Blue
-          cell.alignment = { vertical: 'middle', horizontal: colIdx === 1 ? 'left' : 'center' };
-          cell.font = { name: 'Segoe UI', size: 10, bold: colIdx > 1, color: { argb: '1E40AF' } };
-          cell.border = {
-            top: { style: 'thin', color: { argb: 'BAE6FD' } },
-            left: { style: 'thin', color: { argb: 'BAE6FD' } },
-            bottom: { style: 'thin', color: { argb: 'BAE6FD' } },
-            right: { style: 'thin', color: { argb: 'BAE6FD' } },
-          };
-        });
-
-        worksheet.addRow([]);
-        worksheet.addRow([]);
-      });
-
-      worksheet.columns.forEach((column, colIdx) => {
-        if (colIdx === 0) {
-          column.width = 25;
-        } else {
-          column.width = 28;
-        }
-      });
-    });
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const url = window.URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `Bang_Gon_Rebate_Markup_All_Branches_${new Date().toISOString().slice(0, 10)}.xlsx`;
-    anchor.click();
-    window.URL.revokeObjectURL(url);
   };
 
   if (!mounted) return null;
 
   return (
     <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Header bar: Search MIB (Trái) + Phân Trang 1 2 3... Next (Giữa) + Export Excel (Phải) */}
+      {/* Header bar: Search MIB (Trái) + Select Loại tài khoản link + Phân Trang 1 2 3... Next (Giữa) + Export Excel (Phải) */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-3 border border-gray-300 shadow-sm">
-        {/* Ô Tìm Kiếm MIB */}
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setCurrentPage(1);
-            }}
-            placeholder="Tìm kiếm theo tên hoặc email của MIB..."
-            className="w-full pl-9 pr-8 py-2 border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+        {/* Ô Tìm Kiếm MIB & Select Box Loại tài khoản link */}
+        <div className="flex items-center gap-3 flex-1 max-w-xl">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
+              placeholder="Tìm kiếm theo tên hoặc email của MIB..."
+              className="w-full pl-9 pr-8 py-2 border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-medium"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs font-bold text-gray-600 whitespace-nowrap">Loại link:</span>
+            <select
+              value={selectedAccountType}
+              onChange={(e) => {
+                setSelectedAccountType(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="py-2 px-3 border border-amber-300 bg-amber-50 font-bold text-amber-950 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 cursor-pointer rounded-none"
             >
-              ✕
-            </button>
-          )}
+              {['STD', 'STD5', 'STD10', 'STD15', 'STD20'].map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {/* Cụm Phân Trang 1 2 3 ... Next */}
@@ -616,6 +367,7 @@ function RebateManagementPageInner() {
             onRefreshConfigs={handleRefreshConfigs}
             onOptimisticUpdateConfigs={handleOptimisticUpdateConfigs}
             highlightIbId={highlightIbId}
+            selectedAccountType={selectedAccountType}
           />
         ))
       )}
@@ -646,6 +398,7 @@ interface MibBranchCardProps {
   onRefreshConfigs: () => void;
   onOptimisticUpdateConfigs: (updates: Record<string, Record<string, number>>) => void;
   highlightIbId?: string;
+  selectedAccountType: string;
 }
 
 function MibBranchCard({
@@ -663,6 +416,7 @@ function MibBranchCard({
   onRefreshConfigs,
   onOptimisticUpdateConfigs,
   highlightIbId,
+  selectedAccountType,
 }: MibBranchCardProps) {
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState<boolean>(false);
@@ -825,6 +579,7 @@ function MibBranchCard({
 
           return {
             ibId,
+            accountType: selectedAccountType,
             assets: Object.entries(assetMap).map(([assetType, rebatePips]) => {
               const existing = existingAssets.find(a => a.assetType === assetType);
               return {
@@ -834,12 +589,21 @@ function MibBranchCard({
                 rebatePips,
                 markupPips: Number(existing?.markupPips || 0),
                 markupPercent: Number(existing?.markupPercent || 100),
+                accountType: selectedAccountType,
               };
             }),
           };
         });
 
-        await rebateApi.bulkUpdateConfig(items);
+        const bulkRes = await rebateApi.bulkUpdateConfig(items, undefined, selectedAccountType);
+        if (bulkRes && bulkRes.failCount > 0) {
+          const failedItems = bulkRes.results?.filter((r: any) => !r.success) || [];
+          const errMsg = failedItems.map((f: any) => f.error?.message || 'Lỗi lưu cấu hình').join('; ');
+          toast.error(`Không thể lưu cấu hình cho một số IB: ${errMsg}`);
+          onRefreshConfigs();
+          setIsSaving(false);
+          return;
+        }
       }
 
       // 2. Đồng thời lưu Kịch bản Markup Option (Tỷ lệ % & Số Pips Giữ Lại) vào DB
@@ -848,11 +612,12 @@ function MibBranchCard({
           const pctNum = parseFloat(node.pct.replace('%', ''));
           return {
             ibId: node.nodeId,
+            accountType: selectedAccountType,
             markupPercent: isNaN(pctNum) ? 100 : pctNum,
             markupPips: node.white_hold,
           };
         });
-        await rebateApi.saveBranchScenario(payloadNodes);
+        await rebateApi.saveBranchScenario(payloadNodes, selectedAccountType);
       }
 
       toast.success(`Đã lưu đồng thời Cấu hình Rebate & Kịch bản Markup cho nhánh ${root.name || root.email} vào cơ sở dữ liệu thành công!`);
@@ -936,6 +701,7 @@ function MibBranchCard({
           onCellEdit={handleCellEdit}
           onActiveScenarioChange={handleActiveScenarioChange}
           highlightIbId={highlightIbId}
+          selectedAccountType={selectedAccountType}
         />
       )}
     </div>

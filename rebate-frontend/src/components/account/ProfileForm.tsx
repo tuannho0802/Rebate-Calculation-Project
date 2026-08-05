@@ -169,11 +169,11 @@ function ProfileFormFields({ userId, profile }: ProfileFormFieldsProps) {
           <div className="flex gap-4">
             <div className="rounded-xl bg-white/70 border border-amber-200/60 px-4 py-2.5 text-right">
               <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">{t('walletBalanceLabel')}</p>
-              <p className="text-base font-extrabold text-gray-900">${profile.wallet.balance.toLocaleString('en-US', { maximumFractionDigits: 2 })}</p>
+              <p className="text-base font-extrabold text-gray-900">${Number(profile?.wallet?.balance || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}</p>
             </div>
             <div className="rounded-xl bg-white/70 border border-amber-200/60 px-4 py-2.5 text-right">
               <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">{t('walletEarnedLabel')}</p>
-              <p className="text-base font-extrabold text-gray-900">${profile.wallet.totalEarned.toLocaleString('en-US', { maximumFractionDigits: 2 })}</p>
+              <p className="text-base font-extrabold text-gray-900">${Number(profile?.wallet?.totalEarned || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}</p>
             </div>
           </div>
         </div>

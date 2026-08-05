@@ -53,24 +53,40 @@ export class RebateService {
    * chưa cấp gì cho asset này"), KHÔNG được fallback — nếu không child
    * sẽ tưởng nhầm mình có full budget.
    */
+  private parseAccountTypePips(accType?: string): number {
+    if (!accType) return 0;
+    if (accType === 'STD') return 0;
+    const match = accType.match(/(\d+(?:\.\d+)?)/);
+    if (match) {
+      const num = parseFloat(match[1]);
+      return isNaN(num) ? 0 : num;
+    }
+    return 0;
+  }
+
   private resolveEffectiveMaxPips(rawMaxPips: number, isMib: boolean, assetType: AssetType): number {
     return isMib && rawMaxPips <= 0 ? (MAX_PIPS[assetType] || 0) : rawMaxPips;
   }
 
-  async getConfig(ibId: string) {
-    const [configs, ib] = await Promise.all([
-      this.prisma.rebateConfig.findMany({
-        where: { ibId },
-        orderBy: { updatedAt: 'desc' },
-      }),
-      this.prisma.ibNode.findUnique({ where: { id: ibId }, select: { level: true } }),
-    ]);
+  async getConfig(ibId: string, accountType?: string) {
+    const ib = await this.prisma.ibNode.findUnique({
+      where: { id: ibId },
+      select: { level: true, accountType: true, accountTypes: true },
+    });
 
-    // Fallback về "Trần công ty" (MAX_PIPS[assetType]) khi maxPips <= 0 —
-    // CHỈ áp dụng cho MIB (level 0). Với non-MIB, maxPips = 0 là trạng thái
-    // hợp lệ ("cấp trên chưa cấp/cấp 0 pips cho asset này"), KHÔNG được che
-    // bằng trần mặc định, nếu không child sẽ tưởng mình có full budget.
     const isMib = ib?.level === 0;
+
+    const where: any = { ibId };
+    if (accountType) {
+      where.accountType = accountType;
+    }
+
+    const configs = await this.prisma.rebateConfig.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const targetAccountType = accountType || ib?.accountType || 'STD';
 
     const existingAssets = configs.map((c: any) => {
       const rawMaxPips = Number(c.maxPips);
@@ -78,6 +94,7 @@ export class RebateService {
       return {
         assetType: c.assetType,
         rebateType: c.rebateType,
+        accountType: c.accountType,
         rebatePips: Number(c.rebatePips),
         markupPips: Number(c.markupPips),
         markupPercent: Number(c.markupPercent),
@@ -89,24 +106,19 @@ export class RebateService {
     if (!isMib) {
       return {
         ibId,
+        accountType: targetAccountType,
         assets: existingAssets,
         updatedAt: configs.length > 0 ? configs[0].updatedAt : new Date(),
       };
     }
 
-    // FIX (27/07/2026) — "bootstrap gap": MIB không có dòng rebateConfig nào
-    // trong DB trừ khi Admin từng override, hoặc chính MIB đã tự cấu hình.
-    // Trước đây điều này khiến getConfig() trả về assets=[] hoàn toàn cho MIB
-    // dù MIB là root của cả 1 nhánh (Dashboard hiện "Chưa có cấu hình Rebate
-    // nào được kích hoạt"). Giờ với MIB, đảm bảo MỌI AssetType đều xuất hiện —
-    // asset chưa có dòng thật thì trả về "ảo" với maxPips = trần công ty mặc định,
-    // giống hệt như thể đã có sẵn (không ghi gì xuống DB, chỉ synth ở response).
     const existingAssetTypes = new Set(existingAssets.map((a) => a.assetType));
     const syntheticAssets = Object.values(AssetType)
       .filter((at) => !existingAssetTypes.has(at))
       .map((at) => ({
         assetType: at,
         rebateType: 'STP_REBATE' as any,
+        accountType: targetAccountType,
         rebatePips: 0,
         markupPips: 0,
         markupPercent: 100,
@@ -116,6 +128,7 @@ export class RebateService {
 
     return {
       ibId,
+      accountType: targetAccountType,
       assets: [...existingAssets, ...syntheticAssets],
       updatedAt: configs.length > 0 ? configs[0].updatedAt : new Date(),
     };
@@ -268,12 +281,13 @@ export class RebateService {
 
     await this.prisma.$transaction(async (tx: any) => {
       for (const assetConfig of updateDto.assets) {
+        const targetAccountType = assetConfig.accountType || updateDto.accountType || targetIb?.accountType || 'STD';
         const { assetType, rebateType = 'STP_REBATE', rebatePips, markupPips, markupPercent } = assetConfig;
         const parentIbId = targetIb?.parentId;
         const hasParent = !!(parentIbId && parentIbId !== targetIbId);
         const parentConfig = hasParent
           ? await tx.rebateConfig.findUnique({
-            where: { ibId_assetType_rebateType: { ibId: parentIbId, assetType, rebateType: rebateType as any } },
+            where: { ibId_accountType_assetType_rebateType: { ibId: parentIbId, accountType: targetAccountType, assetType, rebateType: rebateType as any } },
             include: { ib: true },
           })
           : null;
@@ -288,7 +302,7 @@ export class RebateService {
 
         // 1. Lấy config hiện tại -> before
         const existing = await tx.rebateConfig.findUnique({
-          where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
+          where: { ibId_accountType_assetType_rebateType: { ibId: targetIbId, accountType: targetAccountType, assetType, rebateType: rebateType as any } },
         });
 
         const before = existing ? {
@@ -325,8 +339,9 @@ export class RebateService {
             assetType,
           );
 
+          const accountTypePips = this.parseAccountTypePips(targetAccountType);
           const parentRebateMax = parentIsMib
-            ? effectiveParentMaxPips + Number(markupPips || 0)
+            ? effectiveParentMaxPips + accountTypePips
             : Number(parentConfig?.rebatePips || 0);
 
           const parentMarkupMax = 100;
@@ -378,10 +393,11 @@ export class RebateService {
         // 1.1 Cập nhật % Markup giữ lại cho IB cha (cấp trên)
         if (parentConfig && currentUserId !== targetIbId) {
           await tx.rebateConfig.upsert({
-            where: { ibId_assetType_rebateType: { ibId: currentUserId, assetType, rebateType: rebateType as any } },
+            where: { ibId_accountType_assetType_rebateType: { ibId: currentUserId, accountType: targetAccountType, assetType, rebateType: rebateType as any } },
             update: { markupPercent: parentKeptPercent },
             create: {
               ibId: currentUserId,
+              accountType: targetAccountType,
               assetType,
               rebateType: rebateType as any,
               rebatePips: Number(parentConfig.rebatePips),
@@ -395,7 +411,7 @@ export class RebateService {
         // 1.2 Xác định % Markup giữ lại cho IB con (targetIb)
         // Mặc định nút lá chưa chia cho ai sẽ là 100%
         const childTargetConfig = await tx.rebateConfig.findUnique({
-          where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
+          where: { ibId_accountType_assetType_rebateType: { ibId: targetIbId, accountType: targetAccountType, assetType, rebateType: rebateType as any } },
         });
 
         const childRetainedPercent = childTargetConfig && childTargetConfig.markupPercent !== null && childTargetConfig.markupPercent !== undefined
@@ -414,7 +430,7 @@ export class RebateService {
 
         // 2. Update -> after
         const updated = await tx.rebateConfig.upsert({
-          where: { ibId_assetType_rebateType: { ibId: targetIbId, assetType, rebateType: rebateType as any } },
+          where: { ibId_accountType_assetType_rebateType: { ibId: targetIbId, accountType: targetAccountType, assetType, rebateType: rebateType as any } },
           update: {
             rebatePips,
             markupPips: Number(markupPips || 0),
@@ -423,6 +439,7 @@ export class RebateService {
           },
           create: {
             ibId: targetIbId,
+            accountType: targetAccountType,
             assetType,
             rebateType: rebateType as any,
             rebatePips,
@@ -571,11 +588,16 @@ export class RebateService {
 
     for (const item of sortedItems) {
       try {
+        const itemAccountType = item.accountType || dto.accountType;
         const config = await this.updateConfig(
           currentUserId,
           currentUserLevel,
           item.ibId,
-          { assets: item.assets, notifyScope: dto.notifyScope },
+          {
+            accountType: itemAccountType,
+            assets: item.assets.map(a => ({ ...a, accountType: a.accountType || itemAccountType })),
+            notifyScope: dto.notifyScope,
+          },
           callerRole,
           proposedById,
         );
@@ -640,8 +662,12 @@ export class RebateService {
 
     await this.prisma.$transaction(async (tx: any) => {
       for (const node of dto.nodes) {
+        const targetAccType = node.accountType || dto.accountType;
         await tx.rebateConfig.updateMany({
-          where: { ibId: node.ibId },
+          where: {
+            ibId: node.ibId,
+            ...(targetAccType ? { accountType: targetAccType } : {}),
+          },
           data: {
             markupPercent: node.markupPercent,
             markupPips: node.markupPips,
@@ -714,8 +740,9 @@ export class RebateService {
       // còn setMibMaxOverride() tồn tại đúng để Admin set trần TUỲ CHỈNH thay thế trần mặc định đó.
       // Chặn theo MAX_PIPS sẽ làm tính năng override vô nghĩa (không bao giờ override được gì).
 
+      const targetAccountType = (ov as any).accountType || 'STD';
       const before = await this.prisma.rebateConfig.findUnique({
-        where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
+        where: { ibId_accountType_assetType_rebateType: { ibId: mibId, accountType: targetAccountType, assetType: ov.assetType, rebateType: ov.rebateType as any } },
       });
       const beforeMaxPips = before ? Number(before.maxPips) : null;
 
@@ -725,10 +752,11 @@ export class RebateService {
       changedOverrides.push(ov);
 
       const updated = await this.prisma.rebateConfig.upsert({
-        where: { ibId_assetType_rebateType: { ibId: mibId, assetType: ov.assetType, rebateType: ov.rebateType as any } },
+        where: { ibId_accountType_assetType_rebateType: { ibId: mibId, accountType: targetAccountType, assetType: ov.assetType, rebateType: ov.rebateType as any } },
         update: { maxPips: ov.maxPips },
         create: {
           ibId: mibId,
+          accountType: targetAccountType,
           assetType: ov.assetType,
           rebateType: ov.rebateType as any,
           rebatePips: 0,
@@ -871,13 +899,11 @@ export class RebateService {
 
         for (const cascade of assetsToCheck) {
           const parentPips = parentConfigMap.get(`${cascade.assetType}:${cascade.rebateType}`) || 0;
-          const childConfig = await this.prisma.rebateConfig.findUnique({
+          const childConfig = await this.prisma.rebateConfig.findFirst({
             where: {
-              ibId_assetType_rebateType: {
-                ibId: child.id,
-                assetType: cascade.assetType,
-                rebateType: cascade.rebateType as any,
-              },
+              ibId: child.id,
+              assetType: cascade.assetType,
+              rebateType: cascade.rebateType as any,
             },
           });
 
@@ -929,10 +955,15 @@ export class RebateService {
     ibId: string,
     assetType: AssetType,
     lots: number,
-    rebateType: string = 'STP_REBATE'
+    rebateType: string = 'STP_REBATE',
+    accountType?: string,
   ) {
-    const config = await this.prisma.rebateConfig.findUnique({
-      where: { ibId_assetType_rebateType: { ibId, assetType, rebateType: rebateType as any } },
+    const whereConfig: any = { ibId, assetType, rebateType: rebateType as any };
+    if (accountType) {
+      whereConfig.accountType = accountType;
+    }
+    const config = await this.prisma.rebateConfig.findFirst({
+      where: whereConfig,
     });
 
     if (!config) {

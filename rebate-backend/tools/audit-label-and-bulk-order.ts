@@ -33,8 +33,8 @@ async function main() {
   const caller = { id: admin.id, level: admin.level, role: admin.role };
 
   const findCfg = async (ibId: string) => {
-    const row = await prisma.rebateConfig.findUnique({
-      where: { ibId_assetType_rebateType: { ibId, assetType: assetType as any, rebateType: rebateType as any } },
+    const row = await prisma.rebateConfig.findFirst({
+      where: { ibId, assetType: assetType as any, rebateType: rebateType as any },
     });
     if (!row) return null;
     return {
