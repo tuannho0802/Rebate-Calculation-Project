@@ -83,21 +83,35 @@ export function CreateIbModal({ isOpen, onClose, parentId }: CreateIbModalProps)
   useEffect(() => {
     if (!isOpen) return;
 
+    const configuredTemplates = (templateData?.success && templateData.data?.markupLinkTemplates)
+      ? templateData.data.markupLinkTemplates.map((item) => item.name).filter(Boolean)
+      : [];
+
+    let availableOptions: string[] = [];
+
     if (parentIbData?.success && parentIbData.data) {
       const pTypes = (parentIbData.data.accountTypes && parentIbData.data.accountTypes.length > 0)
         ? parentIbData.data.accountTypes
         : [parentIbData.data.accountType || 'STD'];
-      setAccountTypeOptions(pTypes);
-      setSelectedAccountTypes(pTypes);
-    } else if (templateData?.success) {
-      const options = Array.from(new Set(templateData.data.markupLinkTemplates.map((item) => item.name))).filter(Boolean);
-      const normalizedOptions = options.length > 0 ? options : ['STD'];
-      setAccountTypeOptions(normalizedOptions);
-      setSelectedAccountTypes(normalizedOptions);
+
+      // Nếu parent là level 0 (MIB), MIB có thể cấp mọi loại link markup được định nghĩa ở trang Config + parentTypes
+      if (parentIbData.data.level === 0) {
+        availableOptions = Array.from(new Set([...configuredTemplates, ...pTypes]));
+      } else {
+        availableOptions = pTypes;
+      }
+    } else if (configuredTemplates.length > 0) {
+      availableOptions = Array.from(new Set(configuredTemplates));
     } else {
-      setAccountTypeOptions(['STD']);
-      setSelectedAccountTypes(['STD']);
+      availableOptions = ['STD'];
     }
+
+    if (availableOptions.length === 0) {
+      availableOptions = ['STD'];
+    }
+
+    setAccountTypeOptions(availableOptions);
+    setSelectedAccountTypes(availableOptions);
   }, [isOpen, templateData, parentIbData]);
 
   if (!isOpen) return null;

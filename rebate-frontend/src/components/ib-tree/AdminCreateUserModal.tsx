@@ -1,8 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from '@/i18n/routing';
 import { ibApi } from '@/lib/api/ib';
+import { rebateTemplateApi } from '@/lib/api/rebateTemplates';
+import { useAuthStore } from '@/store/auth.store';
+import { useQuery } from '@tanstack/react-query';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
 import { IbSearchAutocomplete } from './IbSearchAutocomplete';
@@ -12,25 +15,53 @@ type UserMode = 'mib' | 'sub-ib';
 
 export function AdminCreateUserModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
+  const { user } = useAuthStore();
   const [mode, setMode] = useState<UserMode>('mib');
   const [isCreating, setIsCreating] = useState(false);
   
+  // Fetch markup link templates configured in config page
+  const { data: templateData } = useQuery({
+    queryKey: ['rebateTemplates', user?.id],
+    queryFn: async () => {
+      if (!user?.id) throw new Error('Missing user ID');
+      return rebateTemplateApi.getTemplates(user.id);
+    },
+    enabled: !!user?.id,
+    staleTime: 0,
+  });
+
+  const availableMibTypes = useMemo(() => {
+    if (templateData?.success && templateData.data?.markupLinkTemplates?.length > 0) {
+      const names = templateData.data.markupLinkTemplates.map((t) => t.name).filter(Boolean);
+      if (names.length > 0) {
+        return Array.from(new Set(names));
+      }
+    }
+    return ['STD', 'STD5', 'STD10', 'STD15', 'STD20'];
+  }, [templateData]);
+
   // Form state
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [accountType, setAccountType] = useState('STD');
-  const [selectedAccountTypes, setSelectedAccountTypes] = useState<string[]>(['STD', 'STD5', 'STD10', 'STD15', 'STD20']);
+  const [selectedAccountTypes, setSelectedAccountTypes] = useState<string[]>(availableMibTypes);
   const [phone, setPhone] = useState('');
   const [country, setCountry] = useState('');
-  
+
   // For "create sub-IB" mode
   const [targetParentId, setTargetParentId] = useState('');
   const [targetParentEmail, setTargetParentEmail] = useState('');
   const [parentPreview, setParentPreview] = useState<{ name: string; level: number; accountType: string; accountTypes: string[] } | null>(null);
   const [parentLoading, setParentLoading] = useState(false);
 
-  const availableMibTypes = ['STD', 'STD5', 'STD10', 'STD15', 'STD20'];
+  useEffect(() => {
+    if (mode === 'mib' && availableMibTypes.length > 0) {
+      setSelectedAccountTypes(availableMibTypes);
+      setAccountType(availableMibTypes[0] || 'STD');
+    }
+  }, [availableMibTypes, mode]);
+
 
   const toggleAccountType = (type: string) => {
     setSelectedAccountTypes((prev) =>
