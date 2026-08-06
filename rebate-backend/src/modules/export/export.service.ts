@@ -386,23 +386,37 @@ export class ExportService {
 
         currentRow += 2;
 
+        const nodeHasAccountType = (node: any, targetAccountType: string): boolean => {
+          if (!node) return false;
+          if (Array.isArray(node.accountTypes) && node.accountTypes.length > 0) {
+            if (node.accountTypes.includes(targetAccountType)) return true;
+          }
+          if ((node.accountType || 'STD') === targetAccountType) {
+            return true;
+          }
+          if (Array.isArray(node.rebateConfig) && node.rebateConfig.some((c: any) => c.accountType === targetAccountType)) {
+            return true;
+          }
+          return false;
+        };
+
         const accountTypesSet = new Set<string>();
         for (const n of branchPath) {
           if (n.accountType) accountTypesSet.add(n.accountType);
+          if (Array.isArray(n.accountTypes)) {
+            n.accountTypes.forEach((at: string) => accountTypesSet.add(at));
+          }
           if (Array.isArray(n.rebateConfig)) {
             n.rebateConfig.forEach((c: any) => {
               if (c.accountType) accountTypesSet.add(c.accountType);
             });
           }
-          if (Array.isArray(n.accountTypeTemplates)) {
-            n.accountTypeTemplates.forEach((t: any) => {
-              if (t.name) accountTypesSet.add(t.name);
-            });
-          }
         }
 
         const priorityOrder = ['STD', 'STD5', 'STD10', 'STD15', 'STD20'];
-        const accountTypes = Array.from(accountTypesSet).filter(Boolean);
+        const accountTypes = Array.from(accountTypesSet).filter(
+          (accType) => Boolean(accType) && branchPath.some((node) => nodeHasAccountType(node, accType)),
+        );
         if (accountTypes.length === 0) accountTypes.push('STD');
 
         accountTypes.sort((a, b) => {
