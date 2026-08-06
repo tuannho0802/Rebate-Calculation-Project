@@ -330,15 +330,24 @@ export class ExportService {
       return branches;
     };
 
+    const getNodeConfig = (node: any, assetKey: string, accType: string) => {
+      const cfgs = node.rebateConfig || [];
+      const exactMatch = cfgs.find((c: any) => c.assetType === assetKey && (c.accountType || 'STD') === accType);
+      if (exactMatch) return exactMatch;
+
+      const stdMatch = cfgs.find((c: any) => c.assetType === assetKey && (c.accountType || 'STD') === 'STD');
+      if (stdMatch) return stdMatch;
+
+      return cfgs.find((c: any) => c.assetType === assetKey && (!c.accountType || c.accountType === 'STD'));
+    };
+
     const getNodeReceivedPips = (
       node: any,
       assetKey: string,
       accType: string,
-      defaultMaxPips: number
+      defaultMaxPips = 0
     ): number => {
-      const cfgs = node.rebateConfig || [];
-      const cfg = cfgs.find((c: any) => c.assetType === assetKey && c.accountType === accType)
-        || cfgs.find((c: any) => c.assetType === assetKey && (c.accountType || 'STD') === 'STD');
+      const cfg = getNodeConfig(node, assetKey, accType);
 
       if (cfg) {
         if (cfg.rebatePips !== undefined && cfg.rebatePips !== null) {
@@ -489,16 +498,14 @@ export class ExportService {
 
             ASSET_TYPES.forEach(({ key, maxPips: defaultMaxPips }) => {
               if (isRoot) {
-                const mibAssetConfig = node.rebateConfig?.find((a: any) => a.assetType === key && (a.accountType || 'STD') === accType)
-                  || node.rebateConfig?.find((a: any) => a.assetType === key);
+                const mibAssetConfig = getNodeConfig(node, key, accType);
                 const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
                   ? Number(mibAssetConfig.maxPips)
                   : defaultMaxPips;
                 assets[key] = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
               } else {
-                const cfg = node.rebateConfig?.find((a: any) => a.assetType === key && (a.accountType || 'STD') === accType)
-                  || node.rebateConfig?.find((a: any) => a.assetType === key);
-                assets[key] = Number(cfg?.rebatePips || 0);
+                const cfg = getNodeConfig(node, key, accType);
+                assets[key] = cfg?.rebatePips !== undefined && cfg?.rebatePips !== null ? Number(cfg.rebatePips) : 0;
               }
             });
 
@@ -555,8 +562,7 @@ export class ExportService {
               const hold = fullMarkupHolds[lvIdx] || 0;
 
               if (lvIdx === 0) {
-                const mibAssetConfig = currentNode.rebateConfig?.find((a: any) => a.assetType === asset.key && (a.accountType || 'STD') === accType)
-                  || currentNode.rebateConfig?.find((a: any) => a.assetType === asset.key);
+                const mibAssetConfig = getNodeConfig(currentNode, asset.key, accType);
                 const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
                   ? Number(mibAssetConfig.maxPips)
                   : asset.maxPips;
