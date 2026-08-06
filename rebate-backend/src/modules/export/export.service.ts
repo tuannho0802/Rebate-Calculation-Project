@@ -482,6 +482,107 @@ export class ExportService {
           const startRowForAccType = currentRow;
           let maxBlockHeight = 25;
 
+          // 1. Solve full branch Markup Option allocation via AI Rebate Engine
+          const fullBranchSolverInput: SimulatorNodeInput[] = accSubPath.map((node, idx) => {
+            const isRoot = idx === 0;
+            const lvl = isRoot ? 0 : idx;
+            const assets: Record<string, number> = {};
+
+            ASSET_TYPES.forEach(({ key, maxPips: defaultMaxPips }) => {
+              if (isRoot) {
+                const mibAssetConfig = node.rebateConfig?.find((a: any) => a.assetType === key && (a.accountType || 'STD') === accType)
+                  || node.rebateConfig?.find((a: any) => a.assetType === key);
+                const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
+                  ? Number(mibAssetConfig.maxPips)
+                  : defaultMaxPips;
+                assets[key] = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
+              } else {
+                const cfg = node.rebateConfig?.find((a: any) => a.assetType === key && (a.accountType || 'STD') === accType)
+                  || node.rebateConfig?.find((a: any) => a.assetType === key);
+                assets[key] = Number(cfg?.rebatePips || 0);
+              }
+            });
+
+            return {
+              nodeId: node.id,
+              nodeName: node.name || node.email,
+              level: lvl,
+              assets,
+            };
+          });
+
+          const fullScenarios = this.rebateSimulatorService.solveBallAllocation(
+            fullBranchSolverInput,
+            totalMarkupPips,
+            ASSET_TYPES.map((a) => a.key),
+          );
+
+          const fullSavedPatternKey = accSubPath.map((node) => {
+            const cfg = node.rebateConfig?.find((c: any) => (c.accountType || 'STD') === accType)
+              || node.rebateConfig?.[0];
+            return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
+          });
+
+          let fullActiveIndex = 0;
+          if (fullScenarios.length > 0) {
+            const isSavedPatternValid = fullSavedPatternKey.every((p) => p !== null);
+            if (isSavedPatternValid) {
+              const foundIdx = fullScenarios.findIndex((sc) =>
+                sc.nodes.every((n, idx) => n.white_hold === fullSavedPatternKey[idx])
+              );
+              if (foundIdx !== -1) {
+                fullActiveIndex = foundIdx;
+              }
+            }
+          }
+          const fullActiveScenario = fullScenarios[fullActiveIndex] || fullScenarios[0];
+
+          const fullMarkupHolds: number[] = accSubPath.map((node, idx) => {
+            if (fullActiveScenario && fullActiveScenario.nodes && fullActiveScenario.nodes[idx]) {
+              return fullActiveScenario.nodes[idx].white_hold;
+            }
+            const cfg = node.rebateConfig?.find((c: any) => (c.accountType || 'STD') === accType) || node.rebateConfig?.[0];
+            return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : 0;
+          });
+
+          // 2. Compute full branch retained pips vector for each asset from DB configs
+          const fullRetainedMap: Record<string, number[]> = {};
+
+          for (const asset of ASSET_TYPES) {
+            const retainedArr: number[] = new Array(accSubPath.length).fill(0);
+
+            for (let lvIdx = 0; lvIdx < accSubPath.length; lvIdx++) {
+              const currentNode = accSubPath[lvIdx];
+              const hold = fullMarkupHolds[lvIdx] || 0;
+
+              if (lvIdx === 0) {
+                const mibAssetConfig = currentNode.rebateConfig?.find((a: any) => a.assetType === asset.key && (a.accountType || 'STD') === accType)
+                  || currentNode.rebateConfig?.find((a: any) => a.assetType === asset.key);
+                const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
+                  ? Number(mibAssetConfig.maxPips)
+                  : asset.maxPips;
+                const mibCap = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
+
+                const level1Node = accSubPath[1];
+                const mibGiven = level1Node ? getNodeReceivedPips(level1Node, asset.key, accType, asset.maxPips) : 0;
+                retainedArr[0] = Math.max(0, mibCap - mibGiven - hold);
+              } else {
+                const receivedPips = getNodeReceivedPips(currentNode, asset.key, accType, asset.maxPips);
+
+                if (receivedPips > 0) {
+                  const givenPips = lvIdx + 1 < accSubPath.length
+                    ? getNodeReceivedPips(accSubPath[lvIdx + 1], asset.key, accType, asset.maxPips)
+                    : 0;
+                  retainedArr[lvIdx] = Math.max(0, receivedPips - givenPips - hold);
+                } else {
+                  retainedArr[lvIdx] = 0;
+                }
+              }
+            }
+
+            fullRetainedMap[asset.key] = retainedArr;
+          }
+
           for (let step = 0; step < accSubPath.length; step++) {
             const stepPath = accSubPath.slice(0, step + 1);
             const startCol = 1 + step * 15; // 14 cột dữ liệu + 1 cột spacer
@@ -564,67 +665,6 @@ export class ExportService {
 
             r++;
 
-            const solverInput: SimulatorNodeInput[] = stepPath.map((node, idx) => {
-              const isRoot = idx === 0;
-              const lvl = isRoot ? 0 : idx;
-              const assets: Record<string, number> = {};
-
-              ASSET_TYPES.forEach(({ key, maxPips: defaultMaxPips }) => {
-                if (isRoot) {
-                  const mibAssetConfig = node.rebateConfig?.find((a: any) => a.assetType === key && (a.accountType || 'STD') === accType)
-                    || node.rebateConfig?.find((a: any) => a.assetType === key);
-                  const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
-                    ? Number(mibAssetConfig.maxPips)
-                    : defaultMaxPips;
-                  assets[key] = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
-                } else {
-                  const cfg = node.rebateConfig?.find((a: any) => a.assetType === key && (a.accountType || 'STD') === accType)
-                    || node.rebateConfig?.find((a: any) => a.assetType === key);
-                  assets[key] = Number(cfg?.rebatePips || 0);
-                }
-              });
-
-              return {
-                nodeId: node.id,
-                nodeName: node.name || node.email,
-                level: lvl,
-                assets,
-              };
-            });
-
-            const scenarios = this.rebateSimulatorService.solveBallAllocation(
-              solverInput,
-              totalMarkupPips,
-              ASSET_TYPES.map((a) => a.key),
-            );
-
-            // Read saved pattern from DB configs for active branch
-            const savedPatternKey = stepPath.map((node) => {
-              const cfg = node.rebateConfig?.find((c: any) => (c.accountType || 'STD') === accType)
-                || node.rebateConfig?.[0];
-              return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
-            });
-
-            let activeIndex = 0;
-            if (scenarios.length > 0) {
-              const isSavedPatternValid = savedPatternKey.every((p) => p !== null);
-              if (isSavedPatternValid) {
-                const foundIdx = scenarios.findIndex((sc) =>
-                  sc.nodes.every((n, idx) => n.white_hold === savedPatternKey[idx])
-                );
-                if (foundIdx !== -1) {
-                  activeIndex = foundIdx;
-                }
-              }
-            }
-            const activeScenario = scenarios[activeIndex] || scenarios[0];
-            const scenarioMap: Record<string, { pct: string; white_hold: number }> = {};
-            if (activeScenario && activeScenario.nodes) {
-              activeScenario.nodes.forEach((n) => {
-                scenarioMap[n.nodeId] = { pct: n.pct, white_hold: n.white_hold };
-              });
-            }
-
             // 4. Asset Data Rows (18 sản phẩm)
             let assetIdx = 0;
             for (const asset of ASSET_TYPES) {
@@ -638,41 +678,28 @@ export class ExportService {
               assetLabelCell.alignment = { horizontal: 'left', vertical: 'middle' };
               applyCellBorder(assetLabelCell, 'FFCBD5E1');
 
+              const retainedArr = fullRetainedMap[asset.key] || [];
+              const mibNode = stepPath[0];
+              const mibAssetConfig = mibNode.rebateConfig?.find((a: any) => a.assetType === asset.key && (a.accountType || 'STD') === accType)
+                || mibNode.rebateConfig?.find((a: any) => a.assetType === asset.key);
+              const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
+                ? Number(mibAssetConfig.maxPips)
+                : asset.maxPips;
+
               for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
                 const pipsCell = dataRow.getCell(startCol + 1 + lvIdx);
                 pipsCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
                 if (lvIdx < stepPath.length) {
                   let retainedVal = 0;
-                  const currentNode = stepPath[lvIdx];
 
-                  if (lvIdx === 0) {
-                    // MIB (Level 0)
-                    const mibAssetConfig = currentNode.rebateConfig?.find((a: any) => a.assetType === asset.key && (a.accountType || 'STD') === accType)
-                      || currentNode.rebateConfig?.find((a: any) => a.assetType === asset.key);
-                    const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
-                      ? Number(mibAssetConfig.maxPips)
-                      : asset.maxPips;
-                    const mibCap = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
-
-                    const level1Node = stepPath[1];
-                    const mibGiven = level1Node ? getNodeReceivedPips(level1Node, asset.key, accType, asset.maxPips) : 0;
-                    const rawMibRetained = Math.max(0, mibCap - mibGiven);
-                    const mibHold = scenarioMap[currentNode.id]?.white_hold || 0;
-                    retainedVal = Math.max(0, rawMibRetained - mibHold);
-                  } else {
-                    // Sub-IB (Level 1, Level 2...)
-                    const receivedPips = getNodeReceivedPips(currentNode, asset.key, accType, asset.maxPips);
-
-                    if (receivedPips > 0) {
-                      const givenPips = lvIdx + 1 < stepPath.length
-                        ? getNodeReceivedPips(stepPath[lvIdx + 1], asset.key, accType, asset.maxPips)
-                        : 0;
-                      const childHold = scenarioMap[currentNode.id]?.white_hold || 0;
-                      retainedVal = Math.max(0, receivedPips - givenPips - childHold);
-                    } else {
-                      retainedVal = 0;
-                    }
+                  if (lvIdx < step) {
+                    // Cấp nằm phía trên cấp lá của bước hiện tại: Hiển thị Pips mà cấp này giữ lại
+                    retainedVal = retainedArr[lvIdx] || 0;
+                  } else if (lvIdx === step) {
+                    // Cấp lá của bước hiện tại: Lấy Pips gốc trừ đi tổng Pips đã giữ lại của các cấp phía trên
+                    const prevSum = retainedArr.slice(0, step).reduce((sum, val) => sum + val, 0);
+                    retainedVal = Math.max(0, mibBaseCap - prevSum);
                   }
 
                   pipsCell.value = retainedVal;
@@ -692,7 +719,7 @@ export class ExportService {
                 }
               }
 
-              // Extra Validation Columns: Col 11=Flag Y, Col 12=Status can, Col 13=Max Pips Limit (Bằng đúng số Pips sản phẩm trong Config)
+              // Extra Validation Columns: Col 11=Flag Y, Col 12=Status can, Col 13=Max Pips Limit
               const flagCell = dataRow.getCell(startCol + 11);
               flagCell.value = 'Y';
               flagCell.font = { bold: true, size: 9, color: { argb: 'FF1E4620' }, name: 'Calibri' };
@@ -756,9 +783,14 @@ export class ExportService {
               pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
 
               if (lvIdx < stepPath.length) {
-                const node = stepPath[lvIdx];
-                const isLastNode = lvIdx === stepPath.length - 1;
-                pCell.value = scenarioMap[node.id]?.pct ?? (isLastNode ? '100%' : '0%');
+                if (lvIdx < step) {
+                  const poolAtLv = totalMarkupPips - fullMarkupHolds.slice(0, lvIdx).reduce((a, b) => a + b, 0);
+                  const holdPips = fullMarkupHolds[lvIdx] || 0;
+                  const pctVal = poolAtLv > 0 ? (holdPips / poolAtLv) * 100 : 0;
+                  pCell.value = poolAtLv > 0 ? `${parseFloat(pctVal.toFixed(2))}%` : '0%';
+                } else if (lvIdx === step) {
+                  pCell.value = '100%';
+                }
               } else {
                 pCell.value = '';
               }
@@ -782,8 +814,12 @@ export class ExportService {
               pValCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
 
               if (lvIdx < stepPath.length) {
-                const node = stepPath[lvIdx];
-                pValCell.value = scenarioMap[node.id]?.white_hold ?? 0;
+                if (lvIdx < step) {
+                  pValCell.value = fullMarkupHolds[lvIdx] || 0;
+                } else if (lvIdx === step) {
+                  const prevHoldSum = fullMarkupHolds.slice(0, step).reduce((a, b) => a + b, 0);
+                  pValCell.value = Math.max(0, totalMarkupPips - prevHoldSum);
+                }
               } else {
                 pValCell.value = '';
               }
