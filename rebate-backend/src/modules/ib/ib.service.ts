@@ -978,7 +978,7 @@ export class IbService {
 
     const newParent = await this.prisma.ibNode.findUnique({
       where: { id: targetParentId },
-      select: { id: true, email: true, name: true, level: true, accountType: true, accountTypes: true, parentId: true },
+      select: { id: true, email: true, name: true, role: true, level: true, accountType: true, accountTypes: true, parentId: true },
     });
 
     if (!newParent) {
