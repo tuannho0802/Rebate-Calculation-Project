@@ -388,15 +388,30 @@ export class ExportService {
 
         const nodeHasAccountType = (node: any, targetAccountType: string): boolean => {
           if (!node) return false;
+
+          // 1. Check accountTypes array on node (assigned links)
           if (Array.isArray(node.accountTypes) && node.accountTypes.length > 0) {
             if (node.accountTypes.includes(targetAccountType)) return true;
           }
-          if ((node.accountType || 'STD') === targetAccountType) {
+
+          // 2. Check single accountType string on node
+          if (node.accountType && node.accountType === targetAccountType) {
             return true;
           }
-          if (Array.isArray(node.rebateConfig) && node.rebateConfig.some((c: any) => c.accountType === targetAccountType)) {
-            return true;
+
+          // 3. For 'STD', it is the universal default if node has no explicit accountTypes array restriction
+          if (targetAccountType === 'STD') {
+            if (!node.accountTypes || node.accountTypes.length === 0) return true;
           }
+
+          // 4. Check if node has non-zero rebateConfig in DB saved for targetAccountType
+          if (Array.isArray(node.rebateConfig)) {
+            const hasConfig = node.rebateConfig.some(
+              (c: any) => c.accountType === targetAccountType && (Number(c.rebatePips) > 0 || Number(c.markupPips) > 0),
+            );
+            if (hasConfig) return true;
+          }
+
           return false;
         };
 
@@ -408,7 +423,9 @@ export class ExportService {
           }
           if (Array.isArray(n.rebateConfig)) {
             n.rebateConfig.forEach((c: any) => {
-              if (c.accountType) accountTypesSet.add(c.accountType);
+              if (c.accountType && (Number(c.rebatePips) > 0 || Number(c.markupPips) > 0)) {
+                accountTypesSet.add(c.accountType);
+              }
             });
           }
         }
