@@ -132,14 +132,13 @@ export class RebateSimulatorService {
       }
 
       if (currentWhiteIn === 0) {
-        const pctStr = isLastNode ? '100%' : '0%';
         const nodeRes: ScenarioNodeItem = {
           nodeId: currentNode.nodeId,
           nodeName: currentNode.nodeName,
           level: currentNode.level,
           white_in: 0,
           white_hold: 0,
-          pct: pctStr,
+          pct: '0%',
           white_pass: 0,
           retainedPips,
           minSelf,
@@ -148,13 +147,18 @@ export class RebateSimulatorService {
       } else if (isLastNode) {
         const wHold = currentWhiteIn;
         if (wHold <= minSelf) {
+          const pctVal = (wHold / currentWhiteIn) * 100;
+          let pctStr = `${pctVal.toFixed(2).replace(/\.?0+$/, '')}%`;
+          if (pctStr === '%') {
+            pctStr = '0%';
+          }
           const nodeRes: ScenarioNodeItem = {
             nodeId: currentNode.nodeId,
             nodeName: currentNode.nodeName,
             level: currentNode.level,
             white_in: currentWhiteIn,
             white_hold: wHold,
-            pct: '100%',
+            pct: pctStr,
             white_pass: 0,
             retainedPips,
             minSelf,
