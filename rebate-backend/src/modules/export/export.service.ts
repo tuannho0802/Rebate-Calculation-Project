@@ -646,11 +646,12 @@ export class ExportService {
             pCell.font = { bold: true, size: 9, color: { argb: 'FF7F6000' }, name: 'Calibri' };
             pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
 
-            const pctVal = scenarioMap[node.id]?.pct;
-            if (pctVal !== undefined) {
-              pCell.value = pctVal;
+            const holdVal = scenarioMap[node.id]?.white_hold ?? 0;
+            if (totalMarkupPips > 0) {
+              const pct = (holdVal / totalMarkupPips) * 100;
+              pCell.value = `${Number(pct.toFixed(2))}%`;
             } else {
-              pCell.value = totalMarkupPips === 0 ? (lvIdx === branchPath.length - 1 ? '100%' : '0%') : '0%';
+              pCell.value = lvIdx === branchPath.length - 1 ? '100%' : '0%';
             }
           }
 
