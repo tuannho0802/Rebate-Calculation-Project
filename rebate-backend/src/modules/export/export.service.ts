@@ -480,8 +480,23 @@ export class ExportService {
 
           if (accSubPath.length === 0) continue;
 
-          const matchPips = accType.match(/(\d+(?:\.\d+)?)/);
-          const totalMarkupPips = matchPips ? parseFloat(matchPips[1]) : 0;
+          let totalMarkupPips = 0;
+
+          // Lấy markup pips của account type này từ Node gốc hoặc config
+          const rootConfig = accSubPath[0]?.rebateConfig?.find((c: any) => c.accountType === accType);
+          if (rootConfig && rootConfig.markupPips !== undefined && rootConfig.markupPips !== null) {
+            totalMarkupPips = Number(rootConfig.markupPips);
+          } else {
+            // Dự phòng: Tìm trong accountTypeTemplates nếu có
+            const tmpl = accSubPath[0]?.accountTypeTemplates?.find((t: any) => t.name === accType);
+            if (tmpl && tmpl.markupPips !== undefined && tmpl.markupPips !== null) {
+              totalMarkupPips = Number(tmpl.markupPips);
+            } else {
+              // Trường hợp rơi vào STD10, STD5 nếu chưa lưu markupPips riêng lẻ thì mới parse fallback
+              const matchPips = accType.match(/(\d+(?:\.\d+)?)/);
+              totalMarkupPips = matchPips ? parseFloat(matchPips[1]) : 0;
+            }
+          }
 
           const startRowForAccType = currentRow;
           let maxBlockHeight = 25;
@@ -792,11 +807,20 @@ export class ExportService {
 
               if (lvIdx < stepPath.length) {
                 if (lvIdx < step) {
-                  const poolAtLv = totalMarkupPips - fullMarkupHolds.slice(0, lvIdx).reduce((a, b) => a + b, 0);
+                  // Pool còn lại tại level này = Tổng Markup - Số Pips các cấp trước ĐÃ GIỮ
+                  const prevHoldsSum = fullMarkupHolds.slice(0, lvIdx).reduce((a, b) => a + b, 0);
+                  const poolAtLv = totalMarkupPips - prevHoldsSum;
                   const holdPips = fullMarkupHolds[lvIdx] || 0;
-                  const pctVal = poolAtLv > 0 ? (holdPips / poolAtLv) * 100 : 0;
-                  pCell.value = poolAtLv > 0 ? `${parseFloat(pctVal.toFixed(2))}%` : '0%';
+
+                  if (poolAtLv > 0) {
+                    const pctVal = (holdPips / poolAtLv) * 100;
+                    // Format hiển thị: nếu là số nguyên thì không hiện .00, nếu lẻ thì tối đa 2 chữ số thập phân
+                    pCell.value = `${Number(pctVal.toFixed(2))}%`;
+                  } else {
+                    pCell.value = '0%';
+                  }
                 } else if (lvIdx === step) {
+                  // Cấp cuối cùng nhận lại toàn bộ phần còn lại nên luôn là 100%
                   pCell.value = '100%';
                 }
               } else {
