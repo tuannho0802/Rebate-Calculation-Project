@@ -132,7 +132,7 @@ export class RebateSimulatorService {
       }
 
       if (currentWhiteIn === 0) {
-        const pctStr = isLastNode ? '100%' : '0%';
+        const pctStr = totalWhiteBalls === 0 && isLastNode ? '100%' : '0%';
         const nodeRes: ScenarioNodeItem = {
           nodeId: currentNode.nodeId,
           nodeName: currentNode.nodeName,
@@ -148,13 +148,18 @@ export class RebateSimulatorService {
       } else if (isLastNode) {
         const wHold = currentWhiteIn;
         if (wHold <= minSelf) {
+          const pctVal = totalWhiteBalls > 0 ? (wHold / totalWhiteBalls) * 100 : 100;
+          let pctStr = `${pctVal.toFixed(2).replace(/\.?0+$/, '')}%`;
+          if (pctStr === '%' || wHold === 0) {
+            pctStr = '0%';
+          }
           const nodeRes: ScenarioNodeItem = {
             nodeId: currentNode.nodeId,
             nodeName: currentNode.nodeName,
             level: currentNode.level,
             white_in: currentWhiteIn,
             white_hold: wHold,
-            pct: '100%',
+            pct: pctStr,
             white_pass: 0,
             retainedPips,
             minSelf,
@@ -166,9 +171,9 @@ export class RebateSimulatorService {
 
         for (let wHold = 0; wHold <= maxPossibleHold; wHold++) {
           const wPass = currentWhiteIn - wHold;
-          const pctVal = (wHold / currentWhiteIn) * 100;
+          const pctVal = totalWhiteBalls > 0 ? (wHold / totalWhiteBalls) * 100 : (wHold / currentWhiteIn) * 100;
           let pctStr = `${pctVal.toFixed(2).replace(/\.?0+$/, '')}%`;
-          if (pctStr === '%') {
+          if (pctStr === '%' || wHold === 0) {
             pctStr = '0%';
           }
 
