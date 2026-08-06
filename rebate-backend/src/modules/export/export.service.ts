@@ -338,8 +338,7 @@ export class ExportService {
     ): number => {
       const cfgs = node.rebateConfig || [];
       const cfg = cfgs.find((c: any) => c.assetType === assetKey && c.accountType === accType)
-        || cfgs.find((c: any) => c.assetType === assetKey && (c.accountType || 'STD') === 'STD')
-        || cfgs.find((c: any) => c.assetType === assetKey);
+        || cfgs.find((c: any) => c.assetType === assetKey && (c.accountType || 'STD') === 'STD');
 
       if (cfg) {
         if (cfg.rebatePips !== undefined && cfg.rebatePips !== null) {
@@ -561,11 +560,15 @@ export class ExportService {
                 const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
                   ? Number(mibAssetConfig.maxPips)
                   : asset.maxPips;
-                const mibCap = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
-
                 const level1Node = accSubPath[1];
                 const mibGiven = level1Node ? getNodeReceivedPips(level1Node, asset.key, accType, asset.maxPips) : 0;
-                retainedArr[0] = Math.max(0, mibCap - mibGiven - hold);
+
+                if (mibGiven > 0) {
+                  const mibCap = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
+                  retainedArr[0] = Math.max(0, mibCap - mibGiven - hold);
+                } else {
+                  retainedArr[0] = mibBaseCap;
+                }
               } else {
                 const receivedPips = getNodeReceivedPips(currentNode, asset.key, accType, asset.maxPips);
 
