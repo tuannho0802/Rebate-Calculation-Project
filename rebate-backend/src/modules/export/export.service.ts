@@ -222,7 +222,7 @@ export class ExportService {
   }
 
   /**
-   * TÍNH TOÁN XUẤT EXCEL CHUẨN TẤT CẢ LOẠI TÀI KHOẢN VÀ MỌI BẢNG LŨY TIẾN
+   * XUẤT CẤU HÌNH REBATE CHUẨN 100% THEO MẪU TEST SET REBATE.xlsx
    */
   async generateCustomTreeRebateExcel(rootIbId?: string): Promise<Buffer> {
     const allNodes = await this.prisma.ibNode.findMany({
@@ -266,23 +266,23 @@ export class ExportService {
     workbook.created = new Date();
 
     const ASSET_TYPES = [
-      { key: 'D_FOREX',        label: 'D Forex (Pips)',       maxPips: 12   },
+      { key: 'D_FOREX',        label: 'D Forex(Pips)',        maxPips: 12   },
       { key: 'FOREX',          label: 'Forex (Pips)',          maxPips: 12   },
-      { key: 'GOLD',           label: 'Gold (Pips)',           maxPips: 20   },
-      { key: 'SILVER_5000',    label: 'Silver 5000OZ (Pips)', maxPips: 80   },
-      { key: 'SILVER_1000',    label: 'Silver 1000OZ (Pips)', maxPips: 20   },
+      { key: 'GOLD',           label: 'Gold(Pips)',            maxPips: 20   },
+      { key: 'SILVER_5000',    label: 'Silver 5000OZ(Pips)',  maxPips: 80   },
+      { key: 'SILVER_1000',    label: 'Silver 1000OZ(Pips)',  maxPips: 20   },
       { key: 'OIL',            label: 'Oil (Pips)',            maxPips: 20   },
-      { key: 'NATURE_GAS',     label: 'Nature Gas (Pips)',     maxPips: 35   },
-      { key: 'COMMODITIES',    label: 'Commodities (Pips)',    maxPips: 3    },
-      { key: 'HKG50',          label: 'HKG50 (Pips)',          maxPips: 20   },
-      { key: 'A50',            label: 'A50 (Pips)',             maxPips: 40   },
-      { key: 'JPN225',         label: 'JPN225 (Pips)',          maxPips: 50   },
-      { key: 'US_INDEX',       label: 'US Index (Pips)',        maxPips: 2.3  },
-      { key: 'SHARES',         label: 'Shares',                maxPips: 1.5  },
+      { key: 'NATURE_GAS',     label: 'Nature Gas(Pips)',      maxPips: 35   },
+      { key: 'COMMODITIES',    label: 'Commodities (pips)',    maxPips: 3    },
+      { key: 'HKG50',          label: 'HKG50 (pips)',          maxPips: 20   },
+      { key: 'A50',            label: 'A50 (pips)',             maxPips: 40   },
+      { key: 'JPN225',         label: 'JPN225 (pips)',          maxPips: 50   },
+      { key: 'US_INDEX',       label: 'US Index(Pips)',        maxPips: '2,3'},
+      { key: 'SHARES',         label: 'Shares',                maxPips: '1,5'},
       { key: 'ETHEREUM',       label: 'Ethereum',              maxPips: 3    },
       { key: 'PRECIOUS_METAL', label: 'Precious Metal',        maxPips: 20   },
       { key: 'BITCOIN',        label: 'Bitcoin',               maxPips: 3    },
-      { key: 'CRYPTO',         label: 'Crypto',                maxPips: 1.5  },
+      { key: 'CRYPTO',         label: 'Crypto',                maxPips: '1,5'},
       { key: 'GAUCNH',         label: 'GAUCNH',                maxPips: 7    },
     ];
 
@@ -341,7 +341,7 @@ export class ExportService {
       const branches = getBranches(rootNode.id);
       let currentRow = 1;
 
-      // HÀNG 1: EMAIL MIB DẦU SHEET
+      // ROW 1: EMAIL MIB CHÍNH TRÊN CÙNG
       const row1 = sheet.getRow(currentRow);
       row1.height = 24;
       const cellA1 = row1.getCell(1);
@@ -356,32 +356,6 @@ export class ExportService {
       for (let bIdx = 0; bIdx < branches.length; bIdx++) {
         const branchPath = branches[bIdx];
 
-        const branchTitleParts = branchPath.map((n, idx) => {
-          const roleLabel = idx === 0 ? 'MIB' : `Level ${idx}`;
-          const displayName = n.name ? `${n.name}` : n.email.split('@')[0];
-          return `${roleLabel}: ${displayName}`;
-        });
-        const branchTitleText = `NHÁNH ${bIdx + 1}: ${branchTitleParts.join(' ➔ ')}`;
-
-        const titleRow = sheet.getRow(currentRow);
-        titleRow.height = 26;
-        const titleCell = titleRow.getCell(1);
-        titleCell.value = branchTitleText;
-        titleCell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
-        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
-        titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
-
-        const maxMergedCols = Math.max(30, branchPath.length * 15);
-        sheet.mergeCells(currentRow, 1, currentRow, maxMergedCols);
-        for (let c = 1; c <= maxMergedCols; c++) {
-          const cCell = titleRow.getCell(c);
-          cCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
-          applyCellBorder(cCell, 'FF1F4E78');
-        }
-
-        currentRow += 2;
-
-        // LẤY TẤT CẢ LOẠI TÀI KHOẢN TRONG NHÁNH
         const accountTypesSet = new Set<string>();
         for (const n of branchPath) {
           if (n.accountType) accountTypesSet.add(n.accountType);
@@ -416,7 +390,7 @@ export class ExportService {
 
           if (accSubPath.length === 0) continue;
 
-          // DYNAMIC LẤY TOTAL MARKUP PIPS CỦA LOẠI TÀI KHOẢN
+          // LẤY TOTAL MARKUP PIPS CỦA LOẠI TÀI KHOẢN
           let totalMarkupPips = 0;
           const rootConfig = accSubPath[0]?.rebateConfig?.find((c: any) => c.accountType === accType);
           if (rootConfig && rootConfig.markupPips !== undefined && rootConfig.markupPips !== null) {
@@ -426,18 +400,19 @@ export class ExportService {
             totalMarkupPips = matchPips ? parseFloat(matchPips[1]) : 0;
           }
 
-          // LẤY SỐ PIPS BỊ NÓI TRỞ / GIỮ LẠI CHO CẢ NHÁNH
+          // LẤY SỐ PIPS GIỮ LẠI CỦA CÁC CẤP TỪ REBATE SIMULATOR ENGINE
           const fullBranchSolverInput: SimulatorNodeInput[] = accSubPath.map((node, idx) => {
             const isRoot = idx === 0;
             const lvl = isRoot ? 0 : idx;
             const assets: Record<string, number> = {};
 
             ASSET_TYPES.forEach(({ key, maxPips: defaultMaxPips }) => {
+              const numDefault = typeof defaultMaxPips === 'number' ? defaultMaxPips : parseFloat(String(defaultMaxPips).replace(',', '.'));
               if (isRoot) {
                 const mibAssetConfig = getNodeConfig(node, key, accType);
                 const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
                   ? Number(mibAssetConfig.maxPips)
-                  : defaultMaxPips;
+                  : numDefault;
                 assets[key] = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
               } else {
                 const cfg = getNodeConfig(node, key, accType);
@@ -470,9 +445,8 @@ export class ExportService {
           });
 
           const startRowForAccType = currentRow;
-          let maxBlockHeight = 25;
 
-          // VẼ TỪNG BẢNG LŨY TIẾN TƯƠNG ỨNG TỪNG LEVEL
+          // VẼ LẦN LƯỢT TỪNG BẢNG LŨY TIẾN THEO CHIỀU NGANG
           for (let step = 0; step < accSubPath.length; step++) {
             const stepPath = accSubPath.slice(0, step + 1);
             const startCol = 1 + step * 15;
@@ -486,7 +460,7 @@ export class ExportService {
 
             let r = startRowForAccType;
 
-            // 1. Header Level
+            // 1. Row Level Headers (MIB level 1, level 2,...)
             const levelHeaderRow = sheet.getRow(r);
             levelHeaderRow.height = 22;
             const levelNames = ['MIB level 1', 'level 2', 'level 3', 'level 4', 'level 5', 'Sub 5'];
@@ -508,7 +482,7 @@ export class ExportService {
 
             r++;
 
-            // 2. Row Email Path
+            // 2. Row Emails
             const emailSubRow = sheet.getRow(r);
             emailSubRow.height = 20;
             for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
@@ -525,7 +499,7 @@ export class ExportService {
 
             r++;
 
-            // 3. Rebate Label Header
+            // 3. Row Header Rebate (pips)
             const pipsHeaderRow = sheet.getRow(r);
             pipsHeaderRow.height = 20;
             const rebateLabelCell = pipsHeaderRow.getCell(startCol);
@@ -555,7 +529,6 @@ export class ExportService {
               assetLabelCell.alignment = { horizontal: 'left', vertical: 'middle' };
               applyCellBorder(assetLabelCell, 'FFCBD5E1');
 
-              // Lấy Pips gốc cứng từ Config/DB
               const mibNode = stepPath[0];
               const mibAssetConfig = getNodeConfig(mibNode, asset.key, accType);
               const basePips = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
@@ -567,23 +540,22 @@ export class ExportService {
                 pipsCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
                 if (lvIdx < stepPath.length) {
-                  let cellVal = 0;
+                  let cellVal: any = 0;
                   if (lvIdx < step) {
-                    // Cấp giữ lại phía trên
                     const cfg = getNodeConfig(stepPath[lvIdx], asset.key, accType);
                     cellVal = cfg?.markupPips !== undefined ? Number(cfg.markupPips) : 0;
                   } else if (lvIdx === step) {
-                    // Cấp lá hiện tại = Pips gốc - Tổng giữ lại của cấp trên
                     let prevHolds = 0;
                     for (let p = 0; p < step; p++) {
                       const cfg = getNodeConfig(stepPath[p], asset.key, accType);
                       prevHolds += cfg?.markupPips !== undefined ? Number(cfg.markupPips) : 0;
                     }
-                    cellVal = Math.max(0, basePips - prevHolds);
+                    const numBase = typeof basePips === 'number' ? basePips : parseFloat(String(basePips).replace(',', '.'));
+                    cellVal = Math.max(0, numBase - prevHolds);
                   }
 
                   pipsCell.value = cellVal;
-                  if (cellVal > 0) {
+                  if (Number(cellVal) > 0) {
                     pipsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
                     pipsCell.font = { bold: true, size: 9.5, color: { argb: 'FF1E4620' }, name: 'Calibri' };
                     applyCellBorder(pipsCell, 'FFA9D18E');
@@ -599,7 +571,6 @@ export class ExportService {
                 }
               }
 
-              // Các cột Flag kiểm tra
               const flagCell = dataRow.getCell(startCol + 11);
               flagCell.value = 'Y';
               flagCell.font = { bold: true, size: 9, color: { argb: 'FF1E4620' }, name: 'Calibri' };
@@ -624,7 +595,7 @@ export class ExportService {
               r++;
             }
 
-            // 5. BẢNG MARKUP OPTION (TÍNH TỶ LỆ DYNAMIC VÀ SỐ PIPS CHUẨN)
+            // 5. Bảng Markup Option
             r++;
 
             const markupHeaderRow = sheet.getRow(r);
@@ -644,64 +615,22 @@ export class ExportService {
               applyCellBorder(mCell, 'FF8EA9DB');
             }
 
-            // Row 1 Markup Option: TỶ LỆ % GIỮ LẠI (TÍNH LŨY THỪA TRÊN POOL CÒN LẠI)
-            r++;
-            const pctRow = sheet.getRow(r);
-            pctRow.height = 18;
-            const pctLabelCell = pctRow.getCell(startCol);
-            pctLabelCell.value = totalMarkupPips > 0 ? `${totalMarkupPips}` : '0';
-            pctLabelCell.font = { bold: true, size: 8.5, color: { argb: 'FF7F6000' }, name: 'Calibri' };
-            pctLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
-            applyCellBorder(pctLabelCell, 'FFD69E2E');
-
-            for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
-              const pCell = pctRow.getCell(startCol + 1 + lvIdx);
-              applyCellBorder(pCell, 'FFD69E2E');
-              pCell.alignment = { horizontal: 'center', vertical: 'middle' };
-              pCell.font = { bold: true, size: 8.5, color: { argb: 'FF7F6000' }, name: 'Calibri' };
-              pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
-
-              if (lvIdx < stepPath.length) {
-                if (lvIdx < step) {
-                  // Pool tại cấp này = Total Markup - Số pips các cấp trước đã giữ
-                  let prevHolds = 0;
-                  for (let p = 0; p < lvIdx; p++) {
-                    prevHolds += fullMarkupHolds[p] || 0;
-                  }
-                  const currentPool = totalMarkupPips - prevHolds;
-                  const holdVal = fullMarkupHolds[lvIdx] || 0;
-
-                  if (currentPool > 0) {
-                    const pct = (holdVal / currentPool) * 100;
-                    pCell.value = `${Number(pct.toFixed(2))}%`;
-                  } else {
-                    pCell.value = '0%';
-                  }
-                } else if (lvIdx === step) {
-                  // Cấp cuối cùng hiển thị của bảng này luôn gom toàn bộ còn lại -> 100%
-                  pCell.value = '100%';
-                }
-              } else {
-                pCell.value = '';
-              }
-            }
-
-            // Row 2 Markup Option: SỐ PIPS TƯƠNG ỨNG
+            // HÀNG 1 MARKUP OPTION: SỐ PIPS TƯƠNG ỨNG
             r++;
             const pipsRow = sheet.getRow(r);
             pipsRow.height = 18;
             const pipsLabelCell = pipsRow.getCell(startCol);
-            pipsLabelCell.value = `${totalMarkupPips}`;
-            pipsLabelCell.font = { bold: true, size: 8.5, color: { argb: 'FF1E4620' }, name: 'Calibri' };
-            pipsLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
-            applyCellBorder(pipsLabelCell, 'FFA9D18E');
+            pipsLabelCell.value = totalMarkupPips > 0 ? totalMarkupPips : null;
+            pipsLabelCell.font = { bold: true, size: 8.5, color: { argb: 'FF7F6000' }, name: 'Calibri' };
+            pipsLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
+            applyCellBorder(pipsLabelCell, 'FFD69E2E');
 
             for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
               const pValCell = pipsRow.getCell(startCol + 1 + lvIdx);
-              applyCellBorder(pValCell, 'FFA9D18E');
+              applyCellBorder(pValCell, 'FFD69E2E');
               pValCell.alignment = { horizontal: 'center', vertical: 'middle' };
-              pValCell.font = { bold: true, size: 8.5, color: { argb: 'FF1E4620' }, name: 'Calibri' };
-              pValCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+              pValCell.font = { bold: true, size: 8.5, color: { argb: 'FF7F6000' }, name: 'Calibri' };
+              pValCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
 
               if (lvIdx < stepPath.length) {
                 if (lvIdx < step) {
@@ -718,10 +647,52 @@ export class ExportService {
               }
             }
 
-            maxBlockHeight = Math.max(maxBlockHeight, r - startRowForAccType + 1);
+            // HÀNG 2 MARKUP OPTION: TỶ LỆ phần trăm (%) TỰ ĐỘNG THEO POOL CÒN LẠI
+            r++;
+            const pctRow = sheet.getRow(r);
+            pctRow.height = 18;
+            const pctLabelCell = pctRow.getCell(startCol);
+            pctLabelCell.value = totalMarkupPips > 0 ? totalMarkupPips : 0;
+            pctLabelCell.font = { bold: true, size: 8.5, color: { argb: 'FF1E4620' }, name: 'Calibri' };
+            pctLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+            applyCellBorder(pctLabelCell, 'FFA9D18E');
+
+            for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
+              const pCell = pctRow.getCell(startCol + 1 + lvIdx);
+              applyCellBorder(pCell, 'FFA9D18E');
+              pCell.alignment = { horizontal: 'center', vertical: 'middle' };
+              pCell.font = { bold: true, size: 8.5, color: { argb: 'FF1E4620' }, name: 'Calibri' };
+              pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+
+              if (lvIdx < stepPath.length) {
+                if (totalMarkupPips === 0) {
+                  pCell.value = lvIdx === step ? 1 : 0;
+                } else {
+                  if (lvIdx < step) {
+                    let prevHolds = 0;
+                    for (let p = 0; p < lvIdx; p++) {
+                      prevHolds += fullMarkupHolds[p] || 0;
+                    }
+                    const currentPool = totalMarkupPips - prevHolds;
+                    const holdVal = fullMarkupHolds[lvIdx] || 0;
+
+                    if (currentPool > 0) {
+                      const pct = (holdVal / currentPool) * 100;
+                      pCell.value = `${pct.toFixed(2).replace('.', ',')}%`;
+                    } else {
+                      pCell.value = '0,00%';
+                    }
+                  } else if (lvIdx === step) {
+                    pCell.value = '100,00%';
+                  }
+                }
+              } else {
+                pCell.value = '';
+              }
+            }
           }
 
-          currentRow += maxBlockHeight + 2;
+          currentRow += 28;
         }
 
         currentRow += 2;
