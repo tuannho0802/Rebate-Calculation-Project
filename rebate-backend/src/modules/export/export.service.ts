@@ -473,14 +473,8 @@ export class ExportService {
         for (let accIdx = 0; accIdx < accountTypes.length; accIdx++) {
           const accType = accountTypes[accIdx];
 
-          const accSubPath: any[] = [];
-          for (const node of branchPath) {
-            if (nodeHasAccType(node, accType)) {
-              accSubPath.push(node);
-            } else {
-              break;
-            }
-          }
+          // Use full branch path for the account type table so hierarchy tree is complete
+          const accSubPath: any[] = branchPath;
 
           if (accSubPath.length === 0) continue;
 
