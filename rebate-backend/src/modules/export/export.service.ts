@@ -332,8 +332,10 @@ export class ExportService {
 
     const getNodeConfig = (node: any, assetKey: string, accType: string) => {
       const cfgs = node.rebateConfig || [];
-      const exactMatch = cfgs.find((c: any) => c.assetType === assetKey && (c.accountType || 'STD') === accType);
-      if (exactMatch) return exactMatch;
+      const hasAccTypeConfigs = cfgs.some((c: any) => c.accountType === accType);
+      if (hasAccTypeConfigs) {
+        return cfgs.find((c: any) => c.assetType === assetKey && c.accountType === accType);
+      }
 
       const stdMatch = cfgs.find((c: any) => c.assetType === assetKey && (c.accountType || 'STD') === 'STD');
       if (stdMatch) return stdMatch;
@@ -518,8 +520,9 @@ export class ExportService {
           );
 
           const fullSavedPatternKey = accSubPath.map((node) => {
-            const cfg = node.rebateConfig?.find((c: any) => (c.accountType || 'STD') === accType)
-              || node.rebateConfig?.[0];
+            const cfgs = node.rebateConfig || [];
+            const cfg = cfgs.find((c: any) => c.accountType === accType)
+              || cfgs.find((c: any) => (c.accountType || 'STD') === 'STD');
             return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
           });
 
@@ -541,7 +544,9 @@ export class ExportService {
             if (fullActiveScenario && fullActiveScenario.nodes && fullActiveScenario.nodes[idx]) {
               return fullActiveScenario.nodes[idx].white_hold;
             }
-            const cfg = node.rebateConfig?.find((c: any) => (c.accountType || 'STD') === accType) || node.rebateConfig?.[0];
+            const cfgs = node.rebateConfig || [];
+            const cfg = cfgs.find((c: any) => c.accountType === accType)
+              || cfgs.find((c: any) => (c.accountType || 'STD') === 'STD');
             return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : 0;
           });
 
