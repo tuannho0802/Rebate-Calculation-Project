@@ -1,12 +1,14 @@
 import * as ExcelJS from 'exceljs';
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { RebateService, MAX_PIPS } from '../rebate/rebate.service';
 import { RebateSimulatorService, SimulatorNodeInput } from '../rebate/rebate-simulator.service';
 
 @Injectable()
 export class ExportService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly rebateService: RebateService,
     private readonly rebateSimulatorService: RebateSimulatorService,
   ) {}
 
@@ -223,6 +225,7 @@ export class ExportService {
 
   /**
    * XUẤT 1 BẢNG HIỂN THỊ CHUẨN TRÊN WEB CHO MỖI LOẠI TÀI KHOẢN & MỖI NHÁNH
+   * SỬ DỤNG TRỰC TIẾP REBATESERVICE VÀ REBATESIMULATORSERVICE ĐỂ KHỚP 100% VỚI WEB
    */
   async generateCustomTreeRebateExcel(rootIbId?: string): Promise<Buffer> {
     const allNodes = await this.prisma.ibNode.findMany({
@@ -308,24 +311,13 @@ export class ExportService {
       return branches;
     };
 
-    const getNodeConfig = (node: any, assetKey: string, accType: string) => {
-      const cfgs = node.rebateConfig || [];
-      const hasAccTypeConfigs = cfgs.some((c: any) => c.accountType === accType);
-      if (hasAccTypeConfigs) {
-        return cfgs.find((c: any) => c.assetType === assetKey && c.accountType === accType);
-      }
-      return cfgs.find((c: any) => c.assetType === assetKey);
-    };
-
-    const getNodeReceivedPips = (node: any, assetKey: string, accType: string): number => {
-      const cfg = getNodeConfig(node, assetKey, accType);
-      if (cfg) {
-        if (cfg.rebatePips !== undefined && cfg.rebatePips !== null) {
-          return Number(cfg.rebatePips);
-        }
-        if (cfg.maxPips !== undefined && cfg.maxPips !== null) {
-          return Number(cfg.maxPips);
-        }
+    const parseAccountTypePips = (accType?: string): number => {
+      if (!accType) return 0;
+      if (accType === 'STD') return 0;
+      const match = accType.match(/(\d+(?:\.\d+)?)/);
+      if (match) {
+        const num = parseFloat(match[1]);
+        return isNaN(num) ? 0 : num;
       }
       return 0;
     };
@@ -424,94 +416,108 @@ export class ExportService {
 
         for (let accIdx = 0; accIdx < accountTypes.length; accIdx++) {
           const accType = accountTypes[accIdx];
+          const totalMarkupPips = parseAccountTypePips(accType);
 
-          // LẤY TOTAL MARKUP PIPS CỦA LOẠI TÀI KHOẢN
-          let totalMarkupPips = 0;
-          const rootConfig = branchPath[0]?.rebateConfig?.find((c: any) => c.accountType === accType);
-          if (rootConfig && rootConfig.markupPips !== undefined && rootConfig.markupPips !== null) {
-            totalMarkupPips = Number(rootConfig.markupPips);
-          } else {
-            const matchPips = accType.match(/(\d+(?:\.\d+)?)/);
-            totalMarkupPips = matchPips ? parseFloat(matchPips[1]) : 0;
-          }
+          // LẤY CẤU HÌNH ĐÃ PARSE THEO ĐÚNG REBATESERVICE.GETCONFIG CHO TẤT CẢ NODE TRONG NHÁNH
+          const nodeConfigsMap: Record<string, any> = {};
+          await Promise.all(
+            branchPath.map(async (node) => {
+              nodeConfigsMap[node.id] = await this.rebateService.getConfig(node.id, accType);
+            }),
+          );
 
-          // SIMULATOR UNIFIED SOLVER FOR MARKUP OPTION
-          const fullBranchSolverInput: SimulatorNodeInput[] = branchPath.map((node, idx) => {
+          // SIMULATOR UNIFIED SOLVER FOR MARKUP OPTION (KHỚP 100% COMPACTPIVOTTABLE.TSX)
+          const solverInput: SimulatorNodeInput[] = branchPath.map((node, idx) => {
             const isRoot = idx === 0;
+            const name = node.name || node.email;
             const lvl = isRoot ? 0 : idx;
             const assets: Record<string, number> = {};
 
-            ASSET_TYPES.forEach(({ key, maxPips: defaultMaxPips }) => {
+            ASSET_TYPES.forEach(({ key }) => {
               if (isRoot) {
-                const mibAssetConfig = getNodeConfig(node, key, accType);
-                const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
-                  ? Number(mibAssetConfig.maxPips)
-                  : defaultMaxPips;
+                const mibAssetConfig = nodeConfigsMap[node.id]?.assets?.find((a: any) => a.assetType === key);
+                const mibBaseCap = Number(mibAssetConfig?.maxPips || 0);
                 assets[key] = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
               } else {
-                const cfg = getNodeConfig(node, key, accType);
-                assets[key] = cfg?.rebatePips !== undefined && cfg?.rebatePips !== null ? Number(cfg.rebatePips) : 0;
+                const cfg = nodeConfigsMap[node.id]?.assets?.find((a: any) => a.assetType === key);
+                assets[key] = Number(cfg?.rebatePips || 0);
               }
             });
 
             return {
               nodeId: node.id,
-              nodeName: node.name || node.email,
+              nodeName: name,
               level: lvl,
               assets,
             };
           });
 
-          const fullScenarios = this.rebateSimulatorService.solveBallAllocation(
-            fullBranchSolverInput,
+          const scenarios = this.rebateSimulatorService.solveBallAllocation(
+            solverInput,
             totalMarkupPips,
             ASSET_TYPES.map((a) => a.key),
           );
 
-          const fullActiveScenario = fullScenarios[0];
-          const fullMarkupHolds: number[] = branchPath.map((node, idx) => {
-            if (fullActiveScenario && fullActiveScenario.nodes && fullActiveScenario.nodes[idx]) {
-              return fullActiveScenario.nodes[idx].white_hold;
-            }
-            const cfgs = node.rebateConfig || [];
-            const cfg = cfgs.find((c: any) => c.accountType === accType) || cfgs[0];
-            return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : 0;
+          const savedPatternKey = branchPath.map((node) => {
+            const cfg = nodeConfigsMap[node.id]?.assets?.[0];
+            return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
           });
 
-          // TÍNH VECTOR PIPS GIỮ LẠI CHO CẢ NHÁNH (TRẮC CỦA TỪNG NODE TRÊN WEB)
+          let activeIndex = 0;
+          if (scenarios.length > 0) {
+            const isSavedPatternValid = savedPatternKey.every((p) => p !== null);
+            if (isSavedPatternValid) {
+              const foundIdx = scenarios.findIndex((sc) =>
+                sc.nodes.every((n, i) => n.white_hold === savedPatternKey[i]),
+              );
+              if (foundIdx !== -1) {
+                activeIndex = foundIdx;
+              }
+            }
+          }
+
+          const activeScenario = scenarios[activeIndex] || scenarios[0];
+          const scenarioMap: Record<string, { pct: string; white_hold: number }> = {};
+          if (activeScenario) {
+            activeScenario.nodes.forEach((n) => {
+              scenarioMap[n.nodeId] = { pct: n.pct, white_hold: n.white_hold };
+            });
+          }
+
+          const getRebatePips = (ibId: string | null | undefined, assetKey: string): number => {
+            if (!ibId) return 0;
+            const cfg = nodeConfigsMap[ibId]?.assets?.find((a: any) => a.assetType === assetKey);
+            return Number(cfg?.rebatePips || 0);
+          };
+
+          // TÍNH VECTOR PIPS GIỮ LẠI CHO CẢ NHÁNH (KHỚP 100% COMPACTPIVOTTABLE.TSX)
           const retainedMap: Record<string, number[]> = {};
           for (const asset of ASSET_TYPES) {
             const retainedArr: number[] = new Array(branchPath.length).fill(0);
-            for (let lvIdx = 0; lvIdx < branchPath.length; lvIdx++) {
-              const currentNode = branchPath[lvIdx];
-              const hold = fullMarkupHolds[lvIdx] || 0;
 
-              if (lvIdx === 0) {
-                const mibAssetConfig = getNodeConfig(currentNode, asset.key, accType);
-                const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
-                  ? Number(mibAssetConfig.maxPips)
-                  : asset.maxPips;
-                const level1Node = branchPath[1];
-                const mibGiven = level1Node ? getNodeReceivedPips(level1Node, asset.key, accType) : 0;
+            // MIB (level 0)
+            const rootNode = branchPath[0];
+            const mibAssetConfig = nodeConfigsMap[rootNode.id]?.assets?.find((a: any) => a.assetType === asset.key);
+            const mibBaseCap = Number(mibAssetConfig?.maxPips || 0);
+            const mibCap = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
 
-                if (mibGiven > 0) {
-                  const mibCap = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
-                  retainedArr[0] = Math.max(0, mibCap - mibGiven - hold);
-                } else {
-                  retainedArr[0] = mibBaseCap;
-                }
-              } else {
-                const receivedPips = getNodeReceivedPips(currentNode, asset.key, accType);
-                if (receivedPips > 0) {
-                  const givenPips = lvIdx + 1 < branchPath.length
-                    ? getNodeReceivedPips(branchPath[lvIdx + 1], asset.key, accType)
-                    : 0;
-                  retainedArr[lvIdx] = Math.max(0, receivedPips - givenPips - hold);
-                } else {
-                  retainedArr[lvIdx] = 0;
-                }
-              }
+            const level1Id = branchPath[1]?.id;
+            const mibGiven = getRebatePips(level1Id, asset.key);
+            const rawMibRetained = Math.max(0, mibCap - mibGiven);
+            const mibHold = scenarioMap[rootNode.id]?.white_hold || 0;
+            retainedArr[0] = Math.max(0, rawMibRetained - mibHold);
+
+            // Sub-IBs (level 1, level 2, ...)
+            for (let idx = 1; idx < branchPath.length; idx++) {
+              const selectedIbId = branchPath[idx].id;
+              const received = getRebatePips(selectedIbId, asset.key);
+              const nextLevelId = branchPath[idx + 1]?.id;
+              const given = getRebatePips(nextLevelId, asset.key);
+              const rawRetained = Math.max(0, received - given);
+              const childHold = scenarioMap[selectedIbId]?.white_hold || 0;
+              retainedArr[idx] = Math.max(0, rawRetained - childHold);
             }
+
             retainedMap[asset.key] = retainedArr;
           }
 
@@ -633,18 +639,18 @@ export class ExportService {
           applyCellBorder(pctLabelCell, 'FFD69E2E');
 
           for (let lvIdx = 0; lvIdx < branchPath.length; lvIdx++) {
+            const node = branchPath[lvIdx];
             const pCell = pctRow.getCell(lvIdx + 2);
             applyCellBorder(pCell, 'FFD69E2E');
             pCell.alignment = { horizontal: 'center', vertical: 'middle' };
             pCell.font = { bold: true, size: 9, color: { argb: 'FF7F6000' }, name: 'Calibri' };
             pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
 
-            if (totalMarkupPips === 0) {
-              pCell.value = lvIdx === branchPath.length - 1 ? '100%' : '0%';
+            const pctVal = scenarioMap[node.id]?.pct;
+            if (pctVal !== undefined) {
+              pCell.value = pctVal;
             } else {
-              const holdVal = fullMarkupHolds[lvIdx] || 0;
-              const pct = (holdVal / totalMarkupPips) * 100;
-              pCell.value = `${Number(pct.toFixed(2))}%`;
+              pCell.value = totalMarkupPips === 0 ? (lvIdx === branchPath.length - 1 ? '100%' : '0%') : '0%';
             }
           }
 
@@ -659,12 +665,13 @@ export class ExportService {
           applyCellBorder(pipsLabelCell, 'FFA9D18E');
 
           for (let lvIdx = 0; lvIdx < branchPath.length; lvIdx++) {
+            const node = branchPath[lvIdx];
             const pValCell = pipsRow.getCell(lvIdx + 2);
             applyCellBorder(pValCell, 'FFA9D18E');
             pValCell.alignment = { horizontal: 'center', vertical: 'middle' };
             pValCell.font = { bold: true, size: 9.5, color: { argb: 'FF1E4620' }, name: 'Calibri' };
             pValCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
-            pValCell.value = fullMarkupHolds[lvIdx] || 0;
+            pValCell.value = scenarioMap[node.id]?.white_hold ?? 0;
           }
 
           currentRow = r + 3;
