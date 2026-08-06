@@ -225,7 +225,7 @@ export class ExportService {
 
   /**
    * XUẤT 1 BẢNG HIỂN THỊ CHUẨN TRÊN WEB CHO MỖI LOẠI TÀI KHOẢN & MỖI NHÁNH
-   * SỬ DỤNG TRỰC TIẾP REBATESERVICE VÀ REBATESIMULATORSERVICE ĐỂ KHỚP 100% VỚI WEB
+   * ĐẢM BẢO CHỈ XUẤT NHÁNH & NODE THỰC SỰ CÓ LOẠI TÀI KHOẢN ĐÓ TRÊN WEB
    */
   async generateCustomTreeRebateExcel(rootIbId?: string): Promise<Buffer> {
     const allNodes = await this.prisma.ibNode.findMany({
@@ -298,15 +298,54 @@ export class ExportService {
       };
     };
 
-    const getBranches = (nodeId: string, currentPath: any[] = []): any[][] => {
+    const nodeHasAccountType = (node: any, targetAccountType: string): boolean => {
+      if (!node) return false;
+
+      // 1. Check accountTypes array on node (assigned links)
+      if (Array.isArray(node.accountTypes) && node.accountTypes.length > 0) {
+        if (node.accountTypes.includes(targetAccountType)) return true;
+      }
+
+      // 2. Check single accountType string on node
+      if (node.accountType && node.accountType === targetAccountType) {
+        return true;
+      }
+
+      // 3. For 'STD', it is the universal default if node has no explicit accountTypes array restriction
+      if (targetAccountType === 'STD') {
+        if (!node.accountTypes || node.accountTypes.length === 0) return true;
+      }
+
+      // 4. Check if node has non-zero rebateConfig in DB saved for targetAccountType
+      if (Array.isArray(node.rebateConfig)) {
+        const hasConfig = node.rebateConfig.some(
+          (c: any) => c.accountType === targetAccountType && (Number(c.rebatePips) > 0 || Number(c.markupPips) > 0),
+        );
+        if (hasConfig) return true;
+      }
+
+      return false;
+    };
+
+    const getBranchesForAccountType = (
+      nodeId: string,
+      accType: string,
+      currentPath: any[] = [],
+    ): any[][] => {
       const node = nodeMap.get(nodeId);
-      if (!node) return [];
+      if (!node || !nodeHasAccountType(node, accType)) return [];
+
       const path = [...currentPath, node];
       const children = childrenMap.get(nodeId) || [];
-      if (children.length === 0) return [path];
+      const eligibleChildren = children.filter((child) => nodeHasAccountType(child, accType));
+
+      if (eligibleChildren.length === 0) {
+        return [path];
+      }
+
       let branches: any[][] = [];
-      for (const child of children) {
-        branches.push(...getBranches(child.id, path));
+      for (const child of eligibleChildren) {
+        branches.push(...getBranchesForAccountType(child.id, accType, path));
       }
       return branches;
     };
@@ -343,7 +382,6 @@ export class ExportService {
         views: [{ showGridLines: true }],
       });
 
-      const branches = getBranches(rootNode.id);
       let currentRow = 1;
 
       // ROW 1: EMAIL MIB CHÍNH TRÊN CÙNG
@@ -358,95 +396,70 @@ export class ExportService {
 
       currentRow += 2;
 
-      for (let bIdx = 0; bIdx < branches.length; bIdx++) {
-        const branchPath = branches[bIdx];
-
-        const branchTitleParts = branchPath.map((n, idx) => {
-          const roleLabel = idx === 0 ? 'MIB' : `Level ${idx}`;
-          const displayName = n.name ? `${n.name}` : n.email.split('@')[0];
-          return `${roleLabel}: ${displayName}`;
-        });
-        const branchTitleText = `NHÁNH ${bIdx + 1}: ${branchTitleParts.join(' ➔ ')}`;
-
-        const titleRow = sheet.getRow(currentRow);
-        titleRow.height = 26;
-        const titleCell = titleRow.getCell(1);
-        titleCell.value = branchTitleText;
-        titleCell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
-        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
-        titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
-
-        const maxMergedCols = Math.max(10, branchPath.length + 2);
-        sheet.mergeCells(currentRow, 1, currentRow, maxMergedCols);
-        for (let c = 1; c <= maxMergedCols; c++) {
-          const cCell = titleRow.getCell(c);
-          cCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
-          applyCellBorder(cCell, 'FF1F4E78');
+      // Collect all candidate accountTypes
+      const allAccountTypesSet = new Set<string>();
+      allNodes.forEach((n) => {
+        if (n.accountType) allAccountTypesSet.add(n.accountType);
+        if (Array.isArray(n.accountTypes)) {
+          n.accountTypes.forEach((at: string) => allAccountTypesSet.add(at));
         }
-
-        currentRow += 2;
-
-        const nodeHasAccountType = (node: any, targetAccountType: string): boolean => {
-          if (!node) return false;
-
-          // 1. Check accountTypes array on node (assigned links)
-          if (Array.isArray(node.accountTypes) && node.accountTypes.length > 0) {
-            if (node.accountTypes.includes(targetAccountType)) return true;
-          }
-
-          // 2. Check single accountType string on node
-          if (node.accountType && node.accountType === targetAccountType) {
-            return true;
-          }
-
-          // 3. For 'STD', it is the universal default if node has no explicit accountTypes array restriction
-          if (targetAccountType === 'STD') {
-            if (!node.accountTypes || node.accountTypes.length === 0) return true;
-          }
-
-          // 4. Check if node has non-zero rebateConfig in DB saved for targetAccountType
-          if (Array.isArray(node.rebateConfig)) {
-            const hasConfig = node.rebateConfig.some(
-              (c: any) => c.accountType === targetAccountType && (Number(c.rebatePips) > 0 || Number(c.markupPips) > 0),
-            );
-            if (hasConfig) return true;
-          }
-
-          return false;
-        };
-
-        const accountTypesSet = new Set<string>();
-        for (const n of branchPath) {
-          if (n.accountType) accountTypesSet.add(n.accountType);
-          if (Array.isArray(n.accountTypes)) {
-            n.accountTypes.forEach((at: string) => accountTypesSet.add(at));
-          }
-          if (Array.isArray(n.rebateConfig)) {
-            n.rebateConfig.forEach((c: any) => {
-              if (c.accountType && (Number(c.rebatePips) > 0 || Number(c.markupPips) > 0)) {
-                accountTypesSet.add(c.accountType);
-              }
-            });
-          }
+        if (Array.isArray(n.rebateConfig)) {
+          n.rebateConfig.forEach((c: any) => {
+            if (c.accountType && (Number(c.rebatePips) > 0 || Number(c.markupPips) > 0)) {
+              allAccountTypesSet.add(c.accountType);
+            }
+          });
         }
+      });
 
-        const priorityOrder = ['STD', 'STD5', 'STD10', 'STD15', 'STD20'];
-        const accountTypes = Array.from(accountTypesSet).filter(
-          (accType) => Boolean(accType) && branchPath.some((node) => nodeHasAccountType(node, accType)),
-        );
-        if (accountTypes.length === 0) accountTypes.push('STD');
+      const priorityOrder = ['STD', 'STD5', 'STD10', 'STD15', 'STD20'];
+      const allAccountTypes = Array.from(allAccountTypesSet).filter(Boolean);
+      if (allAccountTypes.length === 0) allAccountTypes.push('STD');
 
-        accountTypes.sort((a, b) => {
-          const idxA = priorityOrder.indexOf(a);
-          const idxB = priorityOrder.indexOf(b);
-          if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-          if (idxA !== -1) return -1;
-          if (idxB !== -1) return 1;
-          return a.localeCompare(b);
-        });
+      allAccountTypes.sort((a, b) => {
+        const idxA = priorityOrder.indexOf(a);
+        const idxB = priorityOrder.indexOf(b);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a.localeCompare(b);
+      });
 
-        for (let accIdx = 0; accIdx < accountTypes.length; accIdx++) {
-          const accType = accountTypes[accIdx];
+      for (let accIdx = 0; accIdx < allAccountTypes.length; accIdx++) {
+        const accType = allAccountTypes[accIdx];
+
+        // Lấy tất cả nhánh của MIB thực sự áp dụng loại tài khoản accType
+        const branches = getBranchesForAccountType(rootNode.id, accType);
+        if (branches.length === 0) continue;
+
+        for (let bIdx = 0; bIdx < branches.length; bIdx++) {
+          const branchPath = branches[bIdx];
+
+          const branchTitleParts = branchPath.map((n, idx) => {
+            const roleLabel = idx === 0 ? 'MIB' : `Level ${idx}`;
+            const displayName = n.name ? `${n.name}` : n.email.split('@')[0];
+            return `${roleLabel}: ${displayName}`;
+          });
+          const branchTitleText = `NHÁNH ${bIdx + 1}: ${branchTitleParts.join(' ➔ ')}`;
+
+          const titleRow = sheet.getRow(currentRow);
+          titleRow.height = 26;
+          const titleCell = titleRow.getCell(1);
+          titleCell.value = branchTitleText;
+          titleCell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
+          titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+          titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
+
+          const maxMergedCols = Math.max(10, branchPath.length + 2);
+          sheet.mergeCells(currentRow, 1, currentRow, maxMergedCols);
+          for (let c = 1; c <= maxMergedCols; c++) {
+            const cCell = titleRow.getCell(c);
+            cCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+            applyCellBorder(cCell, 'FF1F4E78');
+          }
+
+          currentRow += 2;
+
           const totalMarkupPips = parseAccountTypePips(accType);
 
           // LẤY CẤU HÌNH ĐÃ PARSE THEO ĐÚNG REBATESERVICE.GETCONFIG CHO TẤT CẢ NODE TRONG NHÁNH
