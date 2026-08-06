@@ -225,7 +225,7 @@ export class ExportService {
 
   /**
    * XUẤT 1 BẢNG HIỂN THỊ CHUẨN TRÊN WEB CHO MỖI LOẠI TÀI KHOẢN & MỖI NHÁNH
-   * ĐẢM BẢO CHỈ XUẤT NHÁNH & NODE THỰC SỰ CÓ LOẠI TÀI KHOẢN ĐÓ TRÊN WEB
+   * GỘP THEO TỪNG NHÁNH TRƯỚC, RỒI LIỆT KÊ CÁC LOẠI TÀI KHOẢN HIỆN CÓ CỦA NHÁNH ĐÓ
    */
   async generateCustomTreeRebateExcel(rootIbId?: string): Promise<Buffer> {
     const allNodes = await this.prisma.ibNode.findMany({
@@ -327,6 +327,19 @@ export class ExportService {
       return false;
     };
 
+    const getBaseBranches = (nodeId: string, currentPath: any[] = []): any[][] => {
+      const node = nodeMap.get(nodeId);
+      if (!node) return [];
+      const path = [...currentPath, node];
+      const children = childrenMap.get(nodeId) || [];
+      if (children.length === 0) return [path];
+      let branches: any[][] = [];
+      for (const child of children) {
+        branches.push(...getBaseBranches(child.id, path));
+      }
+      return branches;
+    };
+
     const getBranchesForAccountType = (
       nodeId: string,
       accType: string,
@@ -396,7 +409,7 @@ export class ExportService {
 
       currentRow += 2;
 
-      // Collect all candidate accountTypes
+      // Collect all candidate accountTypes across tree
       const allAccountTypesSet = new Set<string>();
       allNodes.forEach((n) => {
         if (n.accountType) allAccountTypesSet.add(n.accountType);
@@ -425,40 +438,48 @@ export class ExportService {
         return a.localeCompare(b);
       });
 
-      for (let accIdx = 0; accIdx < allAccountTypes.length; accIdx++) {
-        const accType = allAccountTypes[accIdx];
+      // LẤY TẤT CẢ CÁC NHÁNH CƠ BẢN CỦA MIB CÂY
+      const baseBranches = getBaseBranches(rootNode.id);
 
-        // Lấy tất cả nhánh của MIB thực sự áp dụng loại tài khoản accType
-        const branches = getBranchesForAccountType(rootNode.id, accType);
-        if (branches.length === 0) continue;
+      // VÒNG LẶP NGOÀI: TỪNG NHÁNH
+      for (let bIdx = 0; bIdx < baseBranches.length; bIdx++) {
+        const fullBranchPath = baseBranches[bIdx];
 
-        for (let bIdx = 0; bIdx < branches.length; bIdx++) {
-          const branchPath = branches[bIdx];
+        const branchTitleParts = fullBranchPath.map((n, idx) => {
+          const roleLabel = idx === 0 ? 'MIB' : `Level ${idx}`;
+          const displayName = n.name ? `${n.name}` : n.email.split('@')[0];
+          return `${roleLabel}: ${displayName}`;
+        });
+        const branchTitleText = `NHÁNH ${bIdx + 1}: ${branchTitleParts.join(' ➔ ')}`;
 
-          const branchTitleParts = branchPath.map((n, idx) => {
-            const roleLabel = idx === 0 ? 'MIB' : `Level ${idx}`;
-            const displayName = n.name ? `${n.name}` : n.email.split('@')[0];
-            return `${roleLabel}: ${displayName}`;
-          });
-          const branchTitleText = `NHÁNH ${bIdx + 1}: ${branchTitleParts.join(' ➔ ')}`;
+        const titleRow = sheet.getRow(currentRow);
+        titleRow.height = 26;
+        const titleCell = titleRow.getCell(1);
+        titleCell.value = branchTitleText;
+        titleCell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
+        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+        titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
 
-          const titleRow = sheet.getRow(currentRow);
-          titleRow.height = 26;
-          const titleCell = titleRow.getCell(1);
-          titleCell.value = branchTitleText;
-          titleCell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
-          titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
-          titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
+        const maxMergedCols = Math.max(10, fullBranchPath.length + 2);
+        sheet.mergeCells(currentRow, 1, currentRow, maxMergedCols);
+        for (let c = 1; c <= maxMergedCols; c++) {
+          const cCell = titleRow.getCell(c);
+          cCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
+          applyCellBorder(cCell, 'FF1F4E78');
+        }
 
-          const maxMergedCols = Math.max(10, branchPath.length + 2);
-          sheet.mergeCells(currentRow, 1, currentRow, maxMergedCols);
-          for (let c = 1; c <= maxMergedCols; c++) {
-            const cCell = titleRow.getCell(c);
-            cCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
-            applyCellBorder(cCell, 'FF1F4E78');
-          }
+        currentRow += 2;
 
-          currentRow += 2;
+        // VÒNG LẶP TRONG: TỪNG LOẠI TÀI KHOẢN HIỆN CÓ CỦA NHÁNH NÀY
+        for (let accIdx = 0; accIdx < allAccountTypes.length; accIdx++) {
+          const accType = allAccountTypes[accIdx];
+
+          const accBranches = getBranchesForAccountType(rootNode.id, accType);
+          const branchPath = accBranches.find((ab) =>
+            fullBranchPath.some((node) => node.id === ab[ab.length - 1].id),
+          );
+
+          if (!branchPath) continue;
 
           const totalMarkupPips = parseAccountTypePips(accType);
 
