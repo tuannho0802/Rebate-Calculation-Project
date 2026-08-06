@@ -2,7 +2,6 @@ import * as ExcelJS from 'exceljs';
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RebateSimulatorService, SimulatorNodeInput } from '../rebate/rebate-simulator.service';
-import { isDescendantOf } from '../../common/utils/subtree.util';
 
 @Injectable()
 export class ExportService {
@@ -19,17 +18,12 @@ export class ExportService {
     if (!root) return {};
 
     const tree: Record<number, any[]> = {};
-    const rootLevel = root.level;
-
-    // BFS queue: { id, level }
-    const queue: { id: string; level: number }[] = [
-      { id: root.id, level: root.level },
-    ];
+    const queue: { id: string; level: number }[] = [{ id: root.id, level: root.level }];
 
     while (queue.length > 0) {
       const { id, level } = queue.shift()!;
-      const depth = level - rootLevel;
-      if (depth > 6) continue; // tối đa 6 cấp
+      const depth = level - root.level;
+      if (depth > 6) continue;
 
       const node = await this.prisma.ibNode.findUnique({
         where: { id },
@@ -60,11 +54,8 @@ export class ExportService {
     targetIbId: string,
     period: string,
   ): Promise<Buffer> {
-    // 1. Check subtree
     if (targetIbId && rootIbId !== targetIbId) {
-      const rootLevel = (
-        await this.prisma.ibNode.findUnique({ where: { id: rootIbId } })
-      )?.level;
+      const rootLevel = (await this.prisma.ibNode.findUnique({ where: { id: rootIbId } }))?.level;
       if (rootLevel !== 0) {
         const tree = await this.getIbTreeByLevel(rootIbId);
         let found = false;
@@ -85,7 +76,7 @@ export class ExportService {
 
     const searchIbId = targetIbId || rootIbId;
 
-    let startDate, endDate;
+    let startDate: Date | undefined, endDate: Date | undefined;
     if (period) {
       const [year, month] = period.split('-');
       startDate = new Date(Date.UTC(Number(year), Number(month) - 1, 1));
@@ -109,27 +100,24 @@ export class ExportService {
 
     const sheet = workbook.addWorksheet('Transactions');
 
-    // ── COLORS ─────────────────────────────────────────────────
-    const HDR_BG    = 'FF1F3864';
-    const HDR_FONT  = 'FFFFFFFF';
-    const ODD_BG    = 'FFF2F7FF';
-    const EVEN_BG   = 'FFFFFFFF';
+    const HDR_BG = 'FF1F3864';
+    const HDR_FONT = 'FFFFFFFF';
+    const ODD_BG = 'FFF2F7FF';
+    const EVEN_BG = 'FFFFFFFF';
 
-    // ── COLUMN DEFINITIONS ─────────────────────────────────────
     sheet.columns = [
-      { key: 'date',         width: 22 },
-      { key: 'name',         width: 20 },
-      { key: 'email',        width: 28 },
-      { key: 'assetType',    width: 16 },
-      { key: 'rebateType',   width: 16 },
-      { key: 'lots',         width: 12 },
+      { key: 'date', width: 22 },
+      { key: 'name', width: 20 },
+      { key: 'email', width: 28 },
+      { key: 'assetType', width: 16 },
+      { key: 'rebateType', width: 16 },
+      { key: 'lots', width: 12 },
       { key: 'rebateAmount', width: 16 },
-      { key: 'currency',     width: 10 },
+      { key: 'currency', width: 10 },
     ];
 
     const headers = ['Trade Date', 'IB Name', 'IB Email', 'Asset Type', 'Rebate Type', 'Lots', 'Rebate Amount', 'Currency'];
 
-    // ── ROW 1: TITLE ──────────────────────────────────────────
     sheet.mergeCells('A1:H1');
     const title = sheet.getCell('A1');
     title.value = `TRANSACTION HISTORY${period ? ' — ' + period : ''}`;
@@ -138,7 +126,6 @@ export class ExportService {
     title.alignment = { horizontal: 'center', vertical: 'middle' };
     sheet.getRow(1).height = 26;
 
-    // ── ROW 2: Sub-info ──────────────────────────────────────
     sheet.mergeCells('A2:H2');
     const subCell = sheet.getCell('A2');
     subCell.value = `Generated: ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}   |   Total records: ${txs.length}`;
@@ -147,7 +134,6 @@ export class ExportService {
     subCell.alignment = { horizontal: 'right', vertical: 'middle' };
     sheet.getRow(2).height = 15;
 
-    // ── ROW 3: Column headers ──────────────────────────────────
     const headerRow = sheet.getRow(3);
     headerRow.height = 22;
     headers.forEach((h, i) => {
@@ -157,24 +143,23 @@ export class ExportService {
       cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2E75B6' } };
       cell.alignment = { horizontal: 'center', vertical: 'middle' };
       cell.border = {
-        top:    { style: 'thin', color: { argb: 'FF1F3864' } },
+        top: { style: 'thin', color: { argb: 'FF1F3864' } },
         bottom: { style: 'medium', color: { argb: 'FF1F3864' } },
-        left:   { style: 'thin', color: { argb: 'FF1F3864' } },
-        right:  { style: 'thin', color: { argb: 'FF1F3864' } },
+        left: { style: 'thin', color: { argb: 'FF1F3864' } },
+        right: { style: 'thin', color: { argb: 'FF1F3864' } },
       };
     });
 
-    // ── DATA ROWS ──────────────────────────────────────────────
     txs.forEach((tx, idx) => {
       const row = sheet.addRow({
-        date:         tx.tradedAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
-        name:         tx.ib.name || '—',
-        email:        tx.ib.email,
-        assetType:    tx.assetType,
-        rebateType:   tx.rebateType,
-        lots:         Number(tx.lots),
+        date: tx.tradedAt.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }),
+        name: tx.ib.name || '—',
+        email: tx.ib.email,
+        assetType: tx.assetType,
+        rebateType: tx.rebateType,
+        lots: Number(tx.lots),
         rebateAmount: Number(tx.rebateAmount),
-        currency:     tx.currency,
+        currency: tx.currency,
       });
 
       row.height = 17;
@@ -184,14 +169,13 @@ export class ExportService {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowBg } };
         cell.font = { size: 10, name: 'Calibri' };
         cell.border = {
-          top:    { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          top: { style: 'thin', color: { argb: 'FFD9D9D9' } },
           bottom: { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          left:   { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          right:  { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
         };
 
-        if (colNumber === 1) cell.alignment = { horizontal: 'left' };
-        else if (colNumber === 2 || colNumber === 3) cell.alignment = { horizontal: 'left' };
+        if (colNumber === 1 || colNumber === 2 || colNumber === 3) cell.alignment = { horizontal: 'left' };
         else if (colNumber === 6 || colNumber === 7) {
           cell.alignment = { horizontal: 'right' };
           cell.numFmt = '#,##0.########';
@@ -199,29 +183,28 @@ export class ExportService {
           cell.alignment = { horizontal: 'center' };
         }
 
-        if (colNumber === 7) {
-          const val = Number(tx.rebateAmount);
-          if (val > 0) cell.font = { bold: true, size: 10, color: { argb: 'FF375623' }, name: 'Calibri' };
+        if (colNumber === 7 && Number(tx.rebateAmount) > 0) {
+          cell.font = { bold: true, size: 10, color: { argb: 'FF375623' }, name: 'Calibri' };
         }
       });
     });
 
     if (txs.length > 0) {
       const totalRow = sheet.addRow({
-        date:         'TOTAL',
-        lots:         txs.reduce((s, t) => s + Number(t.lots), 0),
+        date: 'TOTAL',
+        lots: txs.reduce((s, t) => s + Number(t.lots), 0),
         rebateAmount: txs.reduce((s, t) => s + Number(t.rebateAmount), 0),
-        currency:     txs[0]?.currency || '',
+        currency: txs[0]?.currency || '',
       });
       totalRow.height = 20;
       totalRow.eachCell((cell, colNumber) => {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
         cell.font = { bold: true, size: 10, name: 'Calibri' };
         cell.border = {
-          top:    { style: 'medium', color: { argb: 'FF2E75B6' } },
+          top: { style: 'medium', color: { argb: 'FF2E75B6' } },
           bottom: { style: 'medium', color: { argb: 'FF2E75B6' } },
-          left:   { style: 'thin', color: { argb: 'FFD9D9D9' } },
-          right:  { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          left: { style: 'thin', color: { argb: 'FFD9D9D9' } },
+          right: { style: 'thin', color: { argb: 'FFD9D9D9' } },
         };
         if (colNumber === 6 || colNumber === 7) {
           cell.numFmt = '#,##0.########';
@@ -239,9 +222,7 @@ export class ExportService {
   }
 
   /**
-   * Xuất sơ đồ cây Rebate ra Excel theo định dạng báo cáo lũy tiến từng level
-   * - MỖI MIB ĐƯỢC TÁCH THÀNH 1 SHEET RIÊNG BIỆT DỄ QUẢN LÝ
-   * - ĐÚNG 100% THEO FILE MẪU CHUẨN TEST SET REBATE.xlsx (Bao gồm các cột kiểm tra Flag Y, Status can, Maximum Pips)
+   * TÍNH TOÁN XUẤT EXCEL CHUẨN TẤT CẢ LOẠI TÀI KHOẢN VÀ MỌI BẢNG LŨY TIẾN
    */
   async generateCustomTreeRebateExcel(rootIbId?: string): Promise<Buffer> {
     const allNodes = await this.prisma.ibNode.findMany({
@@ -276,7 +257,6 @@ export class ExportService {
     if (mibRoots.length === 0) {
       mibRoots = allNodes.filter((n) => n.level === 0 || !n.parentId);
     }
-
     if (mibRoots.length === 0 && allNodes.length > 0) {
       mibRoots = [allNodes[0]];
     }
@@ -320,9 +300,7 @@ export class ExportService {
       if (!node) return [];
       const path = [...currentPath, node];
       const children = childrenMap.get(nodeId) || [];
-      if (children.length === 0) {
-        return [path];
-      }
+      if (children.length === 0) return [path];
       let branches: any[][] = [];
       for (const child of children) {
         branches.push(...getBranches(child.id, path));
@@ -336,36 +314,11 @@ export class ExportService {
       if (hasAccTypeConfigs) {
         return cfgs.find((c: any) => c.assetType === assetKey && c.accountType === accType);
       }
-
-      const stdMatch = cfgs.find((c: any) => c.assetType === assetKey && (c.accountType || 'STD') === 'STD');
-      if (stdMatch) return stdMatch;
-
-      return cfgs.find((c: any) => c.assetType === assetKey && (!c.accountType || c.accountType === 'STD'));
-    };
-
-    const getNodeReceivedPips = (
-      node: any,
-      assetKey: string,
-      accType: string,
-      defaultMaxPips = 0
-    ): number => {
-      const cfg = getNodeConfig(node, assetKey, accType);
-
-      if (cfg) {
-        if (cfg.rebatePips !== undefined && cfg.rebatePips !== null) {
-          return Number(cfg.rebatePips);
-        }
-        if (cfg.maxPips !== undefined && cfg.maxPips !== null) {
-          return Number(cfg.maxPips);
-        }
-      }
-
-      return 0;
+      return cfgs.find((c: any) => c.assetType === assetKey);
     };
 
     const usedSheetNames = new Set<string>();
 
-    // ── MỖI MIB ĐƯỢC XUẤT RA 1 SHEET RIÊNG BIỆT DỄ QUẢN LÝ ──────────────────
     for (let mibIndex = 0; mibIndex < mibRoots.length; mibIndex++) {
       const rootNode = mibRoots[mibIndex];
       let rawName = (rootNode.name || rootNode.email.split('@')[0] || `MIB_${mibIndex + 1}`)
@@ -388,7 +341,7 @@ export class ExportService {
       const branches = getBranches(rootNode.id);
       let currentRow = 1;
 
-      // ── HÀNG 1: HIỂN THỊ EMAIL MIB ĐẦU SHEET ─────────────────────────────
+      // HÀNG 1: EMAIL MIB DẦU SHEET
       const row1 = sheet.getRow(currentRow);
       row1.height = 24;
       const cellA1 = row1.getCell(1);
@@ -403,7 +356,6 @@ export class ExportService {
       for (let bIdx = 0; bIdx < branches.length; bIdx++) {
         const branchPath = branches[bIdx];
 
-        // ── HÀNG TIẾP THEO: IN TÊN VÀ EMAIL CỦA NHÁNH ──────────────────
         const branchTitleParts = branchPath.map((n, idx) => {
           const roleLabel = idx === 0 ? 'MIB' : `Level ${idx}`;
           const displayName = n.name ? `${n.name}` : n.email.split('@')[0];
@@ -429,12 +381,10 @@ export class ExportService {
 
         currentRow += 2;
 
+        // LẤY TẤT CẢ LOẠI TÀI KHOẢN TRONG NHÁNH
         const accountTypesSet = new Set<string>();
         for (const n of branchPath) {
           if (n.accountType) accountTypesSet.add(n.accountType);
-          if (Array.isArray(n.accountTypes)) {
-            n.accountTypes.forEach((t: string) => accountTypesSet.add(t));
-          }
           if (Array.isArray(n.rebateConfig)) {
             n.rebateConfig.forEach((c: any) => {
               if (c.accountType) accountTypesSet.add(c.accountType);
@@ -460,48 +410,23 @@ export class ExportService {
           return a.localeCompare(b);
         });
 
-        const nodeHasAccType = (n: any, type: string): boolean => {
-          if (Array.isArray(n.accountTypes) && n.accountTypes.length > 0) {
-            return n.accountTypes.includes(type);
-          }
-          if (n.accountType && n.accountType === type) return true;
-          if (Array.isArray(n.rebateConfig) && n.rebateConfig.some((c: any) => c.accountType === type)) return true;
-          if (Array.isArray(n.accountTypeTemplates) && n.accountTypeTemplates.some((t: any) => t.name === type)) return true;
-          if (n.level === 0 && type === 'STD') return true;
-          return false;
-        };
-
-        // ── BẢNG LŨY TIẾN THEO TỪNG LOẠI TÀI KHOẢN ─────────────
         for (let accIdx = 0; accIdx < accountTypes.length; accIdx++) {
           const accType = accountTypes[accIdx];
-
-          // Use full branch path for the account type table so hierarchy tree is complete
           const accSubPath: any[] = branchPath;
 
           if (accSubPath.length === 0) continue;
 
+          // DYNAMIC LẤY TOTAL MARKUP PIPS CỦA LOẠI TÀI KHOẢN
           let totalMarkupPips = 0;
-
-          // Lấy markup pips của account type này từ Node gốc hoặc config
           const rootConfig = accSubPath[0]?.rebateConfig?.find((c: any) => c.accountType === accType);
           if (rootConfig && rootConfig.markupPips !== undefined && rootConfig.markupPips !== null) {
             totalMarkupPips = Number(rootConfig.markupPips);
           } else {
-            // Dự phòng: Tìm trong accountTypeTemplates nếu có
-            const tmpl = accSubPath[0]?.accountTypeTemplates?.find((t: any) => t.name === accType);
-            if (tmpl && tmpl.markupPips !== undefined && tmpl.markupPips !== null) {
-              totalMarkupPips = Number(tmpl.markupPips);
-            } else {
-              // Trường hợp rơi vào STD10, STD5 nếu chưa lưu markupPips riêng lẻ thì mới parse fallback
-              const matchPips = accType.match(/(\d+(?:\.\d+)?)/);
-              totalMarkupPips = matchPips ? parseFloat(matchPips[1]) : 0;
-            }
+            const matchPips = accType.match(/(\d+(?:\.\d+)?)/);
+            totalMarkupPips = matchPips ? parseFloat(matchPips[1]) : 0;
           }
 
-          const startRowForAccType = currentRow;
-          let maxBlockHeight = 25;
-
-          // 1. Solve full branch Markup Option allocation via AI Rebate Engine
+          // LẤY SỐ PIPS BỊ NÓI TRỞ / GIỮ LẠI CHO CẢ NHÁNH
           const fullBranchSolverInput: SimulatorNodeInput[] = accSubPath.map((node, idx) => {
             const isRoot = idx === 0;
             const lvl = isRoot ? 0 : idx;
@@ -534,102 +459,36 @@ export class ExportService {
             ASSET_TYPES.map((a) => a.key),
           );
 
-          const fullSavedPatternKey = accSubPath.map((node) => {
-            const cfgs = node.rebateConfig || [];
-            const cfg = cfgs.find((c: any) => c.accountType === accType)
-              || cfgs.find((c: any) => (c.accountType || 'STD') === 'STD');
-            return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
-          });
-
-          let fullActiveIndex = 0;
-          if (fullScenarios.length > 0) {
-            const isSavedPatternValid = fullSavedPatternKey.every((p) => p !== null);
-            if (isSavedPatternValid) {
-              const foundIdx = fullScenarios.findIndex((sc) =>
-                sc.nodes.every((n, idx) => n.white_hold === fullSavedPatternKey[idx])
-              );
-              if (foundIdx !== -1) {
-                fullActiveIndex = foundIdx;
-              }
-            }
-          }
-          const fullActiveScenario = fullScenarios[fullActiveIndex] || fullScenarios[0];
-
+          const fullActiveScenario = fullScenarios[0];
           const fullMarkupHolds: number[] = accSubPath.map((node, idx) => {
             if (fullActiveScenario && fullActiveScenario.nodes && fullActiveScenario.nodes[idx]) {
               return fullActiveScenario.nodes[idx].white_hold;
             }
             const cfgs = node.rebateConfig || [];
-            const cfg = cfgs.find((c: any) => c.accountType === accType)
-              || cfgs.find((c: any) => (c.accountType || 'STD') === 'STD');
+            const cfg = cfgs.find((c: any) => c.accountType === accType) || cfgs[0];
             return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : 0;
           });
 
-          // 2. Compute full branch retained pips vector for each asset from DB configs
-          const fullRetainedMap: Record<string, number[]> = {};
+          const startRowForAccType = currentRow;
+          let maxBlockHeight = 25;
 
-          for (const asset of ASSET_TYPES) {
-            const retainedArr: number[] = new Array(accSubPath.length).fill(0);
-
-            for (let lvIdx = 0; lvIdx < accSubPath.length; lvIdx++) {
-              const currentNode = accSubPath[lvIdx];
-              const hold = fullMarkupHolds[lvIdx] || 0;
-
-              if (lvIdx === 0) {
-                const mibAssetConfig = getNodeConfig(currentNode, asset.key, accType);
-                const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
-                  ? Number(mibAssetConfig.maxPips)
-                  : asset.maxPips;
-                const level1Node = accSubPath[1];
-                const mibGiven = level1Node ? getNodeReceivedPips(level1Node, asset.key, accType, asset.maxPips) : 0;
-
-                if (mibGiven > 0) {
-                  const mibCap = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
-                  retainedArr[0] = Math.max(0, mibCap - mibGiven - hold);
-                } else {
-                  retainedArr[0] = mibBaseCap;
-                }
-              } else {
-                const receivedPips = getNodeReceivedPips(currentNode, asset.key, accType, asset.maxPips);
-
-                if (receivedPips > 0) {
-                  const givenPips = lvIdx + 1 < accSubPath.length
-                    ? getNodeReceivedPips(accSubPath[lvIdx + 1], asset.key, accType, asset.maxPips)
-                    : 0;
-                  retainedArr[lvIdx] = Math.max(0, receivedPips - givenPips - hold);
-                } else {
-                  retainedArr[lvIdx] = 0;
-                }
-              }
-            }
-
-            fullRetainedMap[asset.key] = retainedArr;
-          }
-
+          // VẼ TỪNG BẢNG LŨY TIẾN TƯƠNG ỨNG TỪNG LEVEL
           for (let step = 0; step < accSubPath.length; step++) {
             const stepPath = accSubPath.slice(0, step + 1);
-            const startCol = 1 + step * 15; // 14 cột dữ liệu + 1 cột spacer
+            const startCol = 1 + step * 15;
 
-            // Set độ rộng cột chuẩn giống TEST SET REBATE.xlsx
             sheet.getColumn(startCol).width = 22;
-            for (let k = 1; k <= 6; k++) {
-              sheet.getColumn(startCol + k).width = 16;
-            }
-            sheet.getColumn(startCol + 7).width = 4;
-            sheet.getColumn(startCol + 8).width = 4;
-            sheet.getColumn(startCol + 9).width = 4;
-            sheet.getColumn(startCol + 10).width = 4;
+            for (let k = 1; k <= 6; k++) sheet.getColumn(startCol + k).width = 16;
             sheet.getColumn(startCol + 11).width = 8;
             sheet.getColumn(startCol + 12).width = 8;
             sheet.getColumn(startCol + 13).width = 14;
-            sheet.getColumn(startCol + 14).width = 3; // Spacer
+            sheet.getColumn(startCol + 14).width = 3;
 
             let r = startRowForAccType;
 
-            // 1. Header Level Row (Row r)
+            // 1. Header Level
             const levelHeaderRow = sheet.getRow(r);
             levelHeaderRow.height = 22;
-
             const levelNames = ['MIB level 1', 'level 2', 'level 3', 'level 4', 'level 5', 'Sub 5'];
             for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
               const lvCell = levelHeaderRow.getCell(startCol + 1 + lvIdx);
@@ -640,7 +499,6 @@ export class ExportService {
               applyCellBorder(lvCell, 'FF1F3864');
             }
 
-            // Status legend in Col 12, 13, 14
             const legendCell = levelHeaderRow.getCell(startCol + 11);
             legendCell.value = 'N = No\nY = Yes\nL= to be confirmed';
             legendCell.font = { size: 7.5, color: { argb: 'FF595959' }, name: 'Calibri' };
@@ -650,10 +508,9 @@ export class ExportService {
 
             r++;
 
-            // 2. Email Path Row (Row r + 1)
+            // 2. Row Email Path
             const emailSubRow = sheet.getRow(r);
             emailSubRow.height = 20;
-
             for (let lvIdx = 0; lvIdx < 6; lvIdx++) {
               const cell = emailSubRow.getCell(startCol + 1 + lvIdx);
               cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
@@ -668,10 +525,9 @@ export class ExportService {
 
             r++;
 
-            // 3. Rebate (pips) & maximum Pips Header Row (Row r + 2)
+            // 3. Rebate Label Header
             const pipsHeaderRow = sheet.getRow(r);
             pipsHeaderRow.height = 20;
-
             const rebateLabelCell = pipsHeaderRow.getCell(startCol);
             rebateLabelCell.value = 'Rebate (pips)';
             rebateLabelCell.font = { bold: true, size: 9.5, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
@@ -688,8 +544,7 @@ export class ExportService {
 
             r++;
 
-            // 4. Asset Data Rows (18 sản phẩm)
-            let assetIdx = 0;
+            // 4. Data 18 Sản phẩm Rebate
             for (const asset of ASSET_TYPES) {
               const dataRow = sheet.getRow(r);
               dataRow.height = 18;
@@ -697,15 +552,13 @@ export class ExportService {
               const assetLabelCell = dataRow.getCell(startCol);
               assetLabelCell.value = asset.label;
               assetLabelCell.font = { bold: true, size: 9, color: { argb: 'FF1E293B' }, name: 'Calibri' };
-              assetLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: assetIdx % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } };
               assetLabelCell.alignment = { horizontal: 'left', vertical: 'middle' };
               applyCellBorder(assetLabelCell, 'FFCBD5E1');
 
-              const retainedArr = fullRetainedMap[asset.key] || [];
+              // Lấy Pips gốc cứng từ Config/DB
               const mibNode = stepPath[0];
-              const mibAssetConfig = mibNode.rebateConfig?.find((a: any) => a.assetType === asset.key && (a.accountType || 'STD') === accType)
-                || mibNode.rebateConfig?.find((a: any) => a.assetType === asset.key);
-              const mibBaseCap = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
+              const mibAssetConfig = getNodeConfig(mibNode, asset.key, accType);
+              const basePips = mibAssetConfig?.maxPips !== undefined && mibAssetConfig?.maxPips !== null
                 ? Number(mibAssetConfig.maxPips)
                 : asset.maxPips;
 
@@ -714,19 +567,23 @@ export class ExportService {
                 pipsCell.alignment = { horizontal: 'center', vertical: 'middle' };
 
                 if (lvIdx < stepPath.length) {
-                  let retainedVal = 0;
-
+                  let cellVal = 0;
                   if (lvIdx < step) {
-                    // Cấp nằm phía trên cấp lá của bước hiện tại: Hiển thị Pips mà cấp này giữ lại
-                    retainedVal = retainedArr[lvIdx] || 0;
+                    // Cấp giữ lại phía trên
+                    const cfg = getNodeConfig(stepPath[lvIdx], asset.key, accType);
+                    cellVal = cfg?.markupPips !== undefined ? Number(cfg.markupPips) : 0;
                   } else if (lvIdx === step) {
-                    // Cấp lá của bước hiện tại: Lấy Pips gốc trừ đi tổng Pips đã giữ lại của các cấp phía trên
-                    const prevSum = retainedArr.slice(0, step).reduce((sum, val) => sum + val, 0);
-                    retainedVal = Math.max(0, mibBaseCap - prevSum);
+                    // Cấp lá hiện tại = Pips gốc - Tổng giữ lại của cấp trên
+                    let prevHolds = 0;
+                    for (let p = 0; p < step; p++) {
+                      const cfg = getNodeConfig(stepPath[p], asset.key, accType);
+                      prevHolds += cfg?.markupPips !== undefined ? Number(cfg.markupPips) : 0;
+                    }
+                    cellVal = Math.max(0, basePips - prevHolds);
                   }
 
-                  pipsCell.value = retainedVal;
-                  if (retainedVal > 0) {
+                  pipsCell.value = cellVal;
+                  if (cellVal > 0) {
                     pipsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
                     pipsCell.font = { bold: true, size: 9.5, color: { argb: 'FF1E4620' }, name: 'Calibri' };
                     applyCellBorder(pipsCell, 'FFA9D18E');
@@ -742,7 +599,7 @@ export class ExportService {
                 }
               }
 
-              // Extra Validation Columns: Col 11=Flag Y, Col 12=Status can, Col 13=Max Pips Limit
+              // Các cột Flag kiểm tra
               const flagCell = dataRow.getCell(startCol + 11);
               flagCell.value = 'Y';
               flagCell.font = { bold: true, size: 9, color: { argb: 'FF1E4620' }, name: 'Calibri' };
@@ -765,10 +622,9 @@ export class ExportService {
               applyCellBorder(maxLimitCell, 'FFB4C6E7');
 
               r++;
-              assetIdx++;
             }
 
-            // 5. Markup Option Sub-Table
+            // 5. BẢNG MARKUP OPTION (TÍNH TỶ LỆ DYNAMIC VÀ SỐ PIPS CHUẨN)
             r++;
 
             const markupHeaderRow = sheet.getRow(r);
@@ -788,7 +644,7 @@ export class ExportService {
               applyCellBorder(mCell, 'FF8EA9DB');
             }
 
-            // Row 1 of Markup Option: Tỷ Lệ % Giữ Lại
+            // Row 1 Markup Option: TỶ LỆ % GIỮ LẠI (TÍNH LŨY THỪA TRÊN POOL CÒN LẠI)
             r++;
             const pctRow = sheet.getRow(r);
             pctRow.height = 18;
@@ -807,20 +663,22 @@ export class ExportService {
 
               if (lvIdx < stepPath.length) {
                 if (lvIdx < step) {
-                  // Pool còn lại tại level này = Tổng Markup - Số Pips các cấp trước ĐÃ GIỮ
-                  const prevHoldsSum = fullMarkupHolds.slice(0, lvIdx).reduce((a, b) => a + b, 0);
-                  const poolAtLv = totalMarkupPips - prevHoldsSum;
-                  const holdPips = fullMarkupHolds[lvIdx] || 0;
+                  // Pool tại cấp này = Total Markup - Số pips các cấp trước đã giữ
+                  let prevHolds = 0;
+                  for (let p = 0; p < lvIdx; p++) {
+                    prevHolds += fullMarkupHolds[p] || 0;
+                  }
+                  const currentPool = totalMarkupPips - prevHolds;
+                  const holdVal = fullMarkupHolds[lvIdx] || 0;
 
-                  if (poolAtLv > 0) {
-                    const pctVal = (holdPips / poolAtLv) * 100;
-                    // Format hiển thị: nếu là số nguyên thì không hiện .00, nếu lẻ thì tối đa 2 chữ số thập phân
-                    pCell.value = `${Number(pctVal.toFixed(2))}%`;
+                  if (currentPool > 0) {
+                    const pct = (holdVal / currentPool) * 100;
+                    pCell.value = `${Number(pct.toFixed(2))}%`;
                   } else {
                     pCell.value = '0%';
                   }
                 } else if (lvIdx === step) {
-                  // Cấp cuối cùng nhận lại toàn bộ phần còn lại nên luôn là 100%
+                  // Cấp cuối cùng hiển thị của bảng này luôn gom toàn bộ còn lại -> 100%
                   pCell.value = '100%';
                 }
               } else {
@@ -828,7 +686,7 @@ export class ExportService {
               }
             }
 
-            // Row 2 of Markup Option: Account Type Pips Markup
+            // Row 2 Markup Option: SỐ PIPS TƯƠNG ỨNG
             r++;
             const pipsRow = sheet.getRow(r);
             pipsRow.height = 18;
@@ -849,8 +707,11 @@ export class ExportService {
                 if (lvIdx < step) {
                   pValCell.value = fullMarkupHolds[lvIdx] || 0;
                 } else if (lvIdx === step) {
-                  const prevHoldSum = fullMarkupHolds.slice(0, step).reduce((a, b) => a + b, 0);
-                  pValCell.value = Math.max(0, totalMarkupPips - prevHoldSum);
+                  let prevHolds = 0;
+                  for (let p = 0; p < step; p++) {
+                    prevHolds += fullMarkupHolds[p] || 0;
+                  }
+                  pValCell.value = Math.max(0, totalMarkupPips - prevHolds);
                 }
               } else {
                 pValCell.value = '';
