@@ -337,15 +337,15 @@ export class ExportService {
       defaultMaxPips: number
     ): number => {
       const cfgs = node.rebateConfig || [];
-      const cfg = cfgs.find(
-        (c: any) => c.assetType === assetKey && (c.accountType || 'STD') === accType
-      );
+      const cfg = cfgs.find((c: any) => c.assetType === assetKey && c.accountType === accType)
+        || cfgs.find((c: any) => c.assetType === assetKey && (c.accountType || 'STD') === 'STD')
+        || cfgs.find((c: any) => c.assetType === assetKey);
 
       if (cfg) {
-        if (cfg.rebatePips !== undefined && cfg.rebatePips !== null && Number(cfg.rebatePips) > 0) {
+        if (cfg.rebatePips !== undefined && cfg.rebatePips !== null) {
           return Number(cfg.rebatePips);
         }
-        if (cfg.maxPips !== undefined && cfg.maxPips !== null && Number(cfg.maxPips) > 0) {
+        if (cfg.maxPips !== undefined && cfg.maxPips !== null) {
           return Number(cfg.maxPips);
         }
       }
