@@ -666,7 +666,7 @@ export class ExportService {
 
               if (lvIdx < stepPath.length) {
                 if (totalMarkupPips === 0) {
-                  pCell.value = lvIdx === step ? 1 : 0;
+                  pCell.value = lvIdx === step ? '100,00%' : '0,00%';
                 } else {
                   if (lvIdx < step) {
                     let prevHolds = 0;
