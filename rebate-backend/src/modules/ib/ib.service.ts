@@ -507,10 +507,15 @@ export class IbService {
       });
     }
 
-    if (node.level === 0) {
+    const actor = await this.prisma.ibNode.findUnique({
+      where: { id: currentUserId },
+      select: { email: true, role: true },
+    });
+
+    if (node.level === 0 && actor?.role !== 'ADMIN') {
       throw new UnprocessableEntityException({
         code: 'IB_ACTION_NOT_ALLOWED',
-        message: 'Không thể deactivate MIB',
+        message: 'Chỉ Admin mới có quyền vô hiệu hóa MIB',
       });
     }
 
@@ -533,11 +538,6 @@ export class IbService {
       type: NotificationType.IB_DEACTIVATED,
       title: 'Tài khoản đã bị vô hiệu hóa',
       body: 'Tài khoản của bạn đã bị vô hiệu hóa. Vui lòng liên hệ cấp trên để biết thêm thông tin.',
-    });
-
-    const actor = await this.prisma.ibNode.findUnique({
-      where: { id: currentUserId },
-      select: { email: true, role: true },
     });
 
     if (actor?.role !== 'ADMIN') {

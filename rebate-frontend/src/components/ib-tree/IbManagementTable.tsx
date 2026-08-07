@@ -67,8 +67,11 @@ export function IbManagementTable() {
         toast.success('Đã vô hiệu hóa');
         queryClient.invalidateQueries({ queryKey: ['ibSearch'] });
         queryClient.invalidateQueries({ queryKey: ['ibCount'] });
+      } else {
+        toast.error(getErrorMessage((res as any).error?.code));
       }
     },
+    onError: (err: any) => toast.error(getErrorMessage(err.response?.data?.error?.code || 'INTERNAL_ERROR')),
   });
 
   const handleSearch = (e: React.FormEvent) => {
