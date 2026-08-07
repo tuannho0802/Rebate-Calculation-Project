@@ -3,13 +3,15 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
-import { Loader2, Search, Edit, Trash2, Crown, Users, Layers, Plus } from 'lucide-react';
+import { Loader2, Search, Edit, Trash2, Crown, Users, Layers, Plus, UserCog } from 'lucide-react';
 import { useRouter } from '@/i18n/routing';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/store/auth.store';
+import { IbNode } from '@/types';
 import { CreateIbModal } from './CreateIbModal';
 import { AdminCreateUserModal } from './AdminCreateUserModal';
+import { EditIbModal } from './EditIbModal';
 
 type TabType = 'mib' | 'sub-ib' | 'all';
 
@@ -19,6 +21,7 @@ export function IbManagementTable() {
   const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState<TabType>('mib');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingIb, setEditingIb] = useState<IbNode | null>(null);
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
 
@@ -261,6 +264,14 @@ export function IbManagementTable() {
                           <td className="px-6 py-4 text-right">
                             <div className="flex justify-end items-center gap-2">
                               <button
+                                onClick={() => setEditingIb(ib)}
+                                title="Chỉnh sửa thông tin IB"
+                                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-all shadow-sm"
+                              >
+                                <UserCog className="h-3.5 w-3.5" />
+                                <span>Sửa thông tin</span>
+                              </button>
+                              <button
                                 onClick={() => router.push(`/dashboard/tree/edit/${ib.id}`)}
                                 title="Chỉnh sửa cấu hình Rebate"
                                 className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 rounded-lg border border-amber-200 transition-all shadow-sm"
@@ -326,6 +337,19 @@ export function IbManagementTable() {
       {/* Modal tạo IB cho Admin */}
       {isAdmin && isCreateModalOpen && (
         <AdminCreateUserModal onClose={() => setIsCreateModalOpen(false)} />
+      )}
+
+      {/* Modal chỉnh sửa thông tin IB */}
+      {editingIb && (
+        <EditIbModal
+          ib={editingIb}
+          onClose={() => setEditingIb(null)}
+          onSuccess={() => {
+            setEditingIb(null);
+            queryClient.invalidateQueries({ queryKey: ['ibSearch'] });
+            queryClient.invalidateQueries({ queryKey: ['ibCount'] });
+          }}
+        />
       )}
     </div>
   );
