@@ -410,16 +410,6 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
                 </select>
               </div>
 
-              {/* Nút Thêm / Xóa loại link */}
-              <button
-                type="button"
-                onClick={openManageTypesModal}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 font-bold text-xs transition-all shadow-sm"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Thêm / Xóa loại link</span>
-              </button>
-
               {/* Vị trí 2: Badges loại link sở hữu */}
               <div className="flex items-center gap-1 flex-wrap">
                 {availableAccountTypes.map((t) => (
@@ -569,90 +559,6 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
             </div>
           </div>
         </>
-      )}
-
-      {/* Modal Quản lý / Thêm / Xóa Loại Tài Khoản Link */}
-      {isManageTypesModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div>
-                <h3 className="text-lg font-bold text-gray-900">Quản lý Loại tài khoản link</h3>
-                <p className="text-xs text-gray-500 font-medium">Thêm hoặc xóa các loại link cấp cho IB ({targetIb?.name || targetIb?.email})</p>
-              </div>
-              <button
-                onClick={() => setIsManageTypesModalOpen(false)}
-                className="text-gray-400 hover:text-gray-600 font-bold p-1 rounded-lg hover:bg-gray-100 transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <label className="block text-xs font-bold uppercase tracking-wider text-gray-500">
-                Danh sách loại tài khoản link khả dụng
-              </label>
-              <p className="text-xs text-gray-500 leading-relaxed">
-                {isTargetMib
-                  ? 'Loại tài khoản link được lấy từ bảng Cấu hình hoa hồng Markup hệ thống.'
-                  : `Được giới hạn bởi các loại link mà Cấp trên sở hữu (${parentAccountTypesList.join(', ')}).`}
-              </p>
-
-              <div className="grid grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1.5 border border-gray-200 rounded-xl bg-gray-50/50">
-                {assignableAccountTypesOptions.map((type) => {
-                  const isChecked = tempSelectedTypes.includes(type);
-                  return (
-                    <label
-                      key={type}
-                      className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border cursor-pointer text-sm font-semibold transition-all ${
-                        isChecked
-                          ? 'bg-amber-50 border-amber-400 text-amber-950 shadow-sm font-bold'
-                          : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => {
-                          if (isChecked) {
-                            if (tempSelectedTypes.length > 1) {
-                              setTempSelectedTypes(tempSelectedTypes.filter((t) => t !== type));
-                            } else {
-                              toast.error('IB phải sở hữu ít nhất 1 loại tài khoản link');
-                            }
-                          } else {
-                            setTempSelectedTypes([...tempSelectedTypes, type]);
-                          }
-                        }}
-                        className="rounded border-gray-300 text-amber-600 focus:ring-amber-500 h-4 w-4"
-                      />
-                      <span>{type}</span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-3 border-t border-gray-100">
-              <button
-                type="button"
-                onClick={() => setIsManageTypesModalOpen(false)}
-                className="flex-1 py-2.5 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold text-sm transition-colors"
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveAccountTypes}
-                disabled={isSavingTypes}
-                className="flex-1 py-2.5 px-4 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-sm transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {isSavingTypes && <Loader2 className="h-4 w-4 animate-spin" />}
-                Xác nhận cập nhật
-              </button>
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

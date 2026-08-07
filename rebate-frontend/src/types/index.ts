@@ -61,6 +61,8 @@ export interface AuthUser {
   level: number;
   role: "IB" | "ADMIN";
   isRootAdmin: boolean;
+  accountType?: string;
+  accountTypes?: string[];
 }
 
 export interface AuthTokens {

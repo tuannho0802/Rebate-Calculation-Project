@@ -73,8 +73,13 @@ export const ibApi = {
     };
   },
 
-  update: async (id: string, dto: { name?: string; email?: string; accountType?: string; accountTypes?: string[] }): Promise<ApiResponse<IbNode>> => {
+  update: async (id: string, dto: { name?: string; email?: string; accountType?: string; accountTypes?: string[]; phone?: string; country?: string; notes?: string; bankAccount?: string; paymentInfo?: string }): Promise<ApiResponse<IbNode>> => {
     const response = await apiClient.put<ApiResponse<IbNode>>(`/ib/${id}`, dto);
+    return response.data;
+  },
+
+  resetPassword: async (id: string, newPassword: string): Promise<ApiResponse<any>> => {
+    const response = await apiClient.put<ApiResponse<any>>(`/ib/${id}/reset-password`, { newPassword });
     return response.data;
   },
 
