@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
-import { Loader2, Search, Edit, Trash2, Crown, Users, Layers, Plus, UserCog } from 'lucide-react';
+import { Loader2, Search, Edit, Trash2, Crown, Users, Layers, Plus, UserCog, Link as LinkIcon } from 'lucide-react';
 import { useRouter } from '@/i18n/routing';
 import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
@@ -12,6 +12,7 @@ import { IbNode } from '@/types';
 import { CreateIbModal } from './CreateIbModal';
 import { AdminCreateUserModal } from './AdminCreateUserModal';
 import { EditIbModal } from './EditIbModal';
+import { AssignLinkModal } from './AssignLinkModal';
 
 type TabType = 'mib' | 'sub-ib' | 'all';
 
@@ -22,6 +23,7 @@ export function IbManagementTable() {
   const [activeTab, setActiveTab] = useState<TabType>('mib');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingIb, setEditingIb] = useState<IbNode | null>(null);
+  const [assigningIb, setAssigningIb] = useState<IbNode | null>(null);
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
 
@@ -263,14 +265,25 @@ export function IbManagementTable() {
                           </td>
                           <td className="px-6 py-4 text-right">
                             <div className="flex justify-end items-center gap-2">
-                              <button
-                                onClick={() => setEditingIb(ib)}
-                                title="Chỉnh sửa thông tin IB"
-                                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-all shadow-sm"
-                              >
-                                <UserCog className="h-3.5 w-3.5" />
-                                <span>Sửa thông tin</span>
-                              </button>
+                              {isAdmin ? (
+                                <button
+                                  onClick={() => setEditingIb(ib)}
+                                  title="Chỉnh sửa thông tin IB"
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg border border-indigo-200 transition-all shadow-sm"
+                                >
+                                  <UserCog className="h-3.5 w-3.5" />
+                                  <span>Sửa thông tin</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => setAssigningIb(ib)}
+                                  title="Cấp loại tài khoản link cho cấp dưới"
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 transition-all shadow-sm"
+                                >
+                                  <LinkIcon className="h-3.5 w-3.5" />
+                                  <span>Cấp link</span>
+                                </button>
+                              )}
                               <button
                                 onClick={() => router.push(`/dashboard/tree/edit/${ib.id}`)}
                                 title="Chỉnh sửa cấu hình Rebate"
@@ -339,13 +352,26 @@ export function IbManagementTable() {
         <AdminCreateUserModal onClose={() => setIsCreateModalOpen(false)} />
       )}
 
-      {/* Modal chỉnh sửa thông tin IB */}
-      {editingIb && (
+      {/* Modal chỉnh sửa thông tin IB (chỉ Admin) */}
+      {isAdmin && editingIb && (
         <EditIbModal
           ib={editingIb}
           onClose={() => setEditingIb(null)}
           onSuccess={() => {
             setEditingIb(null);
+            queryClient.invalidateQueries({ queryKey: ['ibSearch'] });
+            queryClient.invalidateQueries({ queryKey: ['ibCount'] });
+          }}
+        />
+      )}
+
+      {/* Modal cấp loại tài khoản link cho MIB / Sub-IB */}
+      {assigningIb && (
+        <AssignLinkModal
+          ib={assigningIb}
+          onClose={() => setAssigningIb(null)}
+          onSuccess={() => {
+            setAssigningIb(null);
             queryClient.invalidateQueries({ queryKey: ['ibSearch'] });
             queryClient.invalidateQueries({ queryKey: ['ibCount'] });
           }}
