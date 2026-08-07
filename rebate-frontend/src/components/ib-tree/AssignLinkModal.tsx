@@ -44,10 +44,11 @@ export function AssignLinkModal({ ib, onClose, onSuccess }: AssignLinkModalProps
     }
 
     // If logged in user is Sub-IB (level >= 1), they can ONLY assign types they own
-    if (user?.accountTypes && user.accountTypes.length > 0) {
-      return user.accountTypes;
+    const u = user as any;
+    if (u?.accountTypes && u.accountTypes.length > 0) {
+      return u.accountTypes;
     }
-    return [user?.accountType || 'STD'];
+    return [u?.accountType || 'STD'];
   }, [user, templateData]);
 
   const initialSelected = useMemo(() => {
@@ -135,7 +136,7 @@ export function AssignLinkModal({ ib, onClose, onSuccess }: AssignLinkModalProps
             )}
 
             <div className="grid grid-cols-2 gap-2.5 max-h-60 overflow-y-auto p-2 border border-slate-200 rounded-xl bg-slate-50/50">
-              {availableTypes.map((accType) => {
+              {availableTypes.map((accType: string) => {
                 const isSelected = selectedTypes.includes(accType);
                 return (
                   <button
