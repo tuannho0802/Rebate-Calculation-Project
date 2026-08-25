@@ -647,8 +647,31 @@
 - `src/components/rebate/CompactPivotTable.tsx`: Sửa lỗi `Maximum update depth exceeded` bằng cách chuyển effect dependency sang chuỗi primitive `scenarioNodesKey = JSON.stringify(...)`.
 
 ### Trạng Thái
-- [x] Tất cả nội dung triển khai biên dịch không có lỗi (`npx tsc --noEmit` 0 errors)
-- [x] Không có chức năng cũ nào bị hỏng
-- [x] Hợp đồng API không bị vi phạm
 - [x] Các type vẫn khớp với Data Models
+---
+
+---
+## [2026-08-24] — Phần: FRONTEND
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Thực hiện Giải pháp 1: Ngưỡng lọc tối thiểu (Virtual Zero / Threshold) cho tính toán và xuất excel của cấu hình rebate & markup.
+
+### Đã Triển Khai
+- Không có
+
+### Đã Sửa Lỗi
+- Không có
+
+### Đã Cập Nhật
+- `src/lib/ai-rebate-solver.ts`: Đồng bộ logic `solveBallAllocation` với backend để lọc ngưỡng 0.01 về 0 khi chia tỷ lệ Markup Option.
+
+### Ghi Chú
+- Không có
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi
+- [x] Không có chức năng cũ nào bị hỏng
+- [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [x] Các type vẫn khớp với 02_DATA_MODELS.md
 ---

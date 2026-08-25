@@ -21,30 +21,39 @@ export function solveBallAllocation(
       ? selectedAssets
       : Object.values(AssetType);
 
-  const lastNode = treeNodes[treeNodes.length - 1];
+  // Preprocess assets: treat values <= 0.01 as 0
+  const processedTreeNodes = treeNodes.map((node) => {
+    const cleanedAssets: Record<string, number> = {};
+    for (const asset in node.assets) {
+      const val = node.assets[asset] ?? 0;
+      cleanedAssets[asset] = val <= 0.01 ? 0 : val;
+    }
+    return {
+      ...node,
+      assets: cleanedAssets,
+    };
+  });
 
-  // Filter assets where the last IB in the active branch has rebate pips >= 1
-  const lastNodeActiveAssets = rawAssetsList.filter(
-    (asset) => (lastNode.assets[asset] ?? 0) >= 1,
-  );
+  // Filter active assets: those that have been allocated downstream (i.e. Level 1's value > 0)
+  const allocatedAssets = processedTreeNodes.length > 1
+    ? rawAssetsList.filter((asset) => (processedTreeNodes[1].assets[asset] ?? 0) > 0)
+    : [];
 
-  // Fallback if no assets have >= 1 at the last node
-  const activeAssets =
-    lastNodeActiveAssets.length > 0
-      ? lastNodeActiveAssets
-      : rawAssetsList.filter((asset) =>
-          treeNodes.some((node) => (node.assets[asset] ?? 0) > 0),
-        );
+  const activeAssets = allocatedAssets.length > 0
+    ? allocatedAssets
+    : rawAssetsList.filter((asset) =>
+        processedTreeNodes.some((node) => (node.assets[asset] ?? 0) > 0),
+      );
 
   const assetsList = activeAssets.length > 0 ? activeAssets : rawAssetsList;
 
   // Prepare nodes: If Node 0 (MIB) base cap < Level 1 rebate pips, add totalWhiteBalls to MIB cap
-  const preparedNodes: SolverNodeInput[] = treeNodes.map((node, idx) => {
-    if (idx === 0 && treeNodes.length > 1) {
+  const preparedNodes: SolverNodeInput[] = processedTreeNodes.map((node, idx) => {
+    if (idx === 0 && processedTreeNodes.length > 1) {
       const adjustedAssets: Record<string, number> = { ...node.assets };
       assetsList.forEach((asset) => {
         const mibBase = node.assets[asset] ?? 0;
-        const level1Pips = treeNodes[1].assets[asset] ?? 0;
+        const level1Pips = processedTreeNodes[1].assets[asset] ?? 0;
         if (mibBase < level1Pips) {
           adjustedAssets[asset] = mibBase + totalWhiteBalls;
         }
@@ -79,8 +88,10 @@ export function solveBallAllocation(
         : 0;
       const selfPips = Math.max(0, holdAsset - passAssetNext);
       retainedPips[asset] = selfPips;
-      if (selfPips < minSelf) {
-        minSelf = selfPips;
+
+      const effectiveSelf = selfPips <= 0.01 ? 0 : selfPips;
+      if (effectiveSelf < minSelf) {
+        minSelf = effectiveSelf;
       }
     }
 

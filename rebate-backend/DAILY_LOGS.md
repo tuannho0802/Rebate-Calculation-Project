@@ -747,3 +747,30 @@ oles.guard.ts — phân quyền theo role (ADMIN/IB), dùng @Roles('ADMIN') deco
 - [x] Hợp đồng API không bị vi phạm
 - [x] Các type vẫn khớp với Data Models
 ---
+
+---
+## [2026-08-24] — Phần: BACKEND
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Thực hiện Giải pháp 1: Ngưỡng lọc tối thiểu (Virtual Zero / Threshold) cho tính toán và xuất excel của cấu hình rebate & markup.
+
+### Đã Triển Khai
+- Không có
+
+### Đã Sửa Lỗi
+- Không có
+
+### Đã Cập Nhật
+- `src/modules/rebate/rebate-simulator.service.ts`: Cập nhật logic `solveBallAllocation` để coi giá trị rebate pips <= 0.01 là 0 khi tính toán tỷ trọng phân bổ Markup, nhưng vẫn giữ nguyên giá trị thực tế trong `retainedPips` để hiển thị.
+- `src/modules/rebate/rebate-simulator.service.spec.ts`: Thêm unit test chứng minh tính đúng đắn của logic ngưỡng lọc 0.01.
+
+### Ghi Chú
+- Tất cả unit test đã được chạy và vượt qua hoàn toàn (64/64 tests pass).
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi
+- [x] Không có chức năng cũ nào bị hỏng
+- [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
+- [x] Các type vẫn khớp với 02_DATA_MODELS.md
+---
