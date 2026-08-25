@@ -125,6 +125,10 @@ function buildColumns(
   return cols;
 }
 
+const formatPips = (val: number): number => {
+  return Math.round((val + Number.EPSILON) * 100) / 100;
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 import { useMemo } from 'react';
@@ -356,10 +360,10 @@ export function CompactPivotTable({
                 <td className="px-3 py-2 border-r border-slate-200 text-center bg-indigo-50/20">
                   <div className="flex flex-col items-center justify-center gap-0.5">
                     <span className="text-[11px] font-semibold text-slate-500">
-                      Cap: <span className="font-bold text-slate-700">{mibCap}</span>
+                      Cap: <span className="font-bold text-slate-700">{formatPips(mibCap)}</span>
                     </span>
                     <span className="text-sm font-black text-indigo-700 bg-indigo-100/60 px-2 py-0.5 rounded border border-indigo-200/50 min-w-[36px]">
-                      {mibRetained}
+                      {formatPips(mibRetained)}
                     </span>
                   </div>
                 </td>
@@ -389,7 +393,7 @@ export function CompactPivotTable({
                               step="0.5"
                               min="0"
                               max={maxAllowed}
-                              value={received}
+                              value={formatPips(received)}
                               onChange={(e) => {
                                 let val = parseFloat(e.target.value);
                                 if (isNaN(val)) val = 0;
@@ -406,12 +410,12 @@ export function CompactPivotTable({
                           </div>
                         ) : (
                           <span className="text-[11px] font-semibold text-slate-500">
-                            Nhận: <span className="font-bold text-slate-700">{received}</span>
+                            Nhận: <span className="font-bold text-slate-700">{formatPips(received)}</span>
                           </span>
                         )}
 
                         <span className="text-sm font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 min-w-[36px]">
-                          {retained}
+                          {formatPips(retained)}
                         </span>
                       </div>
                     </td>
@@ -444,8 +448,8 @@ export function CompactPivotTable({
                 }, 0);
                 return (
                   <div>
-                    <div className="text-[10px] text-slate-500">Company cap: <span className="font-bold">{totalCap}</span></div>
-                    <div className="text-xs font-black text-indigo-700">Allocated: {totalGiven}</div>
+                    <div className="text-[10px] text-slate-500">Company cap: <span className="font-bold">{formatPips(totalCap)}</span></div>
+                    <div className="text-xs font-black text-indigo-700">Allocated: {formatPips(totalGiven)}</div>
                   </div>
                 );
               })()}
@@ -467,8 +471,8 @@ export function CompactPivotTable({
               return (
                 <td key={level} className="px-3 py-3 border-r border-slate-200 text-center font-bold text-slate-800">
                   <div>
-                    <div className="text-[10px] text-slate-500">Company cap: <span className="font-bold">{totalReceived}</span></div>
-                    <div className="text-xs font-black text-slate-900">Allocated: {totalGiven}</div>
+                    <div className="text-[10px] text-slate-500">Company cap: <span className="font-bold">{formatPips(totalReceived)}</span></div>
+                    <div className="text-xs font-black text-slate-900">Allocated: {formatPips(totalGiven)}</div>
                   </div>
                 </td>
               );

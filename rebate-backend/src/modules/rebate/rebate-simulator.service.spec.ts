@@ -62,4 +62,92 @@ describe('RebateSimulatorService', () => {
     // Check last node markup percentage is 100%
     expect(topScenario.nodes[3].pct).toBe('100%');
   });
+
+  it('should treat rebate pips <= 0.01 as 0 when calculating markup distribution', () => {
+    const treeNodes = [
+      { nodeId: 'n1', nodeName: 'Nguoi 1 (MIB)', level: 0, assets: { GOLD: 20 } },
+      { nodeId: 'n2', nodeName: 'Nguoi 2 (L1)',  level: 1, assets: { GOLD: 10 } },
+      { nodeId: 'n3', nodeName: 'Nguoi 3 (L2)',  level: 2, assets: { GOLD: 0.01 } },
+    ];
+
+    const totalMarkupPips = 10;
+    const scenarios = service.solveBallAllocation(treeNodes, totalMarkupPips, ['GOLD']);
+
+    expect(scenarios.length).toBeGreaterThan(0);
+    const topScenario = scenarios[0];
+
+    // n3 (L2) should get 0 white_hold and '0%' percentage because its effective rebate is 0
+    expect(topScenario.nodes[2].white_hold).toBe(0);
+    expect(topScenario.nodes[2].pct).toBe('0%');
+
+    // Total markup should still be 10, distributed to n1 and n2
+    const n1Hold = topScenario.nodes[0].white_hold;
+    const n2Hold = topScenario.nodes[1].white_hold;
+    expect(n1Hold + n2Hold).toBe(10);
+  });
+
+  it('should ignore unallocated assets (Level 1 rebate = 0) and calculate markup scenarios correctly', () => {
+    const treeNodes = [
+      {
+        nodeId: 'n1',
+        nodeName: 'Nguoi 1 (MIB)',
+        level: 0,
+        assets: {
+          FOREX: 22,      // Active asset (allocated)
+          D_FOREX: 22,    // Inactive asset (unallocated)
+        },
+      },
+      {
+        nodeId: 'n2',
+        nodeName: 'Nguoi 2 (L1)',
+        level: 1,
+        assets: {
+          FOREX: 12,      // Level 1 receives 12 for FOREX
+          D_FOREX: 0,     // Level 1 receives 0 for D_FOREX (unallocated)
+        },
+      },
+      {
+        nodeId: 'n3',
+        nodeName: 'Nguoi 3 (L2)',
+        level: 2,
+        assets: {
+          FOREX: 10,
+          D_FOREX: 0,
+        },
+      },
+      {
+        nodeId: 'n4',
+        nodeName: 'Nguoi 4 (L3)',
+        level: 3,
+        assets: {
+          FOREX: 5,
+          D_FOREX: 0,
+        },
+      },
+      {
+        nodeId: 'n5',
+        nodeName: 'Nguoi 5 (L4)',
+        level: 4,
+        assets: {
+          FOREX: 0.01,    // Treated as 0, making Level 3 have effective self pips = 5
+          D_FOREX: 0,
+        },
+      },
+    ];
+
+    const totalMarkupPips = 10;
+    const scenarios = service.solveBallAllocation(treeNodes, totalMarkupPips, ['FOREX', 'D_FOREX']);
+
+    // Should find multiple scenarios because D_FOREX is filtered out from assetsList
+    // and FOREX has sufficient self pips at L1 (12 - 10 = 2), L2 (10 - 5 = 5), L3 (5 - 0 = 5)
+    expect(scenarios.length).toBeGreaterThan(1);
+
+    // Verify top scenario distributes some pips to active levels (like L2 and L3)
+    const hasScenarioWithL2OrL3Hold = scenarios.some((sc) => {
+      const l2Hold = sc.nodes[2].white_hold;
+      const l3Hold = sc.nodes[3].white_hold;
+      return l2Hold > 0 || l3Hold > 0;
+    });
+    expect(hasScenarioWithL2OrL3Hold).toBe(true);
+  });
 });
