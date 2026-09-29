@@ -16,6 +16,7 @@ import { ExportModule } from './modules/export/export.module';
 import { AppController } from './app.controller';
 import { AdminModule } from './modules/admin/admin.module';
 import { TrashModule } from './modules/trash/trash.module';
+import { ProductModule } from './modules/product/product.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { TrashModule } from './modules/trash/trash.module';
     ExportModule,
     AdminModule,
     TrashModule,
+    ProductModule,
   ],
   controllers: [AppController],
 })

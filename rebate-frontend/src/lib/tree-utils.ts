@@ -8,7 +8,8 @@ import type { IbTreeNode } from '@/types';
  */
 export function normalizeTreeRoots(data: IbTreeNode | IbTreeNode[] | null | undefined): IbTreeNode[] {
   if (!data) return [];
-  return Array.isArray(data) ? data : [data];
+  const list = Array.isArray(data) ? data : [data];
+  return list.filter((n): n is IbTreeNode => Boolean(n && n.isActive !== false));
 }
 
 /** Duyệt đệ quy 1 cây, chỉ lấy node isActive (giữ đúng hành vi cũ). */

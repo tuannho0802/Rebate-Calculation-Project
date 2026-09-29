@@ -1,16 +1,15 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
-import { exportApi } from '@/lib/api/export';
 import { useAuthStore } from '@/store/auth.store';
+import { useProducts } from '@/hooks/useProducts';
 import { IbNode, MAX_PIPS, AssetType } from '@/types';
 import {
   Loader2, ChevronDown, ChevronRight, User, Users, Shield, Sparkles, Filter, CheckCircle2,
-  Edit3, Save, RotateCcw, Move, AlertCircle, ZoomIn, ZoomOut, Maximize2, ArrowRightLeft, Send, Mail,
-  FileSpreadsheet, Download
+  Edit3, Save, RotateCcw, Move, AlertCircle, ZoomIn, ZoomOut, Maximize2, ArrowRightLeft, Send, Mail
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -21,6 +20,9 @@ interface TreeNodeItem extends IbNode {
 export function IbViewTree() {
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
+  const { products } = useProducts();
+  const productMap = useMemo(() => new Map(products.map((p) => [p.symbol, p])), [products]);
+
   const [selectedMibId, setSelectedMibId] = useState<string>('');
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [nodeChildrenMap, setNodeChildrenMap] = useState<Record<string, TreeNodeItem[]>>({});
@@ -104,30 +106,6 @@ export function IbViewTree() {
   const [targetParentEmail, setTargetParentEmail] = useState<string>('');
   const [isSubmittingCrossTree, setIsSubmittingCrossTree] = useState<boolean>(false);
 
-  // Excel Export State & Handler
-  const [isExportingExcel, setIsExportingExcel] = useState<boolean>(false);
-
-  const handleExportExcel = async () => {
-    setIsExportingExcel(true);
-    toast.info('Đang khởi tạo file báo cáo Excel...');
-    try {
-      const blob = await exportApi.getRebateTree(selectedMibId || undefined);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Rebate_Tree_Report_${new Date().toISOString().slice(0, 10)}.xlsx`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      toast.success('Xuất file Excel báo cáo Rebate thành công!');
-    } catch (err: any) {
-      console.error('Failed to export excel:', err);
-      toast.error('Lỗi khi xuất file Excel báo cáo Rebate.');
-    } finally {
-      setIsExportingExcel(false);
-    }
-  };
 
   // 2. Fetch list of MIBs for top-left dropdown (chỉ Admin — endpoint /ib/mibs
   // yêu cầu @Roles('ADMIN') ở BE, gọi với MIB/IB sẽ luôn 403).
@@ -264,49 +242,67 @@ export function IbViewTree() {
     return 0;
   };
 
-  const validateRebatePips = async (movedIb: TreeNodeItem, targetParent: TreeNodeItem): Promise<boolean> => {
+  const validateRebatePips = async (
+    movedIb: TreeNodeItem,
+    targetParent: TreeNodeItem,
+    accountTypesToCheck: string[] = ['STD'],
+  ): Promise<{ valid: boolean; errorMsg?: string }> => {
     try {
-      const [parentConfigRes, movedIbConfigRes] = await Promise.all([
-        rebateApi.getConfig(targetParent.id),
-        rebateApi.getConfig(movedIb.id),
-      ]);
+      const typesToFetch = Array.from(new Set([...accountTypesToCheck, 'STD']));
 
-      const parentAssets: any[] = parentConfigRes?.data?.assets || [];
-      const movedAssets: any[] = movedIbConfigRes?.data?.assets || [];
+      const parentConfigsByAcc: Record<string, any[]> = {};
+      const movedConfigsByAcc: Record<string, any[]> = {};
 
-      if (movedAssets.length === 0) return true;
+      await Promise.all(
+        typesToFetch.map(async (accType) => {
+          const [parentRes, movedRes] = await Promise.all([
+            rebateApi.getConfig(targetParent.id, accType).catch(() => null),
+            rebateApi.getConfig(movedIb.id, accType).catch(() => null),
+          ]);
+          if (parentRes?.data?.assets) parentConfigsByAcc[accType] = parentRes.data.assets;
+          if (movedRes?.data?.assets) movedConfigsByAcc[accType] = movedRes.data.assets;
+        })
+      );
 
-      for (const movedAsset of movedAssets) {
-        const movedPips = Number(movedAsset.rebatePips || 0);
-        if (movedPips <= 0) continue;
+      for (const accType of typesToFetch) {
+        const parentAssets: any[] = parentConfigsByAcc[accType] || [];
+        const movedAssets: any[] = movedConfigsByAcc[accType] || [];
 
-        const movedAccType = movedAsset.accountType || 'STD';
+        for (const movedAsset of movedAssets) {
+          const movedPips = Number(movedAsset.rebatePips || 0);
+          if (movedPips <= 0) continue;
 
-        const parentAsset = parentAssets.find(
-          (a) =>
-            a.assetType === movedAsset.assetType &&
-            (a.accountType || 'STD') === movedAccType
-        );
+          const parentAsset = parentAssets.find(
+            (a) => a.assetType === movedAsset.assetType
+          );
 
-        let parentPips = 0;
-        if (targetParent.level === 0) {
-          const addedMarkup = parseAccountTypePips(movedAccType);
-          const baseMax = (parentAsset && Number(parentAsset.maxPips) > 0)
-            ? Number(parentAsset.maxPips)
-            : (MAX_PIPS[movedAsset.assetType as AssetType] || 0);
-          parentPips = baseMax + addedMarkup;
-        } else {
-          parentPips = Number(parentAsset?.rebatePips || parentAsset?.maxPips || 0);
-        }
+          let parentLimit = 0;
+          if (targetParent.level === 0) {
+            const prod = productMap.get(movedAsset.assetType);
+            const allowMarkup = prod ? prod.allowMarkup !== false : true;
+            const addedMarkup = allowMarkup ? parseAccountTypePips(accType) : 0;
+            const fallbackMax = prod ? Number(prod.defaultMax) : (MAX_PIPS[movedAsset.assetType as AssetType] || 0);
+            const baseMax = (parentAsset && Number(parentAsset.maxPips) > 0)
+              ? Number(parentAsset.maxPips)
+              : fallbackMax;
+            parentLimit = baseMax + addedMarkup;
+          } else {
+            parentLimit = Number(parentAsset?.rebatePips || 0);
+          }
 
-        if (movedPips > parentPips) {
-          return false;
+          if (movedPips > parentLimit) {
+            return {
+              valid: false,
+              errorMsg: `Chuyển nhánh thất bại: Cấp trên mới (${targetParent.name || targetParent.email}) có Rebate (${parentLimit} pips) không đủ để chia cho ${movedIb.name || movedIb.email} (${movedPips} pips) ở sản phẩm ${movedAsset.assetType} (${accType}).`,
+            };
+          }
         }
       }
-      return true;
+
+      return { valid: true };
     } catch (err) {
       console.error('Failed to validate rebate pips:', err);
-      return true;
+      return { valid: true };
     }
   };
 
@@ -394,9 +390,9 @@ export function IbViewTree() {
         createdAt: foundParent.createdAt,
       };
 
-      const isRebateValid = await validateRebatePips(crossTreeNode, targetParentItem);
-      if (!isRebateValid) {
-        toast.error('Chuyển nhánh thất bại do số Rebate cấp trên không đủ.');
+      const rebateValidation = await validateRebatePips(crossTreeNode, targetParentItem, movedTypes);
+      if (!rebateValidation.valid) {
+        toast.error(rebateValidation.errorMsg || 'Chuyển nhánh thất bại do số Rebate cấp trên không đủ.');
         return;
       }
 
@@ -502,10 +498,9 @@ export function IbViewTree() {
     }
 
     // 3. Rebate Pips Validation
-    const isRebateValid = await validateRebatePips(draggedNode, targetParent);
-    if (!isRebateValid) {
-      // Thông báo lỗi chuẩn theo đúng yêu cầu
-      toast.error('Chuyển nhánh thất bại do số Rebate cấp trên không đủ.');
+    const rebateValidation = await validateRebatePips(draggedNode, targetParent, movedTypes);
+    if (!rebateValidation.valid) {
+      toast.error(rebateValidation.errorMsg || 'Chuyển nhánh thất bại do số Rebate cấp trên không đủ.');
       setDraggedNode(null);
       return;
     }
@@ -943,21 +938,7 @@ export function IbViewTree() {
             </div>
           )}
 
-          {/* Export Excel Button */}
-          <button
-            type="button"
-            onClick={handleExportExcel}
-            disabled={isExportingExcel}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-extrabold text-xs rounded-2xl shadow-md transition-all cursor-pointer disabled:opacity-50"
-            title="Xuất file báo cáo Excel lũy tiến theo mẫu cây MIB"
-          >
-            {isExportingExcel ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <FileSpreadsheet className="h-4 w-4" />
-            )}
-            {isExportingExcel ? 'Đang Xuất Excel...' : 'Xuất File Excel'}
-          </button>
+
         </div>
       </div>
 

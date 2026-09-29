@@ -224,10 +224,18 @@ export class ExportService {
   }
 
   /**
-   * XUẤT 1 BẢNG HIỂN THỊ CHUẨN TRÊN WEB CHO MỖI LOẠI TÀI KHOẢN & MỖI NHÁNH
-   * GỘP THEO TỪNG NHÁNH TRƯỚC, RỒI LIỆT KÊ CÁC LOẠI TÀI KHOẢN HIỆN CÓ CỦA NHÁNH ĐÓ
+   * XUẤT FILE EXCEL CHUẨN MA TRẬN KHỐI 15 CỘT THEO FILE MẪU
+   * Bảng tính không có tiêu đề (2).xlsx:
+   * - Cột 1: Tên sản phẩm
+   * - Cột 2..11: 10 cột cấp bậc IB (MIB level 1, level 2... cấp 10)
+   * - Cột 12: Công thức kiểm tra =IF(MaxPips=SUM(Levels),"Y",IF(MaxPips>SUM(Levels),"L","N"))
+   * - Cột 13: can / no (cho phép markup hay không, no có nền xám)
+   * - Cột 14: maximum Pips (chữ đỏ)
+   * - Cột 15: Cột trống phân cách giữa các block ngang
+   * - Khối dàn ngang từ Block 1 (chỉ MIB) đến Block K (đầy đủ nhánh lá)
+   * - Bảng phụ Markup Option ở cuối mỗi block
    */
-  async generateCustomTreeRebateExcel(rootIbId?: string): Promise<Buffer> {
+  async generateCustomTreeRebateExcel(rootIbId?: string, targetAccountType?: string): Promise<Buffer> {
     const allNodes = await this.prisma.ibNode.findMany({
       where: { isActive: true },
       include: { rebateConfig: true, accountTypeTemplates: true },
@@ -258,114 +266,124 @@ export class ExportService {
     }
 
     if (mibRoots.length === 0) {
-      mibRoots = allNodes.filter((n) => n.level === 0 || !n.parentId);
+      mibRoots = allNodes.filter(
+        (n) => (n.level === 0 || !n.parentId) && n.role === 'IB' && n.isActive && (!n.isRootAdmin || (childrenMap.get(n.id)?.length || 0) > 0),
+      );
+      if (mibRoots.length === 0) {
+        mibRoots = allNodes.filter((n) => (n.level === 0 || !n.parentId) && n.role === 'IB' && n.isActive);
+      }
     }
     if (mibRoots.length === 0 && allNodes.length > 0) {
-      mibRoots = [allNodes[0]];
+      const activeIbNodes = allNodes.filter((n) => n.role === 'IB' && n.isActive);
+      if (activeIbNodes.length > 0) {
+        mibRoots = [activeIbNodes[0]];
+      } else {
+        mibRoots = [allNodes[0]];
+      }
     }
 
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = 'Rebate Management System';
-    workbook.created = new Date();
-
-    const ASSET_TYPES = [
-      { key: 'D_FOREX',        label: 'D_FOREX',         maxPips: 12 },
-      { key: 'FOREX',          label: 'FOREX',           maxPips: 12 },
-      { key: 'GOLD',           label: 'GOLD',            maxPips: 20 },
-      { key: 'SILVER_5000',    label: 'SILVER_5000',     maxPips: 80 },
-      { key: 'SILVER_1000',    label: 'SILVER_1000',     maxPips: 20 },
-      { key: 'OIL',            label: 'OIL',             maxPips: 20 },
-      { key: 'NATURE_GAS',     label: 'NATURE_GAS',      maxPips: 35 },
-      { key: 'COMMODITIES',    label: 'COMMODITIES',     maxPips: 3  },
-      { key: 'HKG50',          label: 'HKG50',           maxPips: 20 },
-      { key: 'A50',            label: 'A50',             maxPips: 40 },
-      { key: 'JPN225',         label: 'JPN225',          maxPips: 50 },
-      { key: 'US_INDEX',       label: 'US_INDEX',        maxPips: 2.3},
-      { key: 'SHARES',         label: 'SHARES',          maxPips: 1.5},
-      { key: 'ETHEREUM',       label: 'ETHEREUM',        maxPips: 3  },
-      { key: 'PRECIOUS_METAL', label: 'PRECIOUS_METAL',  maxPips: 20 },
-      { key: 'BITCOIN',        label: 'BITCOIN',         maxPips: 3  },
-      { key: 'CRYPTO',         label: 'CRYPTO',          maxPips: 1.5},
-      { key: 'GAUCNH',         label: 'GAUCNH',          maxPips: 7  },
+    // 1. Danh sách 18 sản phẩm chuẩn 100% khớp file mẫu gốc Bảng tính không có tiêu đề (2).xlsx
+    const TEMPLATE_PRODUCTS = [
+      { symbol: 'D_FOREX', label: 'D Forex', allowMarkup: true, defaultMax: 12 },
+      { symbol: 'FOREX', label: 'Forex', allowMarkup: true, defaultMax: 12 },
+      { symbol: 'GOLD', label: 'Gold', allowMarkup: true, defaultMax: 20 },
+      { symbol: 'SILVER_5000', label: 'Silver 5000OZ', allowMarkup: true, defaultMax: 80 },
+      { symbol: 'SILVER_1000', label: 'Silver 1000OZ', allowMarkup: true, defaultMax: 20 },
+      { symbol: 'OIL', label: 'Oil', allowMarkup: true, defaultMax: 20 },
+      { symbol: 'NATURE_GAS', label: 'Nature Gas', allowMarkup: false, defaultMax: 35 },
+      { symbol: 'COMMODITIES', label: 'Index', allowMarkup: false, defaultMax: 5 },
+      { symbol: 'HKG50', label: 'HKG50', allowMarkup: false, defaultMax: 5 },
+      { symbol: 'A50', label: 'A50', allowMarkup: false, defaultMax: 5 },
+      { symbol: 'JPN225', label: 'JPN225', allowMarkup: false, defaultMax: 5 },
+      { symbol: 'US_INDEX', label: 'US Index', allowMarkup: false, defaultMax: 5 },
+      { symbol: 'SHARES', label: 'Shares', allowMarkup: false, defaultMax: 1.5 },
+      { symbol: 'ETHEREUM', label: 'Ethereum', allowMarkup: false, defaultMax: 3 },
+      { symbol: 'PRECIOUS_METAL', label: 'Precious Metal', allowMarkup: false, defaultMax: 20 },
+      { symbol: 'BITCOIN', label: 'Bitcoin', allowMarkup: false, defaultMax: 3 },
+      { symbol: 'CRYPTO', label: 'Crypto', allowMarkup: false, defaultMax: 1.5 },
+      { symbol: 'GAUCNH', label: 'GAUCNH', allowMarkup: true, defaultMax: 7 },
     ];
 
-    const applyCellBorder = (cell: ExcelJS.Cell, color = 'FFD9D9D9') => {
+    const dbProducts = await this.prisma.product.findMany({
+      where: { isActive: true },
+      orderBy: [{ order: 'asc' }, { symbol: 'asc' }],
+    });
+    const dbProductMap = new Map(dbProducts.map((p) => [p.symbol, p]));
+
+    // Match 18 sản phẩm chuẩn theo template gốc, đồng thời đồng bộ cấu hình động (allowMarkup, defaultMax) từ database / trang Config
+    const products = TEMPLATE_PRODUCTS.map((tp) => {
+      const dbP = dbProductMap.get(tp.symbol);
+      return {
+        symbol: tp.symbol,
+        label: tp.label,
+        allowMarkup: dbP ? (dbP.allowMarkup ?? tp.allowMarkup) : tp.allowMarkup,
+        defaultMax: dbP ? Number(dbP.defaultMax) : tp.defaultMax,
+      };
+    });
+
+    // Thêm các sản phẩm active mới trong DB nếu chưa có trong TEMPLATE_PRODUCTS
+    for (const dbP of dbProducts) {
+      if (!products.some((p) => p.symbol === dbP.symbol)) {
+        products.push({
+          symbol: dbP.symbol,
+          label: dbP.name || dbP.symbol,
+          allowMarkup: dbP.allowMarkup ?? true,
+          defaultMax: Number(dbP.defaultMax) || 12,
+        });
+      }
+    }
+
+    const allowMarkupMap = new Map(products.map((p) => [p.symbol, p.allowMarkup]));
+
+    // 2. Định nghĩa Phong cách (Styles) chuẩn 100% file mẫu
+    const FONT_FAMILY = 'Times New Roman';
+    const COLOR_RED = 'FFFF0000';
+    const COLOR_BLACK = 'FF000000';
+    const BG_HEADER_BLUE = 'FFB8CCE4';
+    const BG_YELLOW = 'FFFFFF00';
+    const BG_DATA_PEACH = 'FFFDE9D9';
+    const BG_NO_MARKUP = 'FFDDD9C3';
+
+    const applyThinBorder = (cell: ExcelJS.Cell) => {
       cell.border = {
-        top:    { style: 'thin', color: { argb: color } },
-        left:   { style: 'thin', color: { argb: color } },
-        bottom: { style: 'thin', color: { argb: color } },
-        right:  { style: 'thin', color: { argb: color } },
+        top: { style: 'thin', color: { argb: COLOR_BLACK } },
+        left: { style: 'thin', color: { argb: COLOR_BLACK } },
+        bottom: { style: 'thin', color: { argb: COLOR_BLACK } },
+        right: { style: 'thin', color: { argb: COLOR_BLACK } },
       };
     };
 
-    const nodeHasAccountType = (node: any, targetAccountType: string): boolean => {
+    const getColumnLetter = (colNumber: number): string => {
+      let letter = '';
+      let temp = colNumber;
+      while (temp > 0) {
+        const mod = (temp - 1) % 26;
+        letter = String.fromCharCode(65 + mod) + letter;
+        temp = Math.floor((temp - mod) / 26);
+      }
+      return letter;
+    };
+
+    const nodeHasAccountType = (node: any, accType: string): boolean => {
       if (!node) return false;
-
-      // 1. Check accountTypes array on node (assigned links)
+      // Root MIB (level 0) luôn có toàn quyền trên mọi loại link
+      if (node.level === 0 || !node.parentId) return true;
       if (Array.isArray(node.accountTypes) && node.accountTypes.length > 0) {
-        if (node.accountTypes.includes(targetAccountType)) return true;
+        if (node.accountTypes.includes(accType)) return true;
       }
-
-      // 2. Check single accountType string on node
-      if (node.accountType && node.accountType === targetAccountType) {
-        return true;
-      }
-
-      // 3. For 'STD', it is the universal default if node has no explicit accountTypes array restriction
-      if (targetAccountType === 'STD') {
-        if (!node.accountTypes || node.accountTypes.length === 0) return true;
-      }
-
-      // 4. Check if node has non-zero rebateConfig in DB saved for targetAccountType
+      if (node.accountType && node.accountType === accType) return true;
+      if (accType === 'STD' && (!node.accountTypes || node.accountTypes.length === 0)) return true;
       if (Array.isArray(node.rebateConfig)) {
         const hasConfig = node.rebateConfig.some(
-          (c: any) => c.accountType === targetAccountType && (Number(c.rebatePips) > 0 || Number(c.markupPips) > 0),
+          (c: any) => c.accountType === accType && (Number(c.rebatePips) > 0 || Number(c.markupPips) > 0),
         );
         if (hasConfig) return true;
       }
-
       return false;
     };
 
-    const getBaseBranches = (nodeId: string, currentPath: any[] = []): any[][] => {
-      const node = nodeMap.get(nodeId);
-      if (!node) return [];
-      const path = [...currentPath, node];
-      const children = childrenMap.get(nodeId) || [];
-      if (children.length === 0) return [path];
-      let branches: any[][] = [];
-      for (const child of children) {
-        branches.push(...getBaseBranches(child.id, path));
-      }
-      return branches;
-    };
-
-    const getBranchesForAccountType = (
-      nodeId: string,
-      accType: string,
-      currentPath: any[] = [],
-    ): any[][] => {
-      const node = nodeMap.get(nodeId);
-      if (!node || !nodeHasAccountType(node, accType)) return [];
-
-      const path = [...currentPath, node];
-      const children = childrenMap.get(nodeId) || [];
-      const eligibleChildren = children.filter((child) => nodeHasAccountType(child, accType));
-
-      if (eligibleChildren.length === 0) {
-        return [path];
-      }
-
-      let branches: any[][] = [];
-      for (const child of eligibleChildren) {
-        branches.push(...getBranchesForAccountType(child.id, accType, path));
-      }
-      return branches;
-    };
-
     const parseAccountTypePips = (accType?: string): number => {
-      if (!accType) return 0;
-      if (accType === 'STD') return 0;
+      if (!accType || accType === 'STD') return 0;
       const match = accType.match(/(\d+(?:\.\d+)?)/);
       if (match) {
         const num = parseFloat(match[1]);
@@ -374,379 +392,573 @@ export class ExportService {
       return 0;
     };
 
+    const getLeafBranches = (nodeId: string, currentPath: any[] = []): any[][] => {
+      const node = nodeMap.get(nodeId);
+      if (!node) return [];
+      const path = [...currentPath, node];
+      const children = childrenMap.get(nodeId) || [];
+      if (children.length === 0) return [path];
+      let branches: any[][] = [];
+      for (const child of children) {
+        branches.push(...getLeafBranches(child.id, path));
+      }
+      return branches;
+    };
+
+    const filterMaximalBranches = (branches: any[][]): any[][] => {
+      const uniqueMap = new Map<string, any[]>();
+      for (const b of branches) {
+        const key = b.map((n) => n.id).join('->');
+        if (!uniqueMap.has(key)) uniqueMap.set(key, b);
+      }
+      const unique = Array.from(uniqueMap.values());
+      return unique.filter((b1) => {
+        const key1 = b1.map((n) => n.id).join('->');
+        const isPrefix = unique.some((b2) => {
+          const key2 = b2.map((n) => n.id).join('->');
+          return key2 !== key1 && key2.startsWith(key1 + '->');
+        });
+        return !isPrefix;
+      });
+    };
+
+    const setupSheetColumns = (ws: ExcelJS.Worksheet) => {
+      for (let b = 0; b < 7; b++) {
+        const startC = b * 15 + 1;
+        ws.getColumn(startC).width = 16;
+        for (let c = 1; c <= 10; c++) {
+          ws.getColumn(startC + c).width = 12;
+        }
+        ws.getColumn(startC + 11).width = 10;
+        ws.getColumn(startC + 12).width = 10;
+        ws.getColumn(startC + 13).width = 14;
+        ws.getColumn(startC + 14).width = 4; // separator gap
+      }
+    };
+
+    const LEVEL_LABELS = ['MIB level 1', 'level 2', 'level 3', 'level 4', 'level 5', 'Sub 5'];
+
+    const renderBranchAccountTypeTable = async (
+      targetSheet: ExcelJS.Worksheet,
+      baseRow: number,
+      accType: string,
+      eligibleBranch: any[],
+    ): Promise<number> => {
+      const K = eligibleBranch.length;
+      const totalMarkupPips = parseAccountTypePips(accType);
+
+      // Thu thập cấu hình DB của các node trong nhánh
+      const nodeConfigsMap: Record<string, any> = {};
+      await Promise.all(
+        eligibleBranch.map(async (node) => {
+          nodeConfigsMap[node.id] = await this.rebateService.getConfig(node.id, accType);
+        }),
+      );
+
+      const getRebatePips = (ibId: string | null | undefined, assetSymbol: string): number => {
+        if (!ibId) return 0;
+        const cfg = nodeConfigsMap[ibId]?.assets?.find((a: any) => a.assetType === assetSymbol);
+        return Number(cfg?.rebatePips || 0);
+      };
+
+      // 1. TÍNH TOÁN PHÂN BỔ TOÀN BỘ NHÁNH ĐẦY ĐỦ (FULL BRANCH STAIRCASE)
+      const fullSolverInput: SimulatorNodeInput[] = eligibleBranch.map((node, idx) => {
+        const isRoot = idx === 0;
+        const name = node.name || node.email;
+        const lvl = isRoot ? 0 : idx;
+        const assets: Record<string, number> = {};
+
+        products.forEach((prod) => {
+          const isAllowed = (allowMarkupMap.get(prod.symbol) ?? true) && totalMarkupPips > 0;
+          const assetMarkup = isAllowed ? totalMarkupPips : 0;
+          if (isRoot) {
+            const mibAssetConfig = nodeConfigsMap[node.id]?.assets?.find((a: any) => a.assetType === prod.symbol);
+            const mibBaseCap = Number(mibAssetConfig?.maxPips || 0) > 0 ? Number(mibAssetConfig?.maxPips) : prod.defaultMax;
+            assets[prod.symbol] = mibBaseCap > 0 ? mibBaseCap + assetMarkup : 0;
+          } else {
+            const cfg = nodeConfigsMap[node.id]?.assets?.find((a: any) => a.assetType === prod.symbol);
+            assets[prod.symbol] = Number(cfg?.rebatePips || 0);
+          }
+        });
+
+        return { nodeId: node.id, nodeName: name, level: lvl, assets };
+      });
+
+      const fullScenarios = this.rebateSimulatorService.solveBallAllocation(
+        fullSolverInput,
+        totalMarkupPips,
+        products.map((p) => p.symbol),
+      );
+
+      const savedPatternKey = eligibleBranch.map((node) => {
+        const cfg = nodeConfigsMap[node.id]?.assets?.[0];
+        return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
+      });
+
+      let activeScenarioIndex = 0;
+      if (fullScenarios.length > 0) {
+        const isSavedPatternValid = savedPatternKey.every((p) => p !== null);
+        if (isSavedPatternValid) {
+          const foundIdx = fullScenarios.findIndex((sc) =>
+            sc.nodes.every((n, i) => n.white_hold === savedPatternKey[i]),
+          );
+          if (foundIdx !== -1) activeScenarioIndex = foundIdx;
+        }
+      }
+
+      const activeScenario = fullScenarios[activeScenarioIndex] || fullScenarios[0];
+      const scenarioMap: Record<string, { pct: string; white_hold: number }> = {};
+      if (activeScenario) {
+        activeScenario.nodes.forEach((n) => {
+          scenarioMap[n.nodeId] = { pct: n.pct, white_hold: n.white_hold };
+        });
+      }
+
+      // Thu thập giá trị markupPips đã lưu trong DB của các sub-IBs (idx >= 1)
+      const dbMarkupHolds = eligibleBranch.map((node, idx) => {
+        if (idx === 0) return 0;
+        const cfg = nodeConfigsMap[node.id]?.assets?.find((a: any) => a.markupPips !== undefined && a.markupPips !== null)
+          || nodeConfigsMap[node.id]?.assets?.[0];
+        return (cfg?.markupPips !== undefined && cfg?.markupPips !== null) ? Number(cfg.markupPips) : 0;
+      });
+      const dbSubSum = dbMarkupHolds.slice(1).reduce((a, b) => a + b, 0);
+      const hasSavedMarkup = dbSubSum > 0 && dbSubSum <= totalMarkupPips;
+
+      const fullBranchMarkupHolds: number[] = eligibleBranch.map((node, idx) => {
+        if (idx >= 1) {
+          if (hasSavedMarkup) {
+            return dbMarkupHolds[idx];
+          }
+          if (scenarioMap[node.id]) {
+            return scenarioMap[node.id].white_hold;
+          }
+          return 0;
+        }
+        return 0;
+      });
+
+      const subIbsHoldSum = fullBranchMarkupHolds.slice(1).reduce((a, b) => a + b, 0);
+      fullBranchMarkupHolds[0] = Math.max(0, totalMarkupPips - subIbsHoldSum);
+
+      // Markup nhận được tại từng cấp (để trừ ra rebate thuần chính xác)
+      const markupReceived = new Array(K).fill(0);
+      markupReceived[0] = totalMarkupPips;
+      for (let i = 1; i < K; i++) {
+        markupReceived[i] = Math.max(0, markupReceived[i - 1] - fullBranchMarkupHolds[i - 1]);
+      }
+
+      // 2. TÍNH SỐ REBATE THUẦN (PURE REBATE) GIỮ LẠI CỦA TỪNG CẤP TRONG NHÁNH ĐẦY ĐỦ
+      // Bằng cách lấy số Pip thực nhận trừ đi số Markup Pip nhận được ở từng cấp
+      const fullBranchPureRetained: Record<string, number[]> = {};
+      for (const prod of products) {
+        const isAllowed = (allowMarkupMap.get(prod.symbol) ?? true) && totalMarkupPips > 0;
+        const mibAssetConfig = nodeConfigsMap[eligibleBranch[0].id]?.assets?.find((a: any) => a.assetType === prod.symbol);
+        const mibBaseCap = Number(mibAssetConfig?.maxPips || 0) > 0 ? Number(mibAssetConfig?.maxPips) : prod.defaultMax;
+        const mibTotalCap = mibBaseCap + (isAllowed ? totalMarkupPips : 0);
+
+        const webReceived: number[] = new Array(K).fill(0);
+        webReceived[0] = mibTotalCap;
+        for (let i = 1; i < K; i++) {
+          webReceived[i] = getRebatePips(eligibleBranch[i].id, prod.symbol);
+        }
+
+        // Tính pureReceived (Rebate thuần nhận được của từng node)
+        const pureReceived = new Array(K).fill(0);
+        pureReceived[0] = mibBaseCap;
+        if (K > 1 && webReceived[1] === 0) {
+          // MIB chưa phân bổ sản phẩm này cho cấp dưới: MIB giữ trọn baseCap, cấp dưới 0
+          for (let i = 1; i < K; i++) pureReceived[i] = 0;
+        } else {
+          for (let i = 1; i < K; i++) {
+            const mRec = isAllowed ? markupReceived[i] : 0;
+            const pRec = Math.max(0, Math.round((webReceived[i] - mRec) * 10000) / 10000);
+            pureReceived[i] = Math.min(pureReceived[i - 1], pRec);
+          }
+        }
+
+        // Tính pureRetained (Rebate thuần giữ lại của từng node)
+        const pureRetained: number[] = new Array(K).fill(0);
+        for (let i = 0; i < K; i++) {
+          if (i < K - 1) {
+            pureRetained[i] = Math.max(0, Math.round((pureReceived[i] - pureReceived[i + 1]) * 10000) / 10000);
+          } else {
+            pureRetained[i] = pureReceived[i];
+          }
+        }
+        fullBranchPureRetained[prod.symbol] = pureRetained;
+      }
+
+      // VÒNG LẶP DÀN NGANG CÁC BLOCK (Block 1..K) THEO QUY TẮC BẬC THANG
+      for (let bIdx = 0; bIdx < K; bIdx++) {
+        const prefixPath = eligibleBranch.slice(0, bIdx + 1);
+        const prefixLen = prefixPath.length;
+        const colStart = bIdx * 15 + 1;
+
+        // 3. QUY TẮC BẬC THANG CHO MARKUP TRONG BLOCK HIỆN TẠI
+        const blockMarkupPips: number[] = new Array(prefixLen).fill(0);
+        for (let i = 0; i < prefixLen; i++) {
+          if (i < prefixLen - 1) {
+            blockMarkupPips[i] = fullBranchMarkupHolds[i];
+          } else {
+            const prevSum = blockMarkupPips.slice(0, i).reduce((sum, v) => sum + v, 0);
+            blockMarkupPips[i] = Math.max(0, totalMarkupPips - prevSum);
+          }
+        }
+
+        let currentWhiteIn = totalMarkupPips;
+        const blockPctNums: number[] = new Array(prefixLen).fill(0);
+        for (let i = 0; i < prefixLen; i++) {
+          const hold = blockMarkupPips[i];
+          const pctVal = currentWhiteIn > 0 ? hold / currentWhiteIn : (i === 0 ? 1 : 0);
+          blockPctNums[i] = pctVal;
+          currentWhiteIn = Math.max(0, currentWhiteIn - hold);
+        }
+
+        // 4. QUY TẮC BẬC THANG CHO REBATE THUẦN TRONG BLOCK HIỆN TẠI (GIỐNG BẢNG MARKUP PIP)
+        const retainedMap: Record<string, number[]> = {};
+        for (const prod of products) {
+          const pureArr = fullBranchPureRetained[prod.symbol];
+          const mibAssetConfig = nodeConfigsMap[eligibleBranch[0].id]?.assets?.find((a: any) => a.assetType === prod.symbol);
+          const mibBaseCap = Number(mibAssetConfig?.maxPips || 0) > 0 ? Number(mibAssetConfig?.maxPips) : prod.defaultMax;
+
+          const blockRebatePips: number[] = new Array(prefixLen).fill(0);
+          for (let i = 0; i < prefixLen; i++) {
+            if (i < prefixLen - 1) {
+              blockRebatePips[i] = pureArr[i];
+            } else {
+              const prevSum = blockRebatePips.slice(0, i).reduce((sum, v) => sum + v, 0);
+              blockRebatePips[i] = Math.max(0, Math.round((mibBaseCap - prevSum) * 10000) / 10000);
+            }
+          }
+          retainedMap[prod.symbol] = blockRebatePips;
+        }
+
+        // === 1. DÒNG LEVEL HEADER (baseRow) ===
+        const headerRow = targetSheet.getRow(baseRow);
+        headerRow.height = 24;
+
+        for (let i = 0; i < 6; i++) {
+          const cCell = headerRow.getCell(colStart + 1 + i);
+          cCell.value = LEVEL_LABELS[i];
+          cCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_RED } };
+          cCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BG_HEADER_BLUE } };
+          cCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          applyThinBorder(cCell);
+        }
+
+        targetSheet.mergeCells(baseRow, colStart + 11, baseRow, colStart + 13);
+        const legendCell = targetSheet.getCell(baseRow, colStart + 11);
+        legendCell.value = {
+          richText: [
+            { font: { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_RED } }, text: 'N = No\n ' },
+            { font: { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_BLACK } }, text: 'Y = Yes\n' },
+            { font: { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_RED } }, text: ' ' },
+            { font: { name: FONT_FAMILY, bold: true, size: 11, color: { argb: 'FF92D050' } }, text: 'L= to be confirmed' },
+          ],
+        };
+        legendCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        applyThinBorder(legendCell);
+        applyThinBorder(targetSheet.getCell(baseRow, colStart + 12));
+        applyThinBorder(targetSheet.getCell(baseRow, colStart + 13));
+
+        // === 2. DÒNG EMAIL (baseRow + 2) ===
+        const emailRow = targetSheet.getRow(baseRow + 2);
+        emailRow.height = 20;
+        for (let i = 0; i < prefixLen; i++) {
+          const eCell = emailRow.getCell(colStart + 1 + i);
+          eCell.value = prefixPath[i].email;
+          eCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: 'FF222222' } };
+          eCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BG_YELLOW } };
+          eCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          applyThinBorder(eCell);
+        }
+
+        // === 3. DÒNG TIÊU ĐỀ MAXIMUM PIPS (baseRow + 4) ===
+        const maxTitleRow = targetSheet.getRow(baseRow + 4);
+        const mtCell = maxTitleRow.getCell(colStart + 13);
+        mtCell.value = 'maximum Pips';
+        mtCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_RED } };
+        mtCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        applyThinBorder(mtCell);
+
+        // === 4. DÒNG REBATE HEADER (baseRow + 5) ===
+        const rebRow = targetSheet.getRow(baseRow + 5);
+        rebRow.height = 20;
+        const rHCell = rebRow.getCell(colStart);
+        rHCell.value = 'Rebate (pips) ';
+        rHCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_BLACK } };
+        rHCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BG_YELLOW } };
+        rHCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        applyThinBorder(rHCell);
+
+        const rMaxCell = rebRow.getCell(colStart + 13);
+        rMaxCell.value = 'maximum Pips';
+        rMaxCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_RED } };
+        rMaxCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        applyThinBorder(rMaxCell);
+
+        // === 5. 18 DÒNG SẢN PHẨM (baseRow + 6 .. baseRow + 23) ===
+        for (let pIdx = 0; pIdx < products.length; pIdx++) {
+          const prod = products[pIdx];
+          const r = baseRow + 6 + pIdx;
+          const dataRow = targetSheet.getRow(r);
+          dataRow.height = 19;
+
+          // Cột 1: Tên sản phẩm
+          const pCell = dataRow.getCell(colStart);
+          pCell.value = prod.label;
+          pCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_BLACK } };
+          pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BG_DATA_PEACH } };
+          pCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          applyThinBorder(pCell);
+
+          // 10 Cột cấp bậc IB
+          const retainedArr = retainedMap[prod.symbol] || [];
+          for (let c = 1; c <= 10; c++) {
+            const valCell = dataRow.getCell(colStart + c);
+            if (c <= prefixLen) {
+              valCell.value = retainedArr[c - 1] ?? 0;
+            } else {
+              valCell.value = null;
+            }
+            valCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_BLACK } };
+            valCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BG_DATA_PEACH } };
+            valCell.alignment = { horizontal: 'center', vertical: 'middle' };
+            applyThinBorder(valCell);
+          }
+
+          // Cột 12: Công thức Excel động
+          const maxColLetter = getColumnLetter(colStart + 13);
+          const startColLetter = getColumnLetter(colStart + 1);
+          const endColLetter = getColumnLetter(colStart + 10);
+          const maxCellAddr = `${maxColLetter}${r}`;
+          const formulaStr = `IF(${maxCellAddr}=SUM(${startColLetter}${r}:${endColLetter}${r}),"Y",IF(${maxCellAddr}>SUM(${startColLetter}${r}:${endColLetter}${r}),"L","N"))`;
+
+          const currentSum = Math.round(retainedArr.reduce((sum, v) => sum + (v || 0), 0) * 10000) / 10000;
+          const mibAssetCfg = nodeConfigsMap[eligibleBranch[0].id]?.assets?.find((a: any) => a.assetType === prod.symbol);
+          const mibBaseCap = Number(mibAssetCfg?.maxPips || 0) > 0 ? Number(mibAssetCfg?.maxPips) : prod.defaultMax;
+          const maxVal = mibBaseCap;
+
+          let calcResult = 'Y';
+          if (Math.abs(currentSum - maxVal) < 0.0001) {
+            calcResult = 'Y';
+          } else if (maxVal > currentSum) {
+            calcResult = 'L';
+          } else {
+            calcResult = 'N';
+          }
+
+          const statusCell = dataRow.getCell(colStart + 11);
+          statusCell.value = {
+            formula: formulaStr,
+            result: calcResult,
+          };
+          statusCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_BLACK } };
+          statusCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          applyThinBorder(statusCell);
+
+          // Cột 13: can / no
+          const isAllowed = prod.allowMarkup;
+          const markupCell = dataRow.getCell(colStart + 12);
+          markupCell.value = isAllowed ? 'can' : 'no';
+          markupCell.font = { name: FONT_FAMILY, size: 11, color: { argb: COLOR_BLACK } };
+          if (!isAllowed) {
+            markupCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BG_NO_MARKUP } };
+          }
+          markupCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          applyThinBorder(markupCell);
+
+          // Cột 14: maximum Pips
+          const maxValCell = dataRow.getCell(colStart + 13);
+          maxValCell.value = maxVal;
+          maxValCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_RED } };
+          maxValCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          applyThinBorder(maxValCell);
+        }
+
+        // === 6. BẢNG PHỤ MARKUP OPTION ===
+        const mOptionHeaderRowNum = baseRow + 6 + products.length + 1;
+        const mOptionRow = targetSheet.getRow(mOptionHeaderRowNum);
+        mOptionRow.height = 20;
+        const mOptCell = mOptionRow.getCell(colStart);
+        mOptCell.value = 'Markup Option';
+        mOptCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_BLACK } };
+        mOptCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        applyThinBorder(mOptCell);
+
+        for (let i = 0; i < 6; i++) {
+          const mLevelCell = mOptionRow.getCell(colStart + 1 + i);
+          mLevelCell.value = LEVEL_LABELS[i];
+          mLevelCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_RED } };
+          mLevelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BG_HEADER_BLUE } };
+          mLevelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          applyThinBorder(mLevelCell);
+        }
+
+        // Dòng Pips Markup giữ lại
+        const pipsRow = targetSheet.getRow(mOptionHeaderRowNum + 1);
+        pipsRow.height = 19;
+        for (let i = 0; i < 6; i++) {
+          const pHoldCell = pipsRow.getCell(colStart + 1 + i);
+          if (i < prefixLen) {
+            pHoldCell.value = blockMarkupPips[i] ?? 0;
+          } else {
+            pHoldCell.value = null;
+          }
+          pHoldCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_BLACK } };
+          pHoldCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BG_DATA_PEACH } };
+          pHoldCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          applyThinBorder(pHoldCell);
+        }
+
+        // Dòng % Giữ lại
+        const pctRow = targetSheet.getRow(mOptionHeaderRowNum + 2);
+        pctRow.height = 19;
+        const totalPipsCell = pctRow.getCell(colStart);
+        totalPipsCell.value = totalMarkupPips;
+        totalPipsCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_BLACK } };
+        totalPipsCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BG_DATA_PEACH } };
+        totalPipsCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        applyThinBorder(totalPipsCell);
+
+        for (let i = 0; i < 6; i++) {
+          const pctCell = pctRow.getCell(colStart + 1 + i);
+          if (i < prefixLen) {
+            pctCell.value = blockPctNums[i] ?? 0;
+            pctCell.numFmt = '0%';
+          } else {
+            pctCell.value = null;
+          }
+          pctCell.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: COLOR_BLACK } };
+          pctCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: BG_DATA_PEACH } };
+          pctCell.alignment = { horizontal: 'center', vertical: 'middle' };
+          applyThinBorder(pctCell);
+        }
+      }
+
+      // Cách 2 dòng trống trước bảng kế tiếp
+      return baseRow + 6 + products.length + 5;
+    };
+
+    // 3. Khởi tạo Workbook
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'Rebate Management System';
+    workbook.created = new Date();
     const usedSheetNames = new Set<string>();
 
-    for (let mibIndex = 0; mibIndex < mibRoots.length; mibIndex++) {
-      const rootNode = mibRoots[mibIndex];
-      let rawName = (rootNode.name || rootNode.email.split('@')[0] || `MIB_${mibIndex + 1}`)
+    // Thu thập danh sách Loại tài khoản xuất hiện trong hệ thống
+    const priorityOrder = ['STD', 'STD5', 'STD10', 'STD15', 'STD20'];
+    const allAccountTypesSet = new Set<string>(priorityOrder);
+
+    allNodes.forEach((n) => {
+      if (n.accountType) allAccountTypesSet.add(n.accountType);
+      if (Array.isArray(n.accountTypes)) {
+        n.accountTypes.forEach((at: string) => allAccountTypesSet.add(at));
+      }
+      if (Array.isArray(n.rebateConfig)) {
+        n.rebateConfig.forEach((c: any) => {
+          if (c.accountType && (Number(c.rebatePips) > 0 || Number(c.markupPips) > 0)) {
+            allAccountTypesSet.add(c.accountType);
+          }
+        });
+      }
+    });
+
+    const allAccountTypes = Array.from(allAccountTypesSet).filter(Boolean);
+    allAccountTypes.sort((a, b) => {
+      const idxA = priorityOrder.indexOf(a);
+      const idxB = priorityOrder.indexOf(b);
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+
+    const candidateAccountTypes = targetAccountType && targetAccountType !== 'ALL'
+      ? [targetAccountType]
+      : allAccountTypes;
+
+    // VÒNG LẶP QUA TỪNG MIB ROOT
+    for (let mibIdx = 0; mibIdx < mibRoots.length; mibIdx++) {
+      const rootNode = mibRoots[mibIdx];
+      const leafBranches = getLeafBranches(rootNode.id);
+      const allBranches = filterMaximalBranches(leafBranches);
+
+      // 1. TẠO DUY NHẤT 1 SHEET CHO MIB (CHỈ ĐẶT THEO TÊN MIB)
+      const cleanBaseName = (rootNode.name || rootNode.email.split('@')[0])
         .replace(/[:\\/?*\[\]]/g, '')
-        .trim();
-      if (!rawName) rawName = `MIB_${mibIndex + 1}`;
-      let baseName = rawName.slice(0, 28);
-      let sheetName = baseName;
+        .trim()
+        .slice(0, 28) || 'MIB';
+
+      let sheetName = cleanBaseName;
       let counter = 1;
       while (usedSheetNames.has(sheetName.toLowerCase())) {
-        sheetName = `${baseName}_${counter}`;
-        counter++;
+        sheetName = `${cleanBaseName.slice(0, 24)} (${counter++})`;
       }
       usedSheetNames.add(sheetName.toLowerCase());
 
-      const sheet = workbook.addWorksheet(sheetName, {
+      const masterSheet = workbook.addWorksheet(sheetName, {
         views: [{ showGridLines: true }],
       });
+      setupSheetColumns(masterSheet);
 
-      let currentRow = 1;
-
-      // ROW 1: EMAIL MIB CHÍNH TRÊN CÙNG
-      const row1 = sheet.getRow(currentRow);
-      row1.height = 24;
-      const cellA1 = row1.getCell(1);
-      cellA1.value = rootNode.email;
-      cellA1.font = { bold: true, size: 11, color: { argb: 'FF833C00' }, name: 'Calibri' };
-      cellA1.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFCE4D6' } };
-      cellA1.alignment = { horizontal: 'left', vertical: 'middle' };
-      applyCellBorder(cellA1, 'FFC55A11');
-
-      currentRow += 2;
-
-      // Collect all candidate accountTypes across tree
-      const allAccountTypesSet = new Set<string>();
-      allNodes.forEach((n) => {
-        if (n.accountType) allAccountTypesSet.add(n.accountType);
-        if (Array.isArray(n.accountTypes)) {
-          n.accountTypes.forEach((at: string) => allAccountTypesSet.add(at));
-        }
-        if (Array.isArray(n.rebateConfig)) {
-          n.rebateConfig.forEach((c: any) => {
-            if (c.accountType && (Number(c.rebatePips) > 0 || Number(c.markupPips) > 0)) {
-              allAccountTypesSet.add(c.accountType);
-            }
-          });
-        }
-      });
-
-      const priorityOrder = ['STD', 'STD5', 'STD10', 'STD15', 'STD20'];
-      const allAccountTypes = Array.from(allAccountTypesSet).filter(Boolean);
-      if (allAccountTypes.length === 0) allAccountTypes.push('STD');
-
-      allAccountTypes.sort((a, b) => {
-        const idxA = priorityOrder.indexOf(a);
-        const idxB = priorityOrder.indexOf(b);
-        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-        if (idxA !== -1) return -1;
-        if (idxB !== -1) return 1;
-        return a.localeCompare(b);
-      });
-
-      // LẤY TẤT CẢ CÁC NHÁNH CƠ BẢN CỦA MIB CÂY
-      const baseBranches = getBaseBranches(rootNode.id);
+      let currentBaseRow = 1;
 
       // VÒNG LẶP NGOÀI: TỪNG NHÁNH
-      for (let bIdx = 0; bIdx < baseBranches.length; bIdx++) {
-        const fullBranchPath = baseBranches[bIdx];
+      for (let branchIdx = 0; branchIdx < allBranches.length; branchIdx++) {
+        const currentBranch = allBranches[branchIdx];
 
-        const branchTitleParts = fullBranchPath.map((n, idx) => {
-          const roleLabel = idx === 0 ? 'MIB' : `Level ${idx}`;
-          const displayName = n.name ? `${n.name}` : n.email.split('@')[0];
-          return `${roleLabel}: ${displayName}`;
-        });
-        const branchTitleText = `NHÁNH ${bIdx + 1}: ${branchTitleParts.join(' ➔ ')}`;
+        // Giữ đầy đủ tất cả loại account type và toàn bộ các cấp trong nhánh
+        const validAccTypes = candidateAccountTypes;
 
-        const titleRow = sheet.getRow(currentRow);
-        titleRow.height = 26;
-        const titleCell = titleRow.getCell(1);
-        titleCell.value = branchTitleText;
-        titleCell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' }, name: 'Calibri' };
-        titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
-        titleCell.alignment = { horizontal: 'left', vertical: 'middle' };
+        if (validAccTypes.length === 0) continue;
 
-        const maxMergedCols = Math.max(10, fullBranchPath.length + 2);
-        sheet.mergeCells(currentRow, 1, currentRow, maxMergedCols);
-        for (let c = 1; c <= maxMergedCols; c++) {
-          const cCell = titleRow.getCell(c);
-          cCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } };
-          applyCellBorder(cCell, 'FF1F4E78');
-        }
+        // BANNER TÊN NHÁNH
+        const maxColsForBranch = Math.min(74, Math.max(14, currentBranch.length * 15 - 1));
+        masterSheet.mergeCells(currentBaseRow, 1, currentBaseRow, maxColsForBranch);
+        const branchBanner = masterSheet.getCell(currentBaseRow, 1);
+        const branchPathStr = currentBranch.map((n) => (n.name ? `${n.name} (${n.email})` : n.email)).join(' ➔ ');
+        branchBanner.value = `Nhánh ${branchIdx + 1}: ${branchPathStr}`;
+        branchBanner.font = { name: FONT_FAMILY, bold: true, size: 12, color: { argb: 'FF1F3864' } };
+        branchBanner.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
+        branchBanner.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+        masterSheet.getRow(currentBaseRow).height = 24;
+        for (let c = 1; c <= maxColsForBranch; c++) applyThinBorder(masterSheet.getCell(currentBaseRow, c));
+        currentBaseRow += 2;
 
-        currentRow += 2;
-
-        // VÒNG LẶP TRONG: TỪNG LOẠI TÀI KHOẢN HIỆN CÓ CỦA NHÁNH NÀY
-        for (let accIdx = 0; accIdx < allAccountTypes.length; accIdx++) {
-          const accType = allAccountTypes[accIdx];
-
-          const accBranches = getBranchesForAccountType(rootNode.id, accType);
-          const branchPath = accBranches.find((ab) =>
-            fullBranchPath.some((node) => node.id === ab[ab.length - 1].id),
-          );
-
-          if (!branchPath) continue;
-
+        // VÒNG LẶP TRONG: TỪNG LOẠI LINK TRONG NHÁNH NÀY (STD, STD5, STD10, ...)
+        for (let accIdx = 0; accIdx < validAccTypes.length; accIdx++) {
+          const accType = validAccTypes[accIdx];
           const totalMarkupPips = parseAccountTypePips(accType);
+          const eligibleBranch = currentBranch;
 
-          // LẤY CẤU HÌNH ĐÃ PARSE THEO ĐÚNG REBATESERVICE.GETCONFIG CHO TẤT CẢ NODE TRONG NHÁNH
-          const nodeConfigsMap: Record<string, any> = {};
-          await Promise.all(
-            branchPath.map(async (node) => {
-              nodeConfigsMap[node.id] = await this.rebateService.getConfig(node.id, accType);
-            }),
-          );
+          // BANNER TIÊU ĐỀ LOẠI LINK MARKUP
+          const maxColsForCategory = Math.min(74, Math.max(14, eligibleBranch.length * 15 - 1));
+          masterSheet.mergeCells(currentBaseRow, 1, currentBaseRow, maxColsForCategory);
+          const categoryBanner = masterSheet.getCell(currentBaseRow, 1);
+          categoryBanner.value = `▶ LOẠI LINK MARKUP: ${accType} (Cộng thêm: ${totalMarkupPips} Pips)`;
+          categoryBanner.font = { name: FONT_FAMILY, bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+          categoryBanner.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3864' } };
+          categoryBanner.alignment = { horizontal: 'left', vertical: 'middle', indent: 1 };
+          masterSheet.getRow(currentBaseRow).height = 22;
+          for (let c = 1; c <= maxColsForCategory; c++) applyThinBorder(masterSheet.getCell(currentBaseRow, c));
+          currentBaseRow += 2;
 
-          // SIMULATOR UNIFIED SOLVER FOR MARKUP OPTION (KHỚP 100% COMPACTPIVOTTABLE.TSX)
-          const solverInput: SimulatorNodeInput[] = branchPath.map((node, idx) => {
-            const isRoot = idx === 0;
-            const name = node.name || node.email;
-            const lvl = isRoot ? 0 : idx;
-            const assets: Record<string, number> = {};
-
-            ASSET_TYPES.forEach(({ key }) => {
-              if (isRoot) {
-                const mibAssetConfig = nodeConfigsMap[node.id]?.assets?.find((a: any) => a.assetType === key);
-                const mibBaseCap = Number(mibAssetConfig?.maxPips || 0);
-                assets[key] = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
-              } else {
-                const cfg = nodeConfigsMap[node.id]?.assets?.find((a: any) => a.assetType === key);
-                assets[key] = Number(cfg?.rebatePips || 0);
-              }
-            });
-
-            return {
-              nodeId: node.id,
-              nodeName: name,
-              level: lvl,
-              assets,
-            };
-          });
-
-          const scenarios = this.rebateSimulatorService.solveBallAllocation(
-            solverInput,
-            totalMarkupPips,
-            ASSET_TYPES.map((a) => a.key),
-          );
-
-          const savedPatternKey = branchPath.map((node) => {
-            const cfg = nodeConfigsMap[node.id]?.assets?.[0];
-            return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
-          });
-
-          let activeIndex = 0;
-          if (scenarios.length > 0) {
-            const isSavedPatternValid = savedPatternKey.every((p) => p !== null);
-            if (isSavedPatternValid) {
-              const foundIdx = scenarios.findIndex((sc) =>
-                sc.nodes.every((n, i) => n.white_hold === savedPatternKey[i]),
-              );
-              if (foundIdx !== -1) {
-                activeIndex = foundIdx;
-              }
-            }
-          }
-
-          const activeScenario = scenarios[activeIndex] || scenarios[0];
-          const scenarioMap: Record<string, { pct: string; white_hold: number }> = {};
-          if (activeScenario) {
-            activeScenario.nodes.forEach((n) => {
-              scenarioMap[n.nodeId] = { pct: n.pct, white_hold: n.white_hold };
-            });
-          }
-
-          const getRebatePips = (ibId: string | null | undefined, assetKey: string): number => {
-            if (!ibId) return 0;
-            const cfg = nodeConfigsMap[ibId]?.assets?.find((a: any) => a.assetType === assetKey);
-            return Number(cfg?.rebatePips || 0);
-          };
-
-          // TÍNH VECTOR PIPS GIỮ LẠI CHO CẢ NHÁNH (KHỚP 100% COMPACTPIVOTTABLE.TSX)
-          const retainedMap: Record<string, number[]> = {};
-          for (const asset of ASSET_TYPES) {
-            const retainedArr: number[] = new Array(branchPath.length).fill(0);
-
-            // MIB (level 0)
-            const rootNode = branchPath[0];
-            const mibAssetConfig = nodeConfigsMap[rootNode.id]?.assets?.find((a: any) => a.assetType === asset.key);
-            const mibBaseCap = Number(mibAssetConfig?.maxPips || 0);
-            const mibCap = mibBaseCap > 0 ? mibBaseCap + totalMarkupPips : 0;
-
-            const level1Id = branchPath[1]?.id;
-            const mibGiven = getRebatePips(level1Id, asset.key);
-            const rawMibRetained = Math.max(0, mibCap - mibGiven);
-            const mibHold = scenarioMap[rootNode.id]?.white_hold || 0;
-            retainedArr[0] = Math.max(0, rawMibRetained - mibHold);
-
-            // Sub-IBs (level 1, level 2, ...)
-            for (let idx = 1; idx < branchPath.length; idx++) {
-              const selectedIbId = branchPath[idx].id;
-              const received = getRebatePips(selectedIbId, asset.key);
-              const nextLevelId = branchPath[idx + 1]?.id;
-              const given = getRebatePips(nextLevelId, asset.key);
-              const rawRetained = Math.max(0, received - given);
-              const childHold = scenarioMap[selectedIbId]?.white_hold || 0;
-              retainedArr[idx] = Math.max(0, rawRetained - childHold);
-            }
-
-            retainedMap[asset.key] = retainedArr;
-          }
-
-          // IN 1 BẢNG DUY NHẤT CHO LOẠI TÀI KHOẢN HIỆN TẠI (GIỐNG WEB 100%)
-          sheet.getColumn(1).width = 24;
-          for (let k = 0; k < branchPath.length; k++) {
-            sheet.getColumn(k + 2).width = 26;
-          }
-
-          let r = currentRow;
-
-          // 1. Account Type Header
-          const accHeaderRow = sheet.getRow(r);
-          accHeaderRow.height = 24;
-          const accHeaderCell = accHeaderRow.getCell(1);
-          accHeaderCell.value = `LOẠI TÀI KHOẢN: ${accType}`;
-          accHeaderCell.font = { bold: true, size: 10.5, color: { argb: 'FF1F4E78' }, name: 'Calibri' };
-          accHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-          applyCellBorder(accHeaderCell, 'FF8EA9DB');
-
-          sheet.mergeCells(r, 1, r, branchPath.length + 1);
-          for (let c = 1; c <= branchPath.length + 1; c++) {
-            const cell = accHeaderRow.getCell(c);
-            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-            applyCellBorder(cell, 'FF8EA9DB');
-          }
-
-          r++;
-
-          // 2. Table Column Headers (Asset Type | MIB | LEVEL 1 | LEVEL 2...)
-          const colHeaderRow = sheet.getRow(r);
-          colHeaderRow.height = 24;
-          const assetTypeHeaderCell = colHeaderRow.getCell(1);
-          assetTypeHeaderCell.value = 'Asset Type';
-          assetTypeHeaderCell.font = { bold: true, size: 10, color: { argb: 'FF1E293B' }, name: 'Calibri' };
-          assetTypeHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
-          assetTypeHeaderCell.alignment = { horizontal: 'left', vertical: 'middle' };
-          applyCellBorder(assetTypeHeaderCell, 'FFCBD5E1');
-
-          for (let lvIdx = 0; lvIdx < branchPath.length; lvIdx++) {
-            const node = branchPath[lvIdx];
-            const roleLabel = lvIdx === 0 ? 'MIB' : `LEVEL ${lvIdx}`;
-            const displayName = node.name ? `${node.name}` : node.email.split('@')[0];
-
-            const nodeHeaderCell = colHeaderRow.getCell(lvIdx + 2);
-            nodeHeaderCell.value = `${roleLabel}\n${displayName}`;
-            nodeHeaderCell.font = { bold: true, size: 9.5, color: { argb: 'FF1F4E78' }, name: 'Calibri' };
-            nodeHeaderCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E7FF' } };
-            nodeHeaderCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-            applyCellBorder(nodeHeaderCell, 'FFC7D2FE');
-          }
-
-          r++;
-
-          // 3. Rebate Rows (18 Asset Types)
-          for (const asset of ASSET_TYPES) {
-            const dataRow = sheet.getRow(r);
-            dataRow.height = 20;
-
-            const assetLabelCell = dataRow.getCell(1);
-            assetLabelCell.value = asset.label;
-            assetLabelCell.font = { bold: true, size: 9, color: { argb: 'FF1E293B' }, name: 'Calibri' };
-            assetLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } };
-            assetLabelCell.alignment = { horizontal: 'left', vertical: 'middle' };
-            applyCellBorder(assetLabelCell, 'FFCBD5E1');
-
-            const retainedArr = retainedMap[asset.key] || [];
-            for (let lvIdx = 0; lvIdx < branchPath.length; lvIdx++) {
-              const valCell = dataRow.getCell(lvIdx + 2);
-              const val = retainedArr[lvIdx] || 0;
-              valCell.value = val;
-              valCell.alignment = { horizontal: 'center', vertical: 'middle' };
-
-              if (val > 0) {
-                valCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
-                valCell.font = { bold: true, size: 10, color: { argb: 'FF1E4620' }, name: 'Calibri' };
-                applyCellBorder(valCell, 'FFA9D18E');
-              } else {
-                valCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
-                valCell.font = { size: 9, color: { argb: 'FF94A3B8' }, name: 'Calibri' };
-                applyCellBorder(valCell, 'FFE2E8F0');
-              }
-            }
-
-            r++;
-          }
-
-          // 4. Markup Option Sub-Table
-          r++;
-          const markupHeaderRow = sheet.getRow(r);
-          markupHeaderRow.height = 22;
-          const markupTitleCell = markupHeaderRow.getCell(1);
-          markupTitleCell.value = 'Markup Option';
-          markupTitleCell.font = { bold: true, size: 9.5, color: { argb: 'FF1F4E78' }, name: 'Calibri' };
-          markupTitleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-          applyCellBorder(markupTitleCell, 'FF8EA9DB');
-
-          for (let lvIdx = 0; lvIdx < branchPath.length; lvIdx++) {
-            const node = branchPath[lvIdx];
-            const roleLabel = lvIdx === 0 ? 'MIB' : `LEVEL ${lvIdx}`;
-            const displayName = node.name ? `${node.name}` : node.email.split('@')[0];
-
-            const mCell = markupHeaderRow.getCell(lvIdx + 2);
-            mCell.value = `${roleLabel}\n${displayName}`;
-            mCell.font = { bold: true, size: 9, color: { argb: 'FF1F4E78' }, name: 'Calibri' };
-            mCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } };
-            mCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-            applyCellBorder(mCell, 'FF8EA9DB');
-          }
-
-          // Row 1: Tỷ Lệ % Giữ Lại
-          r++;
-          const pctRow = sheet.getRow(r);
-          pctRow.height = 20;
-          const pctLabelCell = pctRow.getCell(1);
-          pctLabelCell.value = 'Tỷ Lệ % Giữ Lại';
-          pctLabelCell.font = { bold: true, size: 9, color: { argb: 'FF7F6000' }, name: 'Calibri' };
-          pctLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
-          applyCellBorder(pctLabelCell, 'FFD69E2E');
-
-          for (let lvIdx = 0; lvIdx < branchPath.length; lvIdx++) {
-            const node = branchPath[lvIdx];
-            const pCell = pctRow.getCell(lvIdx + 2);
-            applyCellBorder(pCell, 'FFD69E2E');
-            pCell.alignment = { horizontal: 'center', vertical: 'middle' };
-            pCell.font = { bold: true, size: 9, color: { argb: 'FF7F6000' }, name: 'Calibri' };
-            pCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF2CC' } };
-
-            const pctVal = scenarioMap[node.id]?.pct;
-            if (pctVal !== undefined) {
-              pCell.value = pctVal;
-            } else {
-              pCell.value = totalMarkupPips === 0 ? (lvIdx === branchPath.length - 1 ? '100%' : '0%') : '0%';
-            }
-          }
-
-          // Row 2: Account Type Pips Markup
-          r++;
-          const pipsRow = sheet.getRow(r);
-          pipsRow.height = 20;
-          const pipsLabelCell = pipsRow.getCell(1);
-          pipsLabelCell.value = `${accType} (${totalMarkupPips} Pips)`;
-          pipsLabelCell.font = { bold: true, size: 9, color: { argb: 'FF1E4620' }, name: 'Calibri' };
-          pipsLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
-          applyCellBorder(pipsLabelCell, 'FFA9D18E');
-
-          for (let lvIdx = 0; lvIdx < branchPath.length; lvIdx++) {
-            const node = branchPath[lvIdx];
-            const pValCell = pipsRow.getCell(lvIdx + 2);
-            applyCellBorder(pValCell, 'FFA9D18E');
-            pValCell.alignment = { horizontal: 'center', vertical: 'middle' };
-            pValCell.font = { bold: true, size: 9.5, color: { argb: 'FF1E4620' }, name: 'Calibri' };
-            pValCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
-            pValCell.value = scenarioMap[node.id]?.white_hold ?? 0;
-          }
-
-          currentRow = r + 3;
+          // RENDER BẢNG DỮ LIỆU BẬC THANG
+          currentBaseRow = await renderBranchAccountTypeTable(masterSheet, currentBaseRow, accType, eligibleBranch);
         }
 
-        currentRow += 1;
+        // Cách 1 dòng trống trước nhánh tiếp theo
+        currentBaseRow += 1;
       }
+    }
+
+    if (workbook.worksheets.length === 0) {
+      workbook.addWorksheet('MIB Report', { views: [{ showGridLines: true }] });
     }
 
     const buffer = await workbook.xlsx.writeBuffer();
     return buffer as any as Buffer;
   }
 }
+

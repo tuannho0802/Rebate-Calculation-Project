@@ -31,15 +31,18 @@ export function IbManagementTable() {
   const canSearch = trimmedQ.length === 0 || trimmedQ.length >= 2;
   const isAdmin = user?.role === 'ADMIN';
 
+  const effectiveTab: TabType = isAdmin ? activeTab : 'sub-ib';
+
   const { data, isFetching, isLoading } = useQuery({
-    queryKey: ['ibSearch', trimmedQ, page, activeTab],
-    queryFn: () => ibApi.search(trimmedQ, false, page, 20, activeTab),
+    queryKey: ['ibSearch', trimmedQ, page, effectiveTab],
+    queryFn: () => ibApi.search(trimmedQ, false, page, 20, effectiveTab),
     enabled: canSearch,
   });
 
   const { data: mibCountData } = useQuery({
     queryKey: ['ibCount', 'mib'],
     queryFn: () => ibApi.search('', false, 1, 1, 'mib'),
+    enabled: isAdmin,
   });
 
   const { data: subIbCountData } = useQuery({
@@ -91,59 +94,69 @@ export function IbManagementTable() {
 
   return (
     <div className="space-y-6">
-      {/* Tabs Phân Chia Quản Lý: MIB (Level 0) & IB Con (Level >= 1) */}
+      {/* Tabs Phân Chia Quản Lý: Admin thấy 3 tabs (MIB, Sub-IB, Tất cả), MIB/IB chỉ thấy 'Danh sách IB cấp dưới' */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-200 pb-2">
-        <div className="flex items-center gap-2 bg-gray-100/80 p-1.5 rounded-xl border border-gray-200/80">
-          <button
-            onClick={() => handleTabChange('mib')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-              activeTab === 'mib'
-                ? 'bg-white text-purple-700 shadow-sm border border-purple-200'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Crown className={`h-4 w-4 ${activeTab === 'mib' ? 'text-purple-600' : 'text-gray-400'}`} />
-            <span>Danh sách MIB (Level 0)</span>
-            <span
-              className={`ml-1 px-2 py-0.5 text-xs rounded-full font-extrabold ${
-                activeTab === 'mib' ? 'bg-purple-100 text-purple-800' : 'bg-gray-200 text-gray-700'
+        {isAdmin ? (
+          <div className="flex items-center gap-2 bg-gray-100/80 p-1.5 rounded-xl border border-gray-200/80">
+            <button
+              onClick={() => handleTabChange('mib')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                activeTab === 'mib'
+                  ? 'bg-white text-purple-700 shadow-sm border border-purple-200'
+                  : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              {mibTotal}
-            </span>
-          </button>
+              <Crown className={`h-4 w-4 ${activeTab === 'mib' ? 'text-purple-600' : 'text-gray-400'}`} />
+              <span>Danh sách MIB (Level 0)</span>
+              <span
+                className={`ml-1 px-2 py-0.5 text-xs rounded-full font-extrabold ${
+                  activeTab === 'mib' ? 'bg-purple-100 text-purple-800' : 'bg-gray-200 text-gray-700'
+                }`}
+              >
+                {mibTotal}
+              </span>
+            </button>
 
-          <button
-            onClick={() => handleTabChange('sub-ib')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-              activeTab === 'sub-ib'
-                ? 'bg-white text-blue-700 shadow-sm border border-blue-200'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Users className={`h-4 w-4 ${activeTab === 'sub-ib' ? 'text-blue-600' : 'text-gray-400'}`} />
-            <span>Danh sách IB thường (Level ≥ 1)</span>
-            <span
-              className={`ml-1 px-2 py-0.5 text-xs rounded-full font-extrabold ${
-                activeTab === 'sub-ib' ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'
+            <button
+              onClick={() => handleTabChange('sub-ib')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                activeTab === 'sub-ib'
+                  ? 'bg-white text-blue-700 shadow-sm border border-blue-200'
+                  : 'text-gray-600 hover:text-gray-900'
               }`}
             >
+              <Users className={`h-4 w-4 ${activeTab === 'sub-ib' ? 'text-blue-600' : 'text-gray-400'}`} />
+              <span>Danh sách IB thường (Level ≥ 1)</span>
+              <span
+                className={`ml-1 px-2 py-0.5 text-xs rounded-full font-extrabold ${
+                  activeTab === 'sub-ib' ? 'bg-blue-100 text-blue-800' : 'bg-gray-200 text-gray-700'
+                }`}
+              >
+                {subIbTotal}
+              </span>
+            </button>
+
+            <button
+              onClick={() => handleTabChange('all')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                activeTab === 'all'
+                  ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Layers className={`h-4 w-4 ${activeTab === 'all' ? 'text-amber-500' : 'text-gray-400'}`} />
+              <span>Tất cả ({allTotal})</span>
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5 bg-blue-50/80 px-4 py-2 rounded-xl border border-blue-200/80 text-blue-900 font-bold text-sm shadow-sm">
+            <Users className="h-4 w-4 text-blue-600" />
+            <span>Danh sách IB cấp dưới</span>
+            <span className="ml-1 px-2.5 py-0.5 text-xs rounded-full font-extrabold bg-blue-100 text-blue-800">
               {subIbTotal}
             </span>
-          </button>
-
-          <button
-            onClick={() => handleTabChange('all')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
-              activeTab === 'all'
-                ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                : 'text-gray-600 hover:text-gray-900'
-            }`}
-          >
-            <Layers className={`h-4 w-4 ${activeTab === 'all' ? 'text-amber-500' : 'text-gray-400'}`} />
-            <span>Tất cả ({allTotal})</span>
-          </button>
-        </div>
+          </div>
+        )}
 
         <button
           onClick={() => setIsCreateModalOpen(true)}
@@ -162,9 +175,9 @@ export function IbManagementTable() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder={
-                activeTab === 'mib'
+                effectiveTab === 'mib'
                   ? 'Tìm MIB theo email hoặc tên...'
-                  : activeTab === 'sub-ib'
+                  : effectiveTab === 'sub-ib'
                   ? 'Tìm IB con theo email hoặc tên...'
                   : 'Tìm kiếm tất cả IB theo email hoặc tên...'
               }
@@ -193,9 +206,9 @@ export function IbManagementTable() {
                 <div className="text-center py-16 text-gray-500">
                   <p className="font-semibold text-gray-700">Không tìm thấy kết quả nào</p>
                   <p className="text-xs text-gray-400 mt-1">
-                    {activeTab === 'mib'
+                    {effectiveTab === 'mib'
                       ? 'Chưa có tài khoản MIB nào phù hợp'
-                      : activeTab === 'sub-ib'
+                      : effectiveTab === 'sub-ib'
                       ? 'Chưa có tài khoản Sub-IB nào phù hợp'
                       : 'Không có dữ liệu trong hệ thống'}
                   </p>

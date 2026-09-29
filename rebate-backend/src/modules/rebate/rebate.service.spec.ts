@@ -3,7 +3,7 @@ import { RebateService, MAX_PIPS } from './rebate.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationService } from '../notification/notification.service';
-import { AssetType } from '@prisma/client';
+import { AssetType } from '../../common/constants/asset-type.enum';
 import { UnprocessableEntityException } from '@nestjs/common';
 
 function makePrismaMock() {
@@ -11,6 +11,17 @@ function makePrismaMock() {
 
   return {
     _store: store,
+    product: {
+      findMany: jest.fn().mockImplementation(() =>
+        Object.entries(MAX_PIPS).map(([symbol, max]) => ({
+          symbol,
+          defaultMax: max,
+          isActive: true,
+          calcUnit: 'pips',
+          allowMarkup: true,
+        })),
+      ),
+    },
     ibNode: {
       findUnique: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
@@ -457,5 +468,84 @@ describe('RebateService — Cascading Rebate Max', () => {
 
     const lv1Config = prisma._store.get(`${LV1_ID}:${AssetType.GOLD}:STP_REBATE`);
     expect(lv1Config.rebatePips).toBe(15);
+  });
+
+  it('updateConfig(): sản phẩm có allowMarkup = false KHÔNG được cộng accountType markup pips khi tính trần của MIB', async () => {
+    const MIB_ID = 'mib-markup-disabled';
+    const LV1_ID = 'lv1-markup-disabled';
+
+    prisma.product.findMany.mockResolvedValue([
+      { symbol: AssetType.GOLD, defaultMax: 20, isActive: true, allowMarkup: false },
+      { symbol: AssetType.FOREX, defaultMax: 12, isActive: true, allowMarkup: true },
+    ]);
+
+    prisma.ibNode.findUnique.mockImplementation(({ where }) => {
+      if (where.id === LV1_ID) return Promise.resolve({ parentId: MIB_ID, level: 1, accountType: 'STD5' });
+      if (where.id === MIB_ID) return Promise.resolve({ parentId: null, level: 0 });
+      return Promise.resolve(null);
+    });
+
+    // GOLD có allowMarkup = false: trần tối đa vẫn là 20 (KHÔNG được cộng 5 pips thành 25).
+    // Nếu set rebatePips = 22 -> Phải bị từ chối với REBATE_EXCEEDS_PARENT
+    await expect(
+      service.updateConfig(
+        MIB_ID,
+        0,
+        LV1_ID,
+        {
+          accountType: 'STD5',
+          assets: [{ assetType: AssetType.GOLD, rebateType: 'STP_REBATE', rebatePips: 22, markupPips: 0, markupPercent: 100 }],
+        },
+        'MIB',
+      ),
+    ).rejects.toThrow(UnprocessableEntityException);
+
+    // FOREX có allowMarkup = true: trần là 12 + 5 = 17 pips.
+    // Nếu set rebatePips = 15 -> Hợp lệ và thành công!
+    await expect(
+      service.updateConfig(
+        MIB_ID,
+        0,
+        LV1_ID,
+        {
+          accountType: 'STD5',
+          assets: [{ assetType: AssetType.FOREX, rebateType: 'STP_REBATE', rebatePips: 15, markupPips: 0, markupPercent: 100 }],
+        },
+        'MIB',
+      ),
+    ).resolves.not.toThrow();
+  });
+
+  it('updateConfig(): PHẢI chặn khi số Pips cấp cho IB nhỏ hơn số Pips mà cấp dưới trực tiếp đang nhận (floor check)', async () => {
+    const MIB_ID = 'mib-1';
+    const LV1_ID = 'lv1-1';
+    const LV2_ID = 'lv2-1';
+
+    prisma.ibNode.findUnique.mockImplementation(({ where }) => {
+      if (where.id === LV1_ID) return Promise.resolve({ parentId: MIB_ID, level: 1 });
+      if (where.id === MIB_ID) return Promise.resolve({ parentId: null, level: 0 });
+      return Promise.resolve(null);
+    });
+
+    // Giả lập LV1_ID có con trực tiếp là LV2_ID đang nhận 16 pips cho GOLD (STD10)
+    (prisma.ibNode.findMany as jest.Mock).mockResolvedValueOnce([
+      { id: LV2_ID, name: 'Sub-IB Level 2', email: 'lv2@test.com' },
+    ]);
+    (prisma.rebateConfig.findMany as jest.Mock).mockResolvedValueOnce([
+      { ibId: LV2_ID, accountType: 'STD10', assetType: AssetType.GOLD, rebateType: 'STP_REBATE', rebatePips: 16 },
+    ]);
+
+    await expect(
+      service.updateConfig(
+        MIB_ID,
+        0,
+        LV1_ID,
+        {
+          accountType: 'STD10',
+          assets: [{ assetType: AssetType.GOLD, rebateType: 'STP_REBATE', rebatePips: 15, markupPips: 0, markupPercent: 100 }],
+        },
+        'ADMIN',
+      ),
+    ).rejects.toThrow(UnprocessableEntityException);
   });
 });

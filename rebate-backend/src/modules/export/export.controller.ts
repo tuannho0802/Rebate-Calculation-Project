@@ -2,6 +2,8 @@ import { Controller, Get, Query, Res, UseGuards, ForbiddenException } from '@nes
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ExportService } from './export.service';
 
@@ -13,7 +15,9 @@ export class ExportController {
   constructor(private readonly exportService: ExportService) {}
 
   @Get('rebate-config')
-  @ApiOperation({ summary: 'Xuất cấu hình rebate ra Excel' })
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Xuất cấu hình rebate ra Excel (Chỉ Admin)' })
   @ApiQuery({ name: 'period', required: false, description: 'Định dạng YYYY-MM' })
   async exportRebateConfig(
     @CurrentUser() user: any,
@@ -32,14 +36,18 @@ export class ExportController {
   }
 
   @Get('rebate-tree')
-  @ApiOperation({ summary: 'Xuất sơ đồ cây Rebate ra Excel chuẩn báo cáo (mẫu 4 hình)' })
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @ApiOperation({ summary: 'Xuất sơ đồ cây Rebate ra Excel chuẩn báo cáo (Chỉ Admin)' })
   @ApiQuery({ name: 'ibId', required: false, description: 'ID của MIB root cần xuất, bỏ trống nếu xuất tất cả MIB' })
+  @ApiQuery({ name: 'accountType', required: false, description: 'Loại link tài khoản (STD, STD5, STD10...), bỏ trống để xuất tất cả' })
   async exportRebateTree(
     @CurrentUser() user: any,
     @Query('ibId') ibId: string,
+    @Query('accountType') accountType: string,
     @Res() res: any,
   ) {
-    const buffer = await this.exportService.generateCustomTreeRebateExcel(ibId || undefined);
+    const buffer = await this.exportService.generateCustomTreeRebateExcel(ibId || undefined, accountType || undefined);
     const filename = `rebate-tree-report-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
     res.set({

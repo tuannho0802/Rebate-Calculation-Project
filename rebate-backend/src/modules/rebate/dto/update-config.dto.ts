@@ -1,13 +1,12 @@
 import { IsArray, IsEnum, IsNumber, IsNotEmpty, IsOptional, IsString, ValidateNested, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
-import { AssetType } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class RebateAssetConfigDto {
-  @ApiProperty({ enum: AssetType, example: AssetType.FOREX, description: 'Asset type category' })
-  @IsEnum(AssetType, { message: 'Loại tài sản không hợp lệ' })
-  @IsNotEmpty()
-  assetType!: AssetType;
+  @ApiProperty({ example: 'FOREX', description: 'Mã sản phẩm (Symbol)' })
+  @IsString({ message: 'Mã sản phẩm phải là chuỗi ký tự' })
+  @IsNotEmpty({ message: 'Mã sản phẩm không được để trống' })
+  assetType!: string;
 
   @IsOptional()
   @IsString({ message: 'rebateType phải là chuỗi' })

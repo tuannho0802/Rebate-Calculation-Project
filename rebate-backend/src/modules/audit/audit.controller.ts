@@ -3,42 +3,41 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AuditService } from './audit.service';
 import { QueryAuditDto } from './dto/query-audit.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-import { Lv0Guard } from '../../common/guards/lv0.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('📋 Audit')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('ADMIN')
 @Controller('audit')
 export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 
   @Get('logs')
-  @UseGuards(JwtAuthGuard, Lv0Guard)
   @ApiBearerAuth('Bearer')
-  @ApiOperation({ summary: 'Xem nhật ký thao tác (Admin: toàn hệ thống, MIB: toàn subtree của mình)' })
+  @ApiOperation({ summary: 'Xem nhật ký thao tác (Chỉ Admin)' })
   getLogs(@CurrentUser() user: any, @Query() query: QueryAuditDto) {
     return this.auditService.getLogs(user.sub, query, user.role);
   }
 
   @Delete('logs/bulk')
-  @UseGuards(JwtAuthGuard, Lv0Guard)
   @ApiBearerAuth('Bearer')
-  @ApiOperation({ summary: 'Xoá/ẩn nhiều dòng nhật ký cùng lúc (Admin: xoá thật, MIB: ẩn khỏi view của mình)' })
+  @ApiOperation({ summary: 'Xoá nhiều dòng nhật ký cùng lúc (Chỉ Admin)' })
   deleteBulk(@CurrentUser() user: any, @Body() dto: { ids: string[] }) {
     return this.auditService.deleteBulk(user.sub, dto.ids, user.role);
   }
 
   @Delete('logs/all')
-  @UseGuards(JwtAuthGuard, Lv0Guard)
   @ApiBearerAuth('Bearer')
-  @ApiOperation({ summary: 'Xoá/ẩn toàn bộ nhật ký khớp filter hiện tại (Admin: xoá thật, MIB: ẩn khỏi view của mình)' })
+  @ApiOperation({ summary: 'Xoá toàn bộ nhật ký khớp filter hiện tại (Chỉ Admin)' })
   deleteAll(@CurrentUser() user: any, @Query() query: QueryAuditDto) {
     return this.auditService.deleteAll(user.sub, query, user.role);
   }
 
   @Delete('logs/:id')
-  @UseGuards(JwtAuthGuard, Lv0Guard)
   @ApiBearerAuth('Bearer')
-  @ApiOperation({ summary: 'Ẩn 1 dòng nhật ký khỏi danh sách của riêng bạn (không xoá dữ liệu audit thật)' })
+  @ApiOperation({ summary: 'Ẩn/xoá 1 dòng nhật ký (Chỉ Admin)' })
   dismissLog(@CurrentUser() user: any, @Param('id') id: string) {
     return this.auditService.dismissLog(user.sub, id);
   }

@@ -3,7 +3,8 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@ne
 import { ReportService } from './report.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { AssetType, RebateType } from '@prisma/client';
+import { RebateType } from '@prisma/client';
+import { AssetType } from '../../common/constants/asset-type.enum';
 
 @ApiTags('📊 Report')
 @ApiBearerAuth('Bearer')
@@ -59,7 +60,7 @@ export class ReportController {
     @CurrentUser() user: any,
     @Query('ibId') ibId?: string,
     @Query('period') period?: string,
-    @Query('assetType') assetType?: AssetType,
+    @Query('assetType') assetType?: string,
     @Query('rebateType') rebateType?: RebateType,
     @Query('page') page?: string,
     @Query('limit') limit?: string,

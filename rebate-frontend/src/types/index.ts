@@ -21,6 +21,41 @@ export enum AssetType {
   GAUCNH = "GAUCNH",
 }
 
+export interface Product {
+  id: string;
+  symbol: string;
+  name: string;
+  category?: string;
+  defaultMax: number;
+  calcUnit: string;
+  order: number;
+  isActive: boolean;
+  allowMarkup: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateProductInput {
+  symbol: string;
+  name: string;
+  category?: string;
+  defaultMax: number;
+  calcUnit?: string;
+  order?: number;
+  allowMarkup?: boolean;
+}
+
+export interface UpdateProductInput {
+  symbol?: string;
+  name?: string;
+  category?: string;
+  defaultMax?: number;
+  calcUnit?: string;
+  order?: number;
+  isActive?: boolean;
+  allowMarkup?: boolean;
+}
+
 export enum RebateType {
   STP_REBATE = "STP_REBATE",
   CENT_REBATE = "CENT_REBATE",

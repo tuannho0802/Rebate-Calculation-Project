@@ -64,7 +64,7 @@ model RebateConfig {
   ibId          String
   ib            IbNode     @relation(fields: [ibId], references: [id])
   accountType   String     @default("STD")
-  assetType     AssetType
+  assetType     String
   rebateType    RebateType @default(STP_REBATE)
   rebatePips    Decimal    @db.Decimal(10, 4)
   markupPips    Decimal    @default(0) @db.Decimal(10, 4)
@@ -93,7 +93,7 @@ model RebateTransaction {
   id           String     @id @default(uuid())
   ibId         String
   ib           IbNode     @relation("TransactionOwner", fields: [ibId], references: [id])
-  assetType    AssetType
+  assetType    String
   rebateType   RebateType @default(STP_REBATE)
   lots         Decimal    @db.Decimal(10, 4)
   rebateAmount Decimal    @db.Decimal(10, 4)
@@ -298,4 +298,23 @@ model AuditLogDismissal {
   @@index([userId])
   @@map("audit_log_dismissals")
 }
+
+model Product {
+  id          String   @id @default(uuid())
+  symbol      String   @unique
+  name        String
+  category    String?
+  defaultMax  Decimal  @default(0) @db.Decimal(10, 4)
+  calcUnit    String   @default("pips")
+  order       Int      @default(0)
+  isActive    Boolean  @default(true)
+  allowMarkup Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@index([order])
+  @@map("products")
+}
+
 

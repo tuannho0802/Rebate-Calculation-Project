@@ -774,3 +774,103 @@ oles.guard.ts — phân quyền theo role (ADMIN/IB), dùng @Roles('ADMIN') deco
 - [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
 - [x] Các type vẫn khớp với 02_DATA_MODELS.md
 ---
+
+## [2026-09-18] — Phần: BACKEND
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Sửa logic phân bổ Rebate và Markup Option trong xuất Excel cho các loại tài khoản có Markup Pip (STD5, STD10, STD15, STD20).
+
+### Đã Sửa Lỗi & Cập Nhật
+- `src/modules/export/export.service.ts`:
+  - Khắc phục lỗi gộp phồng maximum Pips ở cột 14: maximum Pips luôn là base cap chuẩn của sản phẩm (Forex=12, Gold=20...), không cộng thêm Markup Pip vào trần.
+  - Áp dụng công thức tính Pure Rebate (Rebate thuần) đối với các loại tài khoản Markup: lấy số rebate lưu trong DB trừ đi số Markup Pip tương ứng của từng node (`pureRebate = Math.max(0, rawRebate - nodeMarkup)`).
+  - Chia bậc Rebate thuần ở bảng trên hoàn toàn đồng nhất với tài khoản STD (MIB = Cap - Lv1_pure, Lv_i = Lv_i_pure - Lv_{i+1}_pure, Leaf = Leaf_pure), đảm bảo tổng các cấp bằng đúng trần tối đa và công thức cột 12 luôn cho kết quả "Y".
+  - Bảng Markup Option ở cuối block: dòng Pips hiển thị chính xác số Pips Markup được giữ lại của mỗi cấp (tổng bằng đúng số Markup Pips của loại tài khoản), dòng Phần Trăm hiển thị tỷ lệ % theo đúng công thức phân bổ của AI Bot.
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi (`nest build` 0 errors)
+- [x] Không có chức năng cũ nào bị hỏng
+- [x] Đã kiểm tra tính toán thực tế qua script và file Excel xuất ra khớp 100%
+---
+
+## [2026-09-28] — Phần: BACKEND
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Đồng bộ logic lọc asset của `solveBallAllocation` trong `rebate-simulator.service.ts` chỉ lấy các hàng sản phẩm đã chia đầy đủ từ đầu đến cuối nhánh, giữ nguyên quy tắc 0.01 Pip (Virtual Zero).
+
+### Đã Sửa Lỗi & Cập Nhật
+- `src/modules/rebate/rebate-simulator.service.ts`:
+  - Đồng bộ `solveBallAllocation`: lọc các sản phẩm đã chia Rebate đầy đủ từ đầu đến cuối nhánh (`treeNodes.every(node => node.assets[asset] > 0)`).
+  - Duy trì logic ngưỡng 0.01 Pip: Giá trị rebate <= 0.01 Pip được xử lý như Virtual Zero (không nhận markup hoa hồng) mà vẫn đảm bảo tính liên tục của nhánh cây.
+- `src/modules/rebate/rebate.service.ts`:
+  - Sửa lỗi không lưu kịch bản Markup Option: Trước đó `saveBranchScenario` chỉ chạy `updateMany` theo `accountType`, nếu MIB (Level 0) hoặc một IB chưa có bản ghi riêng cho `accountType` đó (ví dụ STD10), lệnh update ảnh hưởng 0 rows khiến `markupPips` không được lưu vào DB.
+  - Thêm logic tự động upsert đầy đủ cấu hình cho toàn bộ sản phẩm active theo `targetAccType` khi lưu kịch bản, đảm bảo dữ liệu `markupPips` và `markupPercent` của tất cả các cấp trong nhánh được ghi nhận chính xác 100% vào database.
+
+### Trạng Thái
+- [x] Unit test backend vượt qua 100% (75/75 tests pass)
+- [x] Không có lỗi biên dịch
+---
+
+## [2026-09-28] — Phần: BACKEND (Ràng buộc chặt chẽ điều kiện chia sẻ Pip giữa các IB)
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Rà soát & bắt buộc kiểm tra điều kiện IB cấp trên có đủ Pip để chia xuống cấp dưới (tránh trường hợp Level 1 nhận 15 nhưng chia xuống Level 2 là 16 Pip); kiểm tra điều kiện chuyển nhánh MIB và IB.
+
+### Đã Sửa Lỗi & Cập Nhật
+- `src/modules/rebate/rebate.service.ts`:
+  - Trong `updateConfig()`: Thêm sàn dưới (Floor check) kiểm tra toàn bộ cấp dưới trực tiếp (`directChildren`). Nếu `rebatePips < childPips`, lập tức ném lỗi `UnprocessableEntityException` với mã `REBATE_LESS_THAN_CHILDREN`.
+  - Trong `smartCascadeCheckAndReset()`: Thêm lọc chính xác theo `accountType` khi kiểm tra cấu hình của các con, tránh tình trạng so sánh nhầm cấu hình của loại tài khoản khác.
+- `src/modules/ib/ib.service.ts`:
+  - Trong `moveIb()`: Cập nhật kiểm tra Rebate cho toàn bộ cây con (`allSubtreeNodes`). Tìm số Pip tối đa cần thiết trong toàn bộ subtree và so sánh với trần Rebate của `newParent`. Nếu `neededPips > parentLimit`, lập tức chặn chuyển nhánh và báo lỗi rõ ràng.
+  - Khi cựu MIB (level 0) chuyển thành Sub-IB (level >= 1), tự động cập nhật `rebatePips` cho cựu MIB bằng mức cần thiết để bảo toàn thứ bậc `parent >= child`.
+- `src/modules/rebate/rebate.service.spec.ts`:
+  - Thêm unit test kiểm chứng việc chặn lưu khi số Pip của cấp trên nhỏ hơn cấp dưới.
+
+### Trạng Thái
+- [x] Unit test backend đạt 100% (76/76 tests pass)
+- [x] Không có lỗi biên dịch
+## [2026-09-29] — Phần: BACKEND (Chuẩn hóa công thức xuất file Excel tách riêng Rebate và Markup Pip)
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Chỉnh sửa logic xuất file Excel theo yêu cầu của sàn: Tách riêng bảng Rebate và bảng Markup Pip. Từ dữ liệu ở trang Rebate Management (số Pip giữ lại của từng IB), trừ đi số Pip của tỷ lệ Markup Pip ở bảng dưới để ra bảng Rebate thuần (tổng bằng số Pip mặc định của sản phẩm, ví dụ GOLD = 20), sau đó xếp bậc thang cho từng Block (Block 0: [20], Block 1: [0, 20], Block 2: [0, 12, 8], Block 3: [0, 12, 2, 6], Block 4: [0, 12, 2, 5.99, 0.01]).
+
+### Đã Sửa Lỗi & Cập Nhật
+- `src/modules/export/export.service.ts`:
+  - Đọc chính xác cấu hình `markupPips` lưu trong DB của từng node hoặc fallback vào `scenarioMap` của kịch bản active để xác định tỷ lệ giữ lại Markup (`fullBranchMarkupHolds`).
+  - Tính toán `webRetained` (số Pip giữ lại trên giao diện web): MIB = `mibCap - received[1]`, IB giữa = `received[i] - received[i+1]`, IB lá = `received[last]`.
+  - Tính toán `pureRetained` (Rebate thuần giữ lại): `Math.max(0, webRetained[i] - markupHold[i])`. Nếu MIB chưa phân bổ sản phẩm cho cấp dưới (`received[1] === 0`), MIB giữ trọn `mibBaseCap`.
+  - Phân bổ bậc thang `blockRebatePips` cho từng Block độ dài `prefixLen`: Với $i < \text{prefixLen} - 1$, lấy `pureRetained[i]`; tại nút cuối cùng của Block ($i = \text{prefixLen} - 1$), lấy `mibBaseCap - prevSum`. Đảm bảo tổng mọi block luôn đúng bằng `mibBaseCap` (ví dụ 20 cho GOLD).
+  - Làm tròn 4 chữ số thập phân (`* 10000 / 10000`) tránh sai số dấu phẩy động JavaScript, giúp công thức kiểm tra ở Cột 12 luôn cho kết quả "Y".
+
+### Trạng Thái
+## [2026-09-29] — Phần: BACKEND (Đồng bộ toàn bộ sản phẩm và mọi loại tài khoản theo cấu hình Config)
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Áp dụng cập nhật toàn bộ các sản phẩm và tất cả các loại tài khoản (STD, STD5, STD10, STD15, STD20). Các sản phẩm được phép cộng Markup Pip theo cấu hình ở trang Config (Product.allowMarkup = true) thì cộng và trừ tách riêng Rebate thuần; các sản phẩm tắt Markup Pip (Product.allowMarkup = false) thì giữ nguyên Rebate cơ bản.
+
+### Đã Sửa Lỗi & Cập Nhật
+- `src/modules/export/export.service.ts`:
+  - Đồng bộ `allowMarkup` và `defaultMax` động trực tiếp từ bảng `Product` trong cơ sở dữ liệu (thay vì phụ thuộc vào mảng tĩnh `TEMPLATE_PRODUCTS` có 14 sản phẩm bị gán `false`).
+  - Áp dụng trừ Markup động cho mọi sản phẩm có `allowMarkup === true` và `totalMarkupPips > 0` bằng giải thuật bảo toàn phân rã `pureReceived`:
+    $\text{markupReceived}[i] = \max(0, \text{markupReceived}[i-1] - \text{markupHolds}[i-1])$
+    $\text{pureReceived}[i] = \min(\text{pureReceived}[i-1], \max(0, \text{webReceived}[i] - \text{markupReceived}[i]))$
+    $\text{pureRetained}[i] = \text{pureReceived}[i] - \text{pureReceived}[i+1]$
+  - Với sản phẩm `allowMarkup === false` (ví dụ BITCOIN, NATURE_GAS,...): Không cộng thêm và không trừ Markup Pip, Cột 13 hiển thị `no` với nền xám `BG_NO_MARKUP`.
+  - Cột 12 công thức `=IF(...)` luôn trả về `"Y"` và Cột 14 hiển thị chính xác `mibBaseCap` của sản phẩm.
+  - Vòng lặp xuất nhánh giữ nguyên cấu trúc nhánh đầy đủ (`eligibleBranch = currentBranch`) cho mọi loại tài khoản (`candidateAccountTypes`), loại bỏ việc lọc `nodeHasAccountType` khiến nhánh bị cắt cụt ở các loại link STD5, STD15, STD20.
+  - Động hóa số hàng bảng phụ Markup Option (`baseRow + 6 + products.length + 1`) thích ứng với mọi số lượng sản phẩm.
+- Đã kiểm thử tự động toàn bộ 450 dòng sản phẩm trên tất cả các block và tất cả loại tài khoản (STD, STD5, STD10, STD15, STD20): 100% đạt chuẩn, 0 lỗi (`Errors: 0`).
+
+### Trạng Thái
+- [x] Unit test backend đạt 100% (76/76 tests pass)
+- [x] Không có lỗi biên dịch (`npm run build` 0 errors)
+- [x] Xuất Excel thực tế 450/450 dòng sản phẩm đều khớp 100%
+---
+
+
+

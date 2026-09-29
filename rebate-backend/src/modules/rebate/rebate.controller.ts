@@ -15,7 +15,6 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { UpdateDisabledAssetTypesDto } from './dto/update-disabled-asset-types.dto';
-import { AssetType } from '@prisma/client';
 
 @ApiTags('💰 Rebate')
 @ApiBearerAuth('Bearer')
@@ -174,7 +173,7 @@ export class RebateController {
   @UseGuards(SubtreeGuard)
   @ApiOperation({ summary: 'Calculate rebate amount', description: 'Calculates the rebate amount for a given IB, asset type, and number of lots traded.' })
   @ApiQuery({ name: 'ibId', description: 'The IB account ID', example: 'clxyz123' })
-  @ApiQuery({ name: 'assetType', enum: AssetType, description: 'Asset type for the calculation', example: AssetType.FOREX })
+  @ApiQuery({ name: 'assetType', description: 'Asset type symbol for the calculation', example: 'FOREX' })
   @ApiQuery({ name: 'lots', description: 'Number of lots traded', example: '1.5' })
   @ApiQuery({ name: 'rebateType', description: 'Rebate type (default: STP_REBATE)', required: false, type: String })
   @ApiResponse({ status: 200, description: 'Rebate calculation result returned successfully' })
@@ -182,7 +181,7 @@ export class RebateController {
   @ApiResponse({ status: 404, description: 'IB or config not found' })
   async calculateCascadeDistribution(
     @Query('ibId') ibId: string,
-    @Query('assetType') assetType: AssetType,
+    @Query('assetType') assetType: string,
     @Query('lots') lots: string,
     @Query('rebateType') rebateType: string = 'STP_REBATE',
   ) {

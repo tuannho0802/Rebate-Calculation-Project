@@ -1,7 +1,8 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { getDescendantIds, isDescendantOf } from '../../common/utils/subtree.util';
-import { AssetType, RebateType } from '@prisma/client';
+import { RebateType } from '@prisma/client';
+import { AssetType } from '../../common/constants/asset-type.enum';
 
 @Injectable()
 export class ReportService {
@@ -91,7 +92,7 @@ export class ReportService {
 
     // Compute totals and groups
     let totalRebate = 0;
-    const assetMap = new Map<AssetType, { totalRebate: number; lots: number }>();
+    const assetMap = new Map<string, { totalRebate: number; lots: number }>();
     const ibMap = new Map<string, { email: string; level: number; totalRebate: number }>();
 
     for (const tx of txs) {
@@ -138,7 +139,7 @@ export class ReportService {
     callerLevel: number,
     filterIbId?: string,
     period?: string,
-    assetType?: AssetType,
+    assetType?: string,
     rebateType?: RebateType,
     page = 1,
     limit = 20,

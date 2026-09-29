@@ -3,16 +3,16 @@ import {
   IsString, Min,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
-import { AssetType, RebateType } from '@prisma/client';
+import { RebateType } from '@prisma/client';
 
 export class CreateTransactionDto {
   @IsUUID()
   @ApiProperty({ example: 'uuid-of-ib', description: 'ID của IB thực hiện giao dịch' })
   ibId: string;
 
-  @IsEnum(AssetType)
-  @ApiProperty({ enum: AssetType, example: 'FOREX' })
-  assetType: AssetType;
+  @IsString({ message: 'assetType phải là chuỗi ký tự mã sản phẩm' })
+  @ApiProperty({ example: 'FOREX', description: 'Mã sản phẩm (Symbol)' })
+  assetType!: string;
 
   @IsEnum(RebateType)
   @IsOptional()

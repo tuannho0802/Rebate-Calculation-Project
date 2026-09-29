@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
-import { AssetType } from '@prisma/client';
+import { AssetType } from '../../common/constants/asset-type.enum';
 
 export interface SimulatorNodeInput {
   nodeId: string;
@@ -59,10 +59,10 @@ export class RebateSimulatorService {
       return [];
     }
 
-    const rawAssetsList =
+    const rawAssetsList: string[] =
       selectedAssets && selectedAssets.length > 0
         ? selectedAssets
-        : Object.values(AssetType);
+        : (Object.values(AssetType) as string[]);
 
     // Preprocess assets: treat values <= 0.01 as 0
     const processedTreeNodes = treeNodes.map((node) => {
@@ -77,15 +77,15 @@ export class RebateSimulatorService {
       };
     });
 
-    // Filter active assets: those that have been allocated downstream (i.e. Level 1's value > 0)
-    const allocatedAssets = processedTreeNodes.length > 1
-      ? rawAssetsList.filter((asset) => (processedTreeNodes[1].assets[asset] ?? 0) > 0)
-      : [];
+    // Filter active assets: Lọc các asset đã chia Rebate đầy đủ từ đầu đến cuối nhánh (mọi node từ MIB đến node cuối đều có rebate > 0, tính cả 0.01)
+    const fullyAllocatedAssets = treeNodes.length > 1
+      ? rawAssetsList.filter((asset) => treeNodes.every((node) => (node.assets[asset] ?? 0) > 0))
+      : rawAssetsList.filter((asset) => (treeNodes[0]?.assets[asset] ?? 0) > 0);
 
-    const activeAssets = allocatedAssets.length > 0
-      ? allocatedAssets
+    const activeAssets = fullyAllocatedAssets.length > 0
+      ? fullyAllocatedAssets
       : rawAssetsList.filter((asset) =>
-          processedTreeNodes.some((node) => (node.assets[asset] ?? 0) > 0),
+          treeNodes.some((node) => (node.assets[asset] ?? 0) > 0),
         );
 
     const assetsList = activeAssets.length > 0 ? activeAssets : rawAssetsList;
@@ -297,7 +297,7 @@ export class RebateSimulatorService {
 
     const treeNodes: SimulatorNodeInput[] = ancestors.map((node) => {
       const assets: Record<string, number> = {};
-      Object.values(AssetType).forEach((asset) => {
+      (Object.values(AssetType) as string[]).forEach((asset) => {
         assets[asset] = configMap[node.id]?.[asset] ?? 0;
       });
       return {

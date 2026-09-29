@@ -62,6 +62,16 @@ export default function AuditLogPage() {
   const isAdmin = user?.role === 'ADMIN';
   const userLevel = user?.level ?? -1;
 
+  useEffect(() => {
+    if (user && user.role !== 'ADMIN') {
+      router.replace('/dashboard');
+    }
+  }, [user, router]);
+
+  if (user && user.role !== 'ADMIN') {
+    return null;
+  }
+
   const [page, setPage] = useState(1);
   const [limit] = useState(20);
   const [actorId, setActorId] = useState('');
