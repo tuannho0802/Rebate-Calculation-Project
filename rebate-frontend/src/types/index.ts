@@ -37,7 +37,7 @@ export interface Product {
 
 export interface CreateProductInput {
   symbol: string;
-  name: string;
+  name?: string;
   category?: string;
   defaultMax: number;
   calcUnit?: string;
