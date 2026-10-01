@@ -88,12 +88,7 @@ export function MibMaxOverrideSection() {
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return products;
     const q = searchQuery.toLowerCase();
-    return products.filter(
-      (p) =>
-        p.symbol.toLowerCase().includes(q) ||
-        p.name.toLowerCase().includes(q) ||
-        (p.category && p.category.toLowerCase().includes(q)),
-    );
+    return products.filter((p) => p.symbol.toLowerCase().includes(q));
   }, [products, searchQuery]);
 
   const hasValidationError = Object.values(rows).some((val) => {
@@ -162,7 +157,7 @@ export function MibMaxOverrideSection() {
   };
 
   const handleDelete = async (p: Product) => {
-    const confirmMsg = `Bạn có chắc chắn muốn xoá/vô hiệu hoá sản phẩm "${p.symbol} - ${p.name}"?`;
+    const confirmMsg = `Bạn có chắc chắn muốn xoá/vô hiệu hoá sản phẩm "${p.symbol}"?`;
     if (!window.confirm(confirmMsg)) return;
 
     try {
@@ -280,31 +275,23 @@ export function MibMaxOverrideSection() {
                   >
                     {/* Sản phẩm */}
                     <td className="p-3.5">
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-gray-900 tracking-wide">
-                            {prod.symbol}
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-gray-900 tracking-wide text-sm">
+                          {prod.symbol}
+                        </span>
+                        {locked && (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-red-100 text-red-800 border border-red-200">
+                            Đã khoá
                           </span>
-                          {prod.category && (
-                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-gray-100 text-gray-600 border border-gray-200">
-                              {prod.category}
-                            </span>
-                          )}
-                          {locked && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-red-100 text-red-800 border border-red-200">
-                              Đã khoá
-                            </span>
-                          )}
-                          {prod.allowMarkup === false && (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-gray-100 text-gray-500 border border-gray-200"
-                              title="Sản phẩm này không cộng Link Markup Pips theo chính sách sàn BCR"
-                            >
-                              Không Markup
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-xs text-gray-500 mt-0.5">{prod.name}</span>
+                        )}
+                        {prod.allowMarkup === false && (
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-gray-100 text-gray-500 border border-gray-200"
+                            title="Sản phẩm này không cộng Link Markup Pips theo chính sách sàn BCR"
+                          >
+                            Không Markup
+                          </span>
+                        )}
                       </div>
                     </td>
 

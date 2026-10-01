@@ -20,8 +20,6 @@ export function ProductManageModal({
   const isEditing = !!productToEdit;
 
   const [symbol, setSymbol] = useState('');
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState('');
   const [defaultMax, setDefaultMax] = useState('');
   const [calcUnit, setCalcUnit] = useState('pips');
   const [order, setOrder] = useState('');
@@ -32,16 +30,12 @@ export function ProductManageModal({
   useEffect(() => {
     if (productToEdit) {
       setSymbol(productToEdit.symbol);
-      setName(productToEdit.name);
-      setCategory(productToEdit.category || '');
       setDefaultMax(String(productToEdit.defaultMax));
       setCalcUnit(productToEdit.calcUnit || 'pips');
       setOrder(String(productToEdit.order ?? 0));
       setAllowMarkup(productToEdit.allowMarkup ?? true);
     } else {
       setSymbol('');
-      setName('');
-      setCategory('');
       setDefaultMax('');
       setCalcUnit('pips');
       setOrder('');
@@ -57,7 +51,6 @@ export function ProductManageModal({
     setErrorMsg('');
 
     const trimmedSymbol = symbol.trim().toUpperCase();
-    const trimmedName = name.trim();
     const numMax = Number(defaultMax);
 
     if (!trimmedSymbol) {
@@ -70,11 +63,6 @@ export function ProductManageModal({
       return;
     }
 
-    if (!trimmedName) {
-      setErrorMsg('Vui lòng nhập tên hiển thị cho sản phẩm');
-      return;
-    }
-
     if (defaultMax.trim() === '' || Number.isNaN(numMax) || numMax < 0) {
       setErrorMsg('Mức trần mặc định phải là số >= 0');
       return;
@@ -82,27 +70,14 @@ export function ProductManageModal({
 
     setIsSubmitting(true);
     try {
-      if (isEditing) {
-        await onSave({
-          symbol: trimmedSymbol,
-          name: trimmedName,
-          category: category.trim() || undefined,
-          defaultMax: numMax,
-          calcUnit: calcUnit.trim() || 'pips',
-          order: order.trim() !== '' ? Number(order) : undefined,
-          allowMarkup,
-        });
-      } else {
-        await onSave({
-          symbol: trimmedSymbol,
-          name: trimmedName,
-          category: category.trim() || undefined,
-          defaultMax: numMax,
-          calcUnit: calcUnit.trim() || 'pips',
-          order: order.trim() !== '' ? Number(order) : undefined,
-          allowMarkup,
-        });
-      }
+      await onSave({
+        symbol: trimmedSymbol,
+        name: trimmedSymbol,
+        defaultMax: numMax,
+        calcUnit: calcUnit.trim() || 'pips',
+        order: order.trim() !== '' ? Number(order) : undefined,
+        allowMarkup,
+      });
       onClose();
     } catch (err: any) {
       setErrorMsg(err?.response?.data?.message || err?.message || 'Có lỗi xảy ra khi lưu sản phẩm');
@@ -121,8 +96,8 @@ export function ProductManageModal({
             </h3>
             <p className="text-xs text-gray-500 mt-0.5">
               {isEditing
-                ? `Cập nhật thông tin cho sản phẩm ${productToEdit?.symbol}`
-                : 'Thêm cặp tiền, kim loại, chỉ số hoặc crypto mới'}
+                ? `Cập nhật mức trần và cấu hình cho mã ${productToEdit?.symbol}`
+                : 'Thêm mã sản phẩm (cặp tiền, kim loại, chỉ số hoặc crypto)'}
             </p>
           </div>
           <button
@@ -154,22 +129,8 @@ export function ProductManageModal({
               required
             />
             <span className="text-[11px] text-gray-500 mt-0.5 block">
-              Chữ hoa, số và gạch dưới. Mã này dùng để tính toán Rebate.
+              Chữ hoa, số và gạch dưới. Mã này dùng làm tên và định danh tính toán Rebate.
             </span>
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-              Tên hiển thị <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="VD: Vàng (XAUUSD), Ngoại hối, Solana..."
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-900 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-              required
-            />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -205,32 +166,18 @@ export function ProductManageModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                Danh mục
-              </label>
-              <input
-                type="text"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                placeholder="Forex, Metals, Crypto..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-900 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
-                Thứ tự hiển thị
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={order}
-                onChange={(e) => setOrder(e.target.value)}
-                placeholder="0"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-900 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
-              />
-            </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-700 uppercase mb-1">
+              Thứ tự hiển thị
+            </label>
+            <input
+              type="number"
+              min="0"
+              value={order}
+              onChange={(e) => setOrder(e.target.value)}
+              placeholder="0"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-900 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+            />
           </div>
 
           {/* iOS Toggle Switch for allowMarkup */}

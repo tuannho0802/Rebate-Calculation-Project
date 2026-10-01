@@ -8,12 +8,12 @@ export class CreateProductDto {
   @Matches(/^[A-Z0-9_]+$/, { message: 'Mã sản phẩm chỉ được chứa chữ cái in hoa, chữ số và dấu gạch dưới' })
   symbol!: string;
 
-  @ApiProperty({ example: 'Gold Mini (XAUUSD)', description: 'Tên hiển thị của sản phẩm' })
+  @ApiProperty({ example: 'GOLD_MINI', description: 'Tên hiển thị của sản phẩm (mặc định lấy theo Symbol nếu bỏ trống)', required: false })
+  @IsOptional()
   @IsString({ message: 'Tên sản phẩm phải là chuỗi' })
-  @IsNotEmpty({ message: 'Tên sản phẩm không được để trống' })
-  name!: string;
+  name?: string;
 
-  @ApiProperty({ example: 'Metals', description: 'Danh mục sản phẩm', required: false })
+  @ApiProperty({ example: 'General', description: 'Danh mục sản phẩm', required: false })
   @IsOptional()
   @IsString()
   category?: string;

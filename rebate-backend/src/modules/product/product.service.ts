@@ -77,8 +77,8 @@ export class ProductService {
     const product = await this.prisma.product.create({
       data: {
         symbol: normalizedSymbol,
-        name: dto.name.trim(),
-        category: dto.category?.trim() || 'General',
+        name: dto.name?.trim() || normalizedSymbol,
+        category: dto.category?.trim() || null,
         defaultMax: dto.defaultMax,
         calcUnit: dto.calcUnit?.trim() || 'pips',
         order,

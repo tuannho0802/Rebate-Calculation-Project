@@ -418,7 +418,7 @@ export function AccountTypeBuilder() {
                   <option value="" disabled>Chọn loại sản phẩm...</option>
                   {activeProducts.map((p) => (
                     <option key={p.symbol} value={p.symbol}>
-                      {p.symbol} - {p.name} (Mặc định: {p.defaultMax} {p.calcUnit})
+                      {p.symbol} (Mặc định: {p.defaultMax} {p.calcUnit})
                     </option>
                   ))}
                 </select>
