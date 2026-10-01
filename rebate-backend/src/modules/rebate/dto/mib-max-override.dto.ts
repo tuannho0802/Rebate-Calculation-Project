@@ -1,13 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsArray, IsEnum, IsNotEmpty, IsNumber, Min, ValidateNested } from 'class-validator';
-import { AssetType } from '@prisma/client';
+import { IsArray, IsNotEmpty, IsNumber, IsString, Min, ValidateNested } from 'class-validator';
 
 export class MibMaxOverrideItemDto {
-  @ApiProperty({ enum: AssetType, example: AssetType.D_FOREX })
-  @IsEnum(AssetType)
+  @ApiProperty({ example: 'D_FOREX', description: 'Mã sản phẩm (Symbol)' })
+  @IsString()
   @IsNotEmpty()
-  assetType!: AssetType;
+  assetType!: string;
 
   @ApiProperty({ example: 'STP_REBATE' })
   @IsNotEmpty()

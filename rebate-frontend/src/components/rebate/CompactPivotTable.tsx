@@ -7,14 +7,15 @@
  * CÁC CỘT LÀ DYNAMIC — số cột hiển thị phụ thuộc vào selection hiện tại.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { useQueryClient } from '@tanstack/react-query';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { AssetType, IbTreeNode, RebateConfig, MAX_PIPS } from '@/types';
 import { solveBallAllocation, SolverNodeInput } from '@/lib/ai-rebate-solver';
 import { rebateApi } from '@/lib/api/rebate';
+import { useProducts } from '@/hooks/useProducts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,8 @@ export function nodeHasAccountType(
   configs?: Record<string, RebateConfig>
 ): boolean {
   if (!node) return false;
+  // MIB root luôn có mặt trên mọi loại tài khoản
+  if (node.level === 0 || !node.parentId) return true;
 
   if (node.accountTypes && Array.isArray(node.accountTypes) && node.accountTypes.length > 0) {
     if (node.accountTypes.includes(targetAccountType)) return true;
@@ -77,7 +80,7 @@ function eligibleChildren(
   targetAccountType: string,
   configs?: Record<string, RebateConfig>,
 ): IbTreeNode[] {
-  return ibs.filter(ib => parentById[ib.id] === parentId && nodeHasAccountType(ib, targetAccountType, configs));
+  return ibs.filter(ib => parentById[ib.id] === parentId);
 }
 
 function optionLabel(
@@ -93,7 +96,7 @@ function optionLabel(
   return `${name} (↑ ${parent.name ?? parent.email})`;
 }
 
-function buildColumns(
+export function buildColumns(
   rootId: string,
   rootIb: IbTreeNode,
   ibs: IbTreeNode[],
@@ -125,13 +128,10 @@ function buildColumns(
   return cols;
 }
 
-const formatPips = (val: number): number => {
+export const formatPips = (val: number): number => {
   return Math.round((val + Number.EPSILON) * 100) / 100;
 };
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
-import { useMemo } from 'react';
 import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
 
 export function CompactPivotTable({
@@ -154,6 +154,14 @@ export function CompactPivotTable({
   selectedAccountType = 'STD',
 }: CompactPivotTableProps) {
   const { activeAssetTypes } = useDisabledAssetTypes();
+  const { products } = useProducts();
+  const productMap = useMemo(() => new Map(products.map((p) => [p.symbol, p])), [products]);
+
+  const isMarkupAllowed = (asset: string): boolean => {
+    const prod = productMap.get(asset);
+    return prod ? prod.allowMarkup !== false : true;
+  };
+
   const assetTypes = useMemo(
     () => rawAssetTypes.filter((a) => activeAssetTypes.includes(a)),
     [rawAssetTypes, activeAssetTypes],
@@ -208,13 +216,13 @@ export function CompactPivotTable({
     const assets: Record<string, number> = {};
 
     assetTypes.forEach((asset) => {
+      const assetMarkup = isMarkupAllowed(asset) ? level1MarkupPips : 0;
       if (isRoot) {
         const mibAssetConfig = configs[rootId]?.assets?.find(a => a.assetType === asset);
         const mibBaseCap = getMibMaxDisplay(rootId, asset) ?? Number(mibAssetConfig?.maxPips || 0);
-        assets[asset] = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
+        assets[asset] = mibBaseCap > 0 ? mibBaseCap + assetMarkup : 0;
       } else {
-        const cfg = configs[id]?.assets?.find(a => a.assetType === asset);
-        assets[asset] = Number(cfg?.rebatePips || 0);
+        assets[asset] = getRebatePips(id, asset);
       }
     });
 
@@ -230,8 +238,8 @@ export function CompactPivotTable({
 
   // Read saved pattern from DB configs for active branch
   const savedPatternKey = branchIds.map(id => {
-    const cfg = configs[id]?.assets?.[0];
-    return cfg?.markupPips !== undefined && cfg?.markupPips !== null ? Number(cfg.markupPips) : null;
+    const cfg = configs[id]?.assets?.find(a => a.markupPips !== undefined && a.markupPips !== null);
+    return cfg ? Number(cfg.markupPips) : null;
   });
 
   // Auto-match scenario if user hasn't manually picked a scenario in this session
@@ -339,31 +347,48 @@ export function CompactPivotTable({
         {/* ── Body ── */}
         <tbody className="divide-y divide-slate-100 bg-white">
           {assetTypes.map((asset) => {
+            const isAllowed = isMarkupAllowed(asset) && level1MarkupPips > 0;
+            const assetMarkup = isAllowed ? level1MarkupPips : 0;
             const mibAssetConfig = configs[rootId]?.assets?.find(a => a.assetType === asset);
             const mibBaseCap = getMibMaxDisplay(rootId, asset) ?? Number(mibAssetConfig?.maxPips || 0);
-            const mibCap = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
+            const mibCap = mibBaseCap > 0 ? mibBaseCap + assetMarkup : 0;
 
-            const mibGiven = getRebatePips(level1Id, asset);
-            const rawMibRetained = Math.max(0, mibCap - mibGiven);
-            // 🎯 CÔNG THỨC CHUẨN: Retained = Raw Retained - Markup Pips Giữ Lại từ AI Scenario
-            const mibHold = scenarioMap[rootId]?.white_hold || 0;
-            const mibRetained = Math.max(0, rawMibRetained - mibHold);
+            const mibGiven = level1Id ? getRebatePips(level1Id, asset) : 0;
+            const isMibInsufficient = !!level1Id && mibCap < mibGiven;
+            const mibRetained = Math.max(0, mibCap - mibGiven);
+
+            const isNoMarkup = level1MarkupPips > 0 && !isMarkupAllowed(asset);
 
             return (
               <tr key={asset} className="hover:bg-slate-50/80 transition-colors">
                 {/* Cell: Asset Name */}
                 <td className="px-4 py-2.5 font-bold text-slate-800 border-r border-slate-200 text-xs bg-white sticky left-0 z-10 shadow-[2px_0_4px_rgba(0,0,0,0.05)]">
-                  {asset}
+                  <div className="flex items-center justify-between gap-1">
+                    <span>{asset}</span>
+                    {isNoMarkup && (
+                      <span className="text-[9px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-1 py-0.5 rounded leading-none" title="Sản phẩm không áp dụng cộng thêm Link Markup (0 pips)">
+                        +0
+                      </span>
+                    )}
+                  </div>
                 </td>
 
                 {/* Cell: MIB (Level 0) */}
-                <td className="px-3 py-2 border-r border-slate-200 text-center bg-indigo-50/20">
+                <td className={`px-3 py-2 border-r border-slate-200 text-center ${isMibInsufficient ? 'bg-red-50/80 ring-2 ring-inset ring-red-400' : 'bg-indigo-50/20'}`}>
                   <div className="flex flex-col items-center justify-center gap-0.5">
                     <span className="text-[11px] font-semibold text-slate-500">
-                      Cap: <span className="font-bold text-slate-700">{formatPips(mibCap)}</span>
+                      Cap: <span className={`font-bold ${isMibInsufficient ? 'text-red-700 underline' : 'text-slate-700'}`}>{formatPips(mibCap)}</span>
                     </span>
-                    <span className="text-sm font-black text-indigo-700 bg-indigo-100/60 px-2 py-0.5 rounded border border-indigo-200/50 min-w-[36px]">
-                      {formatPips(mibRetained)}
+                    {isMibInsufficient && (
+                      <div className="flex items-center gap-0.5 text-[9px] font-extrabold text-red-600 bg-red-100 px-1 py-0.5 rounded border border-red-300" title={`Cap MIB (${formatPips(mibCap)}) không đủ chia cho Level 1 (${formatPips(mibGiven)})`}>
+                        <AlertTriangle className="h-3 w-3 shrink-0 text-red-600" />
+                        <span>Thiếu {formatPips(mibGiven - mibCap)}</span>
+                      </div>
+                    )}
+                    <span className={`text-sm font-black px-2 py-0.5 rounded border min-w-[36px] ${
+                      isMibInsufficient ? 'text-red-700 bg-red-100 border-red-300' : 'text-indigo-700 bg-indigo-100/60 border-indigo-200/50'
+                    }`}>
+                      {isMibInsufficient ? `-${formatPips(mibGiven - mibCap)}` : formatPips(mibRetained)}
                     </span>
                   </div>
                 </td>
@@ -372,51 +397,96 @@ export function CompactPivotTable({
                 {columns.map(({ level, selectedIbId }, idx) => {
                   const received = getRebatePips(selectedIbId, asset);
                   const nextLevelId = columns[idx + 1]?.selectedIbId;
-                  const given = getRebatePips(nextLevelId, asset);
-                  const rawRetained = Math.max(0, received - given);
-
-                  // 🎯 CÔNG THỨC CHUẨN: Retained = Raw Retained - Markup Pips Giữ Lại từ AI Scenario
-                  const childHold = scenarioMap[selectedIbId]?.white_hold || 0;
-                  const retained = Math.max(0, rawRetained - childHold);
+                  const given = nextLevelId ? getRebatePips(nextLevelId, asset) : 0;
+                  const retained = Math.max(0, received - given);
 
                   const prevLevelIbId = idx === 0 ? null : columns[idx - 1]?.selectedIbId;
                   const maxAllowed = idx === 0 ? mibCap : getRebatePips(prevLevelIbId, asset);
+                  const minAllowed = nextLevelId ? getRebatePips(nextLevelId, asset) : 0;
+
+                  const isExceedsParent = received > maxAllowed;
+                  const isInsufficientForChild = !!nextLevelId && received < given;
+                  const isInvalid = isExceedsParent || isInsufficientForChild;
 
                   return (
-                    <td key={level} className={`px-3 py-2 border-r border-slate-200 text-center ${isEditing ? 'bg-amber-50/30' : ''}`}>
+                    <td key={level} className={`px-3 py-2 border-r border-slate-200 text-center ${
+                      isInvalid ? 'bg-red-50/80 ring-2 ring-inset ring-red-400' : (isEditing ? 'bg-amber-50/30' : '')
+                    }`}>
                       <div className="flex flex-col items-center justify-center gap-1">
                         {isEditing ? (
-                          <div className="flex items-center justify-center gap-1">
-                            <span className="text-[10px] text-indigo-700 font-bold">Nhận:</span>
-                            <input
-                              type="number"
-                              step="0.5"
-                              min="0"
-                              max={maxAllowed}
-                              value={formatPips(received)}
-                              onChange={(e) => {
-                                let val = parseFloat(e.target.value);
-                                if (isNaN(val)) val = 0;
-                                if (val > maxAllowed) {
-                                  toast.error(`Số Pips cho ${asset} không được vượt quá trần cấp trên (${maxAllowed} pips)`);
-                                  val = maxAllowed;
-                                }
-                                if (onCellEdit) {
-                                  onCellEdit(selectedIbId, asset, val);
-                                }
-                              }}
-                              className="w-16 text-center text-xs font-black border-2 border-indigo-400 rounded-md bg-white px-1 py-0.5 text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-xs"
-                            />
+                          <div className="flex flex-col items-center justify-center gap-0.5">
+                            <div className="flex items-center justify-center gap-1">
+                              <span className="text-[10px] text-indigo-700 font-bold">Nhận:</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                min={minAllowed}
+                                max={maxAllowed}
+                                value={formatPips(received)}
+                                onChange={(e) => {
+                                  let val = parseFloat(e.target.value);
+                                  if (isNaN(val)) val = 0;
+                                  if (val > maxAllowed) {
+                                    toast.error(`Số Pips cho ${asset} không được vượt quá trần cấp trên (${maxAllowed} pips)`);
+                                    val = maxAllowed;
+                                  } else if (val < minAllowed) {
+                                    toast.error(`Số Pips cho ${asset} không được nhỏ hơn số Pips đã chia cho cấp dưới (${minAllowed} pips)`);
+                                    val = minAllowed;
+                                  }
+                                  if (onCellEdit) {
+                                    onCellEdit(selectedIbId, asset, val);
+                                  }
+                                }}
+                                className={`w-16 text-center text-xs font-black border-2 rounded-md bg-white px-1 py-0.5 text-indigo-950 focus:outline-none focus:ring-2 shadow-xs ${
+                                  isInvalid ? 'border-red-500 focus:ring-red-400' : 'border-indigo-400 focus:ring-indigo-500'
+                                }`}
+                              />
+                            </div>
+                            {minAllowed > 0 && (
+                              <span className="text-[9px] text-slate-500 font-medium">
+                                (Sàn: {formatPips(minAllowed)} - Trần: {formatPips(maxAllowed)})
+                              </span>
+                            )}
                           </div>
                         ) : (
-                          <span className="text-[11px] font-semibold text-slate-500">
-                            Nhận: <span className="font-bold text-slate-700">{formatPips(received)}</span>
+                          <span className={`text-[11px] font-semibold ${isInvalid ? 'text-red-700' : 'text-slate-500'}`}>
+                            Nhận: <span className={`font-bold ${isInvalid ? 'text-red-800 underline' : 'text-slate-700'}`}>{formatPips(received)}</span>
                           </span>
                         )}
 
-                        <span className="text-sm font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 min-w-[36px]">
-                          {formatPips(retained)}
-                        </span>
+                        {/* Cảnh báo lỗi trực quan nếu vi phạm ràng buộc chia Pip */}
+                        {isInsufficientForChild && (
+                          <div
+                            className="flex items-center gap-0.5 text-[9px] font-extrabold text-red-700 bg-red-100 px-1.5 py-0.5 rounded border border-red-300 shadow-xs"
+                            title={`Lỗi: Cấp trên nhận ${formatPips(received)} pips nhưng chia cho cấp dưới ${formatPips(given)} pips (thiếu ${formatPips(given - received)} pips)!`}
+                          >
+                            <AlertTriangle className="h-3 w-3 shrink-0 text-red-600" />
+                            <span>Thiếu {formatPips(given - received)} pips</span>
+                          </div>
+                        )}
+
+                        {isExceedsParent && !isInsufficientForChild && (
+                          <div
+                            className="flex items-center gap-0.5 text-[9px] font-extrabold text-red-700 bg-red-100 px-1.5 py-0.5 rounded border border-red-300 shadow-xs"
+                            title={`Lỗi: Vượt trần cấp trên! Cấp trên chỉ cấp tối đa ${formatPips(maxAllowed)} pips.`}
+                          >
+                            <AlertTriangle className="h-3 w-3 shrink-0 text-red-600" />
+                            <span>Vượt trần ({formatPips(maxAllowed)})</span>
+                          </div>
+                        )}
+
+                        {isInsufficientForChild ? (
+                          <span
+                            className="text-xs font-black text-red-700 bg-red-100 px-2 py-0.5 rounded border border-red-300 min-w-[36px]"
+                            title="Lỗi: Giữ lại bị âm do cấp dưới nhận nhiều hơn cấp trên"
+                          >
+                            -{formatPips(given - received)}
+                          </span>
+                        ) : (
+                          <span className="text-sm font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 min-w-[36px]">
+                            {formatPips(retained)}
+                          </span>
+                        )}
                       </div>
                     </td>
                   );
@@ -437,14 +507,16 @@ export function CompactPivotTable({
             <td className="px-3 py-3 border-r border-slate-200 text-center font-bold text-indigo-900 bg-indigo-100/40">
               {(() => {
                 const totalCap = assetTypes.reduce((sum, asset) => {
+                  const isAllowed = isMarkupAllowed(asset) && level1MarkupPips > 0;
+                  const assetMarkup = isAllowed ? level1MarkupPips : 0;
                   const mibAssetConfig = configs[rootId]?.assets?.find(a => a.assetType === asset);
                   const mibBaseCap = getMibMaxDisplay(rootId, asset) ?? Number(mibAssetConfig?.maxPips || 0);
-                  const mibCap = mibBaseCap > 0 ? mibBaseCap + level1MarkupPips : 0;
+                  const mibCap = mibBaseCap > 0 ? mibBaseCap + assetMarkup : 0;
                   return sum + mibCap;
                 }, 0);
                 const totalGiven = assetTypes.reduce((sum, asset) => {
-                  const cfg = level1Id ? configs[level1Id]?.assets?.find(a => a.assetType === asset) : null;
-                  return sum + Number(cfg?.rebatePips || 0);
+                  if (!level1Id) return sum;
+                  return sum + getRebatePips(level1Id, asset);
                 }, 0);
                 return (
                   <div>
@@ -458,14 +530,13 @@ export function CompactPivotTable({
             {/* Total cho từng Sub-IB column */}
             {columns.map(({ level, selectedIbId }, idx) => {
               const totalReceived = assetTypes.reduce((sum, asset) => {
-                const cfg = configs[selectedIbId]?.assets?.find(a => a.assetType === asset);
-                return sum + Number(cfg?.rebatePips || 0);
+                return sum + getRebatePips(selectedIbId, asset);
               }, 0);
 
               const nextLevelId = columns[idx + 1]?.selectedIbId;
               const totalGiven = assetTypes.reduce((sum, asset) => {
-                const cfg = nextLevelId ? configs[nextLevelId]?.assets?.find(a => a.assetType === asset) : null;
-                return sum + Number(cfg?.rebatePips || 0);
+                if (!nextLevelId) return sum;
+                return sum + getRebatePips(nextLevelId, asset);
               }, 0);
 
               return (
@@ -491,7 +562,7 @@ export function CompactPivotTable({
                 <>
                   <button
                     onClick={() => {
-                      setSelectedScenarioIndex((prev: number) => (prev + 1) % scenarios.length);
+                      setSelectedScenarioIndex((activeIndex + 1) % scenarios.length);
                       setUserHasSelected(true);
                     }}
                     className="px-2.5 py-1 text-[11px] bg-amber-400 hover:bg-amber-300 text-indigo-950 font-extrabold rounded-md shadow transition-all cursor-pointer flex items-center gap-1 shrink-0"

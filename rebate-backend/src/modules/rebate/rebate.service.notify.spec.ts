@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.constants';
 import { NotificationService } from '../notification/notification.service';
-import { AssetType } from '@prisma/client';
+import { AssetType } from '../../common/constants/asset-type.enum';
 
 /**
  * Cùng pattern mock với rebate.service.spec.ts hiện có trong repo (store dạng Map
@@ -23,8 +23,7 @@ function makePrismaMock(nodes: Record<string, any>) {
     const store = new Map<string, any>();
 
     const findConfig = (where: any) => {
-        const k = where.ibId_accountType_assetType_rebateType || where.ibId_assetType_rebateType;
-        const key = `${k.ibId}:${k.assetType}:${k.rebateType}`;
+        const key = `${where.ibId_accountType_assetType_rebateType.ibId}:${where.ibId_accountType_assetType_rebateType.assetType}:${where.ibId_accountType_assetType_rebateType.rebateType}`;
         return store.get(key) || null;
     };
     const upsertConfig = (where: any, update: any, create: any) => {
@@ -38,6 +37,9 @@ function makePrismaMock(nodes: Record<string, any>) {
 
     return {
         _store: store,
+        product: {
+            findMany: jest.fn().mockResolvedValue([]),
+        },
         ibNode: {
             findUnique: jest.fn().mockImplementation(({ where }: any) => Promise.resolve(nodes[where.id] || null)),
             findMany: jest.fn().mockResolvedValue([]), // smartCascadeCheckAndReset: không có con -> không cascade tiếp

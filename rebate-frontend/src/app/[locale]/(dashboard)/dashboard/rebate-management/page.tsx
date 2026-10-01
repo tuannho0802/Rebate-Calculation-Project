@@ -7,18 +7,21 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ibApi } from '@/lib/api/ib';
 import { rebateApi } from '@/lib/api/rebate';
 import { exportApi } from '@/lib/api/export';
+import { useAuthStore } from '@/store/auth.store';
 import { AssetType, RebateConfig, MAX_PIPS, IbTreeNode } from '@/types';
-import { Loader2, Table2, Sheet, LayoutGrid, Eye, Download, GitBranch, Search, Edit3, RotateCcw, Save } from 'lucide-react';
+import { Loader2, Table2, Sheet, LayoutGrid, Eye, Download, ChevronDown, GitBranch, Search, Edit3, RotateCcw, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { normalizeTreeRoots, flattenIbTree } from '@/lib/tree-utils';
 import { PivotArrowOverlay } from '@/components/rebate/PivotArrowOverlay';
-import { CompactPivotTable, CompactSelection, nodeHasAccountType } from '@/components/rebate/CompactPivotTable';
+import { CompactPivotTable, CompactSelection, nodeHasAccountType, buildColumns, formatPips } from '@/components/rebate/CompactPivotTable';
 import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
+import { useProducts } from '@/hooks/useProducts';
 import { solveBallAllocation, SolverNodeInput } from '@/lib/ai-rebate-solver';
 
 function RebateManagementPageInner() {
+  const { user } = useAuthStore();
   const { activeAssetTypes } = useDisabledAssetTypes();
   const t = useTranslations('RebateManagement');
   const searchParams = useSearchParams();
@@ -66,10 +69,12 @@ function RebateManagementPageInner() {
   }, [roots]);
 
   const groups = useMemo(() => {
-    return roots.map(root => ({
-      root,
-      ibs: flattenIbTree(root).filter(ib => ib.level > 0),
-    }));
+    return roots
+      .filter(root => root && root.isActive !== false)
+      .map(root => ({
+        root,
+        ibs: flattenIbTree(root).filter(ib => ib.level > 0 && ib.isActive !== false),
+      }));
   }, [roots]);
 
   const filteredGroups = useMemo(() => {
@@ -226,21 +231,26 @@ function RebateManagementPageInner() {
   }, [deepLinkIbId, allNodes.length, parentById, ibNodesById, groups]);
 
   const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
-  const handleExportExcel = async () => {
+  const handleExportExcel = async (exportType?: string) => {
     setIsExportingExcel(true);
-    toast.info('Đang khởi tạo file báo cáo Excel toàn bộ các MIB...');
+    setShowExportMenu(false);
+    const isAll = !exportType || exportType === 'ALL';
+    const typeLabel = isAll ? 'Toàn bộ Loại Link (STD, STD5, STD10, STD15, STD20)' : `Loại link ${exportType}`;
+    toast.info(`Đang khởi tạo file báo cáo Excel (${typeLabel})...`);
     try {
-      const blob = await exportApi.getRebateTree();
+      const blob = await exportApi.getRebateTree(undefined, isAll ? undefined : exportType);
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Bao_Cao_Rebate_Tat_Ca_MIB_${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const fileSuffix = isAll ? 'Toan_Bo_Link' : exportType;
+      a.download = `Bao_Cao_Rebate_MIB_${fileSuffix}_${new Date().toISOString().slice(0, 10)}.xlsx`;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
-      toast.success('Xuất file Excel báo cáo toàn bộ MIB thành công!');
+      toast.success(`Xuất file Excel báo cáo (${typeLabel}) thành công!`);
     } catch (err: any) {
       console.error('Failed to export excel:', err);
       toast.error('Lỗi khi xuất file Excel báo cáo Rebate.');
@@ -329,14 +339,48 @@ function RebateManagementPageInner() {
           </div>
         )}
 
-        {/* Nút Export Excel */}
-        <button
-          onClick={handleExportExcel}
-          className="flex items-center gap-2 rounded-none bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 text-sm font-semibold transition shadow-md hover:shadow-lg whitespace-nowrap"
-        >
-          <Download className="h-4 w-4" />
-          Xuất Excel Bảng Gọn
-        </button>
+        {/* Cụm Nút Xuất Excel (Chỉ hiển thị cho role ADMIN) */}
+        {user?.role === 'ADMIN' && (
+          <div className="relative inline-flex items-stretch shadow-md hover:shadow-lg transition">
+            <button
+              onClick={() => handleExportExcel()}
+              disabled={isExportingExcel}
+              className="flex items-center gap-2 rounded-none bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-sm font-semibold transition whitespace-nowrap disabled:opacity-50 cursor-pointer"
+              title="Xuất file Excel đầy đủ tất cả các loại link: STD, STD5, STD10, STD15, STD20"
+            >
+              {isExportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Xuất Excel Toàn Bộ Link
+            </button>
+
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              disabled={isExportingExcel}
+              className="rounded-none bg-emerald-700 hover:bg-emerald-800 text-white px-2 py-2.5 text-sm font-semibold border-l border-emerald-500 transition disabled:opacity-50 cursor-pointer flex items-center justify-center"
+              title="Tùy chọn xuất file Excel"
+            >
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+
+            {showExportMenu && (
+              <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 shadow-xl z-50 py-1 text-xs animate-in fade-in slide-in-from-top-2">
+                <button
+                  onClick={() => handleExportExcel()}
+                  className="w-full text-left px-3 py-2.5 hover:bg-emerald-50 text-emerald-900 font-bold flex items-center justify-between cursor-pointer"
+                >
+                  <span>📊 Toàn bộ Link (STD, STD5...)</span>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-black">Khuyên dùng</span>
+                </button>
+                <div className="border-t border-gray-100 my-1"></div>
+                <button
+                  onClick={() => handleExportExcel(selectedAccountType)}
+                  className="w-full text-left px-3 py-2.5 hover:bg-gray-100 text-gray-700 font-semibold cursor-pointer"
+                >
+                  📄 Chỉ xuất loại link hiện tại: <span className="font-bold text-amber-700">{selectedAccountType}</span>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {isLoadingTree ? (
@@ -441,6 +485,13 @@ function MibBranchCard({
     Array<Record<string, Record<string, number>>>
   >([]);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+
+  const { products } = useProducts();
+  const productMap = useMemo(() => new Map(products.map((p) => [p.symbol, p])), [products]);
+  const isMarkupAllowed = (asset: string): boolean => {
+    const prod = productMap.get(asset);
+    return prod ? prod.allowMarkup !== false : true;
+  };
 
   const handleToggleEdit = () => {
     if (!isEditing) {
@@ -550,6 +601,58 @@ function MibBranchCard({
       toast.info('Không có thay đổi nào cần lưu.');
       setIsEditing(false);
       return;
+    }
+
+    // Helper đọc Pips (ưu tiên đọc từ draftPips khi đang chỉnh sửa)
+    const getRebatePips = (ibId: string | null | undefined, asset: AssetType): number => {
+      if (!ibId) return 0;
+      if (draftPips[ibId] && draftPips[ibId][asset] !== undefined) {
+        return draftPips[ibId][asset];
+      }
+      const cfg = configs[ibId]?.assets?.find(a => a.assetType === asset);
+      return Number(cfg?.rebatePips || 0);
+    };
+
+    const parseAccountTypePips = (accType?: string): number => {
+      if (!accType || accType === 'STD') return 0;
+      const match = accType.match(/(\d+(?:\.\d+)?)/);
+      if (match) {
+        const num = parseFloat(match[1]);
+        return isNaN(num) ? 0 : num;
+      }
+      return 0;
+    };
+
+    const level1MarkupPips = parseAccountTypePips(selectedAccountType);
+    const columns = buildColumns(root.id, root, ibs, parentById, compactSelection, selectedAccountType, configs);
+
+    // Kiểm tra ràng buộc chặt chẽ: Cấp trên >= Cấp dưới cho mọi asset trên nhánh
+    for (const asset of assetTypes) {
+      const isAllowed = isMarkupAllowed(asset) && level1MarkupPips > 0;
+      const assetMarkup = isAllowed ? level1MarkupPips : 0;
+      const mibAssetConfig = configs[root.id]?.assets?.find(a => a.assetType === asset);
+      const mibBaseCap = getMibMaxDisplay(root.id, asset) ?? Number(mibAssetConfig?.maxPips || 0);
+      const mibCap = mibBaseCap > 0 ? mibBaseCap + assetMarkup : 0;
+
+      let prevName = root.name || root.email || 'MIB';
+      let prevPips = mibCap;
+
+      for (let i = 0; i < columns.length; i++) {
+        const col = columns[i];
+        const currNode = ibNodesById[col.selectedIbId];
+        const currName = currNode?.name || currNode?.email || `Level ${col.level}`;
+        const currPips = getRebatePips(col.selectedIbId, asset);
+
+        if (currPips > prevPips) {
+          toast.error(
+            `Không thể lưu: ${prevName} (${formatPips(prevPips)} pips) không đủ Pip để chia cho cấp dưới ${currName} (${formatPips(currPips)} pips) ở sản phẩm ${asset}!`
+          );
+          return;
+        }
+
+        prevName = currName;
+        prevPips = currPips;
+      }
     }
 
     // Capture snapshot của cấu hình DB hiện tại ngay trước khi Lưu mới

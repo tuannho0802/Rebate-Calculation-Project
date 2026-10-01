@@ -5,10 +5,9 @@ import { useTranslations } from 'next-intl';
 import { useAuthStore } from '@/store/auth.store';
 import ProfileForm from '@/components/account/ProfileForm';
 import ChangePasswordForm from '@/components/account/ChangePasswordForm';
-import ProjectStatistics from '@/components/account/ProjectStatistics';
-import { UserCircle2, KeyRound, BarChart3 } from 'lucide-react';
+import { UserCircle2, KeyRound } from 'lucide-react';
 
-type TabKey = 'profile' | 'password' | 'stats';
+type TabKey = 'profile' | 'password';
 
 export default function AccountPage() {
   const t = useTranslations('Account');
@@ -20,7 +19,6 @@ export default function AccountPage() {
   const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
     { key: 'profile', label: t('tabProfile'), icon: <UserCircle2 className="w-4 h-4 mr-2 text-amber-700" /> },
     { key: 'password', label: t('tabPassword'), icon: <KeyRound className="w-4 h-4 mr-2 text-amber-700" /> },
-    { key: 'stats', label: t('tabStats'), icon: <BarChart3 className="w-4 h-4 mr-2 text-amber-700" /> },
   ];
 
   return (
@@ -50,7 +48,6 @@ export default function AccountPage() {
         <div className="p-6">
           {activeTab === 'profile' && <ProfileForm userId={user.id} />}
           {activeTab === 'password' && <ChangePasswordForm />}
-          {activeTab === 'stats' && <ProjectStatistics userId={user.id} />}
         </div>
       </div>
     </div>

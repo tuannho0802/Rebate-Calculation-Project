@@ -1,22 +1,34 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { rebateApi } from '@/lib/api/rebate';
+import { productApi } from '@/lib/api/product';
 import { AssetType } from '@/types';
 import { toast } from 'sonner';
-
-const ALL_ASSET_TYPES = Object.values(AssetType);
 
 export function useDisabledAssetTypes() {
   const queryClient = useQueryClient();
 
+  const { data: prodRes } = useQuery({
+    queryKey: ['products', true],
+    queryFn: () => productApi.getProducts(true),
+    staleTime: 1000 * 60 * 2,
+  });
+
   const { data: res, isLoading, refetch } = useQuery({
     queryKey: ['disabledAssetTypes'],
     queryFn: () => rebateApi.getDisabledAssetTypes(),
-    staleTime: 1000 * 60 * 5, // 5 mins cache
+    staleTime: 1000 * 60 * 2,
   });
 
-  const disabledAssetTypes: AssetType[] = res?.success && Array.isArray(res.data) ? res.data : [];
+  const products = prodRes?.success && Array.isArray(prodRes.data) ? prodRes.data : [];
+  const allSymbols = products.length > 0
+    ? products.map((p) => p.symbol as AssetType)
+    : Object.values(AssetType);
 
-  const activeAssetTypes: AssetType[] = ALL_ASSET_TYPES.filter(
+  const disabledAssetTypes: AssetType[] = res?.success && Array.isArray(res.data)
+    ? (res.data as AssetType[])
+    : products.filter((p) => !p.isActive).map((p) => p.symbol as AssetType);
+
+  const activeAssetTypes: AssetType[] = allSymbols.filter(
     (asset) => !disabledAssetTypes.includes(asset),
   );
 

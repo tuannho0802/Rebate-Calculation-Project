@@ -17,9 +17,9 @@ export const exportApi = {
     return response.data;
   },
 
-  getRebateTree: async (ibId?: string): Promise<Blob> => {
+  getRebateTree: async (ibId?: string, accountType?: string): Promise<Blob> => {
     const response = await apiClient.get('/export/rebate-tree', {
-      params: { ibId },
+      params: { ibId, accountType },
       responseType: 'blob',
     });
     return response.data;

@@ -675,3 +675,88 @@
 - [x] Hợp đồng API trong 01_API_CONTRACT.md không bị vi phạm
 - [x] Các type vẫn khớp với 02_DATA_MODELS.md
 ---
+
+## [2026-09-18] — Phần: FRONTEND
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Cập nhật hiển thị và tính toán Rebate thực nhận (Pure Rebate) trong CompactPivotTable đồng bộ với logic Excel.
+
+### Đã Sửa Lỗi & Cập Nhật
+- `src/components/rebate/CompactPivotTable.tsx`:
+  - Đồng bộ công thức Pure Rebate đối với các loại link có Markup Pip: lấy số rebate lưu trong DB trừ đi số Markup Pip tương ứng của từng node để ra số Rebate thực nhận.
+  - Phân bổ retained theo từng cấp giống loại tài khoản STD (MIB = Base Cap - Lv1_pure, Lv_i = Lv_i_pure - Lv_{i+1}_pure), đảm bảo tổng rebate giữ lại bằng đúng base cap công ty.
+
+### Trạng Thái
+- [x] Tất cả nội dung triển khai biên dịch không có lỗi (`next build` 0 errors)
+- [x] Không có chức năng cũ nào bị hỏng
+---
+
+## [2026-09-28] — Phần: FRONTEND
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Phục hồi bảng Rebate Management hiển thị đúng số Pip cấp và giữ trực tiếp theo dữ liệu trang Edit Pip; phục hồi logic BOT AI Rebate Solver chỉ tính trên các hàng sản phẩm đã chia đầy đủ từ đầu đến cuối nhánh, giữ nguyên quy tắc ngưỡng 0.01 Pip (Virtual Zero).
+
+### Đã Sửa Lỗi & Cập Nhật
+- `src/components/rebate/CompactPivotTable.tsx`:
+  - Khôi phục hàng trên: Hiển thị đúng số Pip cấp trên cấp xuống (Nhận/Cap) trực tiếp từ cấu hình DB / Edit Pip (không bị trừ ảo bởi Markup option của AI Scenario).
+  - Khôi phục hàng dưới: Hiển thị đúng số Pip MIB hoặc IB giữ lại cho chính mình (`retained = received - given_to_child` và MIB `retained = mibCap - mibGiven`).
+  - Cho phép nhập số thập phân linh hoạt với `step="0.01"` khi bật chế độ Chỉnh sửa trực tiếp.
+  - Footer Company Caps tính trực tiếp tổng số Pip phân bổ và nhận từ cấu hình gốc.
+  - Sửa lỗi nhận diện kịch bản sau F5: `savedPatternKey` chuyển sang dùng `find` tìm asset có `markupPips` thay vì chỉ đọc `assets[0]`, giúp tự động chọn đúng kịch bản đã lưu khi reload trang.
+  - Sửa nút "Kịch Bản Tiếp Theo" chuyển đúng kịch bản tiếp theo từ `activeIndex`.
+- `src/lib/ai-rebate-solver.ts`:
+  - Cập nhật logic BOT tự động: lọc các sản phẩm đã chia Rebate đầy đủ từ đầu đến cuối nhánh (`treeNodes.every(node => node.assets[asset] > 0)`).
+  - Giữ vững quy tắc ngưỡng 0.01 Pip: Giá trị rebate <= 0.01 Pip được tính là Virtual Zero (0% tỷ lệ giữ, 0 Pip markup) mà không làm ngắt chuỗi liên kết của nhánh.
+
+### Trạng Thái
+- [x] TypeScript build sạch (0 errors)
+- [x] Unit test frontend vượt qua 100% (5/5 tests pass)
+---
+
+## [2026-09-28] — Phần: FRONTEND (Ràng buộc chặt chẽ điều kiện chia sẻ Pip giữa các IB)
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Rà soát & bắt buộc kiểm tra điều kiện IB cấp trên có đủ Pip để chia xuống cấp dưới (tránh trường hợp Level 1 nhận 15 nhưng chia xuống Level 2 là 16 Pip); kiểm tra điều kiện chuyển nhánh MIB và IB.
+
+### Đã Sửa Lỗi & Cập Nhật
+- `src/components/rebate/CompactPivotTable.tsx`:
+  - Hiển thị trực quan cảnh báo lỗi khi vi phạm ràng buộc phân cấp: Khi cấp trên nhận ít hơn cấp dưới (ví dụ Lv1 nhận 15, Lv2 nhận 16), ô cấp trên được viền đỏ nổi bật kèm thông báo lỗi `⚠️ Thiếu X pips` và số Pip giữ lại hiển thị âm (`-X`), ô cấp dưới báo `⚠️ Vượt trần (max)`.
+  - Chế độ chỉnh sửa trực tiếp: Thêm ràng buộc sàn dưới `minAllowed = nextLevelPips`. Tự động chặn nhập nếu số Pip nhỏ hơn mức đã chia cho cấp dưới, thông báo toast lỗi rõ ràng.
+- `src/app/[locale]/(dashboard)/dashboard/rebate-management/page.tsx`:
+  - Thêm tiền kiểm định (Pre-save validation) trong `handleSave`: Quét toàn bộ nhánh cây từ MIB qua từng cấp IB. Nếu phát hiện bất kỳ cấp cha nào có Pip nhỏ hơn cấp con, lập tức chặn Lưu và hiển thị toast cảnh báo chi tiết tên IB, số Pip thiếu và tên sản phẩm vi phạm.
+- `src/app/[locale]/(dashboard)/dashboard/tree/edit/[id]/page.tsx`:
+  - Tải danh sách cấp dưới trực tiếp (`directChildren`) và cấu hình của chúng để xác định sàn dưới tối thiểu `getCombinedRebateMin`.
+  - Hiển thị thông tin mức sàn tối thiểu đã chia cho cấp dưới ngay trong giao diện bảng cấu hình.
+  - Chặn nhập và chặn Lưu (`handleSave`) nếu giá trị nhỏ hơn mức tối thiểu đã chia cho cấp dưới.
+- `src/components/ib-tree/IbViewTree.tsx`:
+  - Cập nhật hàm `validateRebatePips()`: Kiểm tra toàn bộ các loại tài khoản link mà nhánh di chuyển sở hữu (STD, STD5, STD10, STD15, STD20).
+  - Trả về thông báo lỗi chi tiết khi cấp trên mới không đủ số Pip để chia cho nhánh chuyển.
+
+### Trạng Thái
+- [x] TypeScript build sạch (`npx tsc --noEmit` 0 errors)
+- [x] Giao diện Rebate Management hiển thị đúng cảnh báo lỗi đỏ và chặn lưu khi dữ liệu vi phạm
+---
+
+## [2026-09-29] — Phần: FRONTEND (Hiển thị đầy đủ nhánh cho tất cả các loại tài khoản và đồng bộ sản phẩm Markup)
+
+### Phiên Làm Việc
+- Agent: Antigravity
+- Yêu cầu từ: Cập nhật toàn bộ các sản phẩm và mọi loại tài khoản (STD, STD5, STD10, STD15, STD20). Các sản phẩm được bật Markup Pip ở trang Config thì cộng thêm Markup; các sản phẩm tắt Markup thì giữ nguyên. Cây nhánh IB hiển thị đầy đủ xuyên suốt tất cả các loại tài khoản.
+
+### Đã Sửa Lỗi & Cập Nhật
+- `src/components/rebate/CompactPivotTable.tsx`:
+  - `eligibleChildren`: Bỏ điều kiện lọc cứng theo `accountTypes` con để tất cả các cấp trong cây nhánh của MIB đều hiển thị đầy đủ trên mọi loại tài khoản (STD, STD5, STD10, STD15, STD20), cho phép cấu hình và chia sẻ Rebate linh hoạt.
+  - `nodeHasAccountType`: MIB root (level 0) luôn hợp lệ cho tất cả loại tài khoản, tránh trường hợp MIB bị ẩn khi chuyển loại link.
+  - Duy trì kiểm tra động `isMarkupAllowed(asset)` trực tiếp từ DB `useProducts()`: chỉ cộng thêm link markup cho sản phẩm cho phép, sản phẩm không cho phép hiển thị badge `+0` và giữ nguyên base cap.
+- `src/app/[locale]/(dashboard)/dashboard/rebate-management/page.tsx`:
+  - Đồng bộ `isMarkupAllowed` và kiểm tra trần cap chặt chẽ cho mọi sản phẩm và mọi loại tài khoản khi lưu.
+
+### Trạng Thái
+- [x] TypeScript build sạch (`npm run build` 0 errors)
+- [x] Đã kiểm chứng giao diện hoạt động mượt mà và tương thích hoàn toàn
+---
+
+

@@ -4,13 +4,13 @@ import { UpdateRebateConfigDto } from './dto/update-config.dto';
 import { BulkUpdateRebateConfigDto } from './dto/bulk-update-config.dto';
 import { SaveRebateTemplatesDto } from './dto/save-templates.dto';
 import { SaveBranchScenarioDto } from './dto/save-scenario.dto';
-import { AssetType } from '@prisma/client';
+import { AssetType } from '../../common/constants/asset-type.enum';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.constants';
 import { getSubtreeIds, isDescendantOf } from '../../common/utils/subtree.util';
 import { NotificationService } from '../notification/notification.service';
 
-export const MAX_PIPS: Record<AssetType, number> = {
+export const MAX_PIPS: Record<string, number> = {
   [AssetType.D_FOREX]: 12,
   [AssetType.FOREX]: 12,
   [AssetType.GOLD]: 20,
@@ -64,8 +64,12 @@ export class RebateService {
     return 0;
   }
 
-  private resolveEffectiveMaxPips(rawMaxPips: number, isMib: boolean, assetType: AssetType): number {
-    return isMib && rawMaxPips <= 0 ? (MAX_PIPS[assetType] || 0) : rawMaxPips;
+  private resolveEffectiveMaxPips(rawMaxPips: number, isMib: boolean, assetType: string, defaultMax?: number): number {
+    if (isMib && rawMaxPips <= 0) {
+      if (defaultMax !== undefined) return defaultMax;
+      return (MAX_PIPS as any)[assetType] || 0;
+    }
+    return rawMaxPips;
   }
 
   async getConfig(ibId: string, accountType?: string) {
@@ -81,16 +85,24 @@ export class RebateService {
       where.accountType = accountType;
     }
 
-    const configs = await this.prisma.rebateConfig.findMany({
-      where,
-      orderBy: { updatedAt: 'desc' },
-    });
+    const [configs, products] = await Promise.all([
+      this.prisma.rebateConfig.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.product.findMany({
+        where: { isActive: true },
+        orderBy: [{ order: 'asc' }, { symbol: 'asc' }],
+      }),
+    ]);
 
+    const productMap = new Map(products.map((p) => [p.symbol, Number(p.defaultMax)]));
     const targetAccountType = accountType || ib?.accountType || 'STD';
 
     const existingAssets = configs.map((c: any) => {
       const rawMaxPips = Number(c.maxPips);
-      const maxPips = this.resolveEffectiveMaxPips(rawMaxPips, isMib, c.assetType as AssetType);
+      const defaultMax = productMap.get(c.assetType) ?? (MAX_PIPS as any)[c.assetType] ?? 0;
+      const maxPips = this.resolveEffectiveMaxPips(rawMaxPips, isMib, c.assetType, defaultMax);
       return {
         assetType: c.assetType,
         rebateType: c.rebateType,
@@ -113,18 +125,33 @@ export class RebateService {
     }
 
     const existingAssetTypes = new Set(existingAssets.map((a) => a.assetType));
-    const syntheticAssets = Object.values(AssetType)
-      .filter((at) => !existingAssetTypes.has(at))
-      .map((at) => ({
-        assetType: at,
-        rebateType: 'STP_REBATE' as any,
-        accountType: targetAccountType,
-        rebatePips: 0,
-        markupPips: 0,
-        markupPercent: 100,
-        maxPips: MAX_PIPS[at] || 0,
-        updatedAt: null as any,
-      }));
+    const mibStdOverridesMap = new Map<string, number>();
+    if (isMib && targetAccountType !== 'STD') {
+      const stdConfigs = await this.prisma.rebateConfig.findMany({
+        where: { ibId, accountType: 'STD' },
+      });
+      stdConfigs.forEach((sc) => {
+        if (Number(sc.maxPips) > 0) {
+          mibStdOverridesMap.set(sc.assetType, Number(sc.maxPips));
+        }
+      });
+    }
+
+    const syntheticAssets = products
+      .filter((p) => !existingAssetTypes.has(p.symbol))
+      .map((p) => {
+        const baseMax = mibStdOverridesMap.get(p.symbol) ?? Number(p.defaultMax);
+        return {
+          assetType: p.symbol,
+          rebateType: 'STP_REBATE' as any,
+          accountType: targetAccountType,
+          rebatePips: 0,
+          markupPips: 0,
+          markupPercent: 100,
+          maxPips: baseMax,
+          updatedAt: null as any,
+        };
+      });
 
     return {
       ibId,
@@ -277,7 +304,12 @@ export class RebateService {
       }
     }
 
-    const pendingCascades: Array<{ assetType: AssetType; rebateType: string }> = [];
+    const pendingCascades: Array<{ assetType: string; rebateType: string }> = [];
+
+    const products = await this.prisma.product.findMany({
+      select: { symbol: true, allowMarkup: true },
+    });
+    const allowMarkupMap = new Map(products.map((p: any) => [p.symbol, p.allowMarkup]));
 
     await this.prisma.$transaction(async (tx: any) => {
       for (const assetConfig of updateDto.assets) {
@@ -339,7 +371,8 @@ export class RebateService {
             assetType,
           );
 
-          const accountTypePips = this.parseAccountTypePips(targetAccountType);
+          const isMarkupAllowed = allowMarkupMap.get(assetType) ?? true;
+          const accountTypePips = isMarkupAllowed ? this.parseAccountTypePips(targetAccountType) : 0;
           const parentRebateMax = parentIsMib
             ? effectiveParentMaxPips + accountTypePips
             : Number(parentConfig?.rebatePips || 0);
@@ -375,6 +408,52 @@ export class RebateService {
               code: 'MARKUP_EXCEEDS_MAX',
               message: `markupPips (${markupPips}) vượt quá giới hạn tối đa (${limit} pips)`,
             });
+          }
+        }
+
+        // Check sàn dưới (Floor check): Số Rebate cấp cho targetIb không được nhỏ hơn số Rebate mà bất kỳ cấp dưới trực tiếp nào đang nhận
+        const ibNodeModel = tx.ibNode || this.prisma.ibNode;
+        const directChildren = ibNodeModel?.findMany
+          ? await ibNodeModel.findMany({
+              where: { parentId: targetIbId, isActive: true },
+              select: { id: true, name: true, email: true },
+            })
+          : [];
+
+        if (directChildren.length > 0) {
+          const childIds = directChildren.map((c: any) => c.id);
+          const rebateConfigModel = tx.rebateConfig?.findMany ? tx.rebateConfig : this.prisma.rebateConfig;
+          const childConfigs = rebateConfigModel?.findMany
+            ? await rebateConfigModel.findMany({
+                where: {
+                  ibId: { in: childIds },
+                  accountType: targetAccountType,
+                  assetType,
+                  rebateType: rebateType as any,
+                },
+              })
+            : [];
+          const childConfigMap = new Map<string, number>(childConfigs.map((c: any) => [c.ibId, Number(c.rebatePips || 0)]));
+
+          for (const child of directChildren) {
+            const proposedChild = proposedById?.get(child.id)?.[`${assetType}:${rebateType}`];
+            const childPips: number = proposedChild !== undefined ? Number(proposedChild.rebatePips) : Number(childConfigMap.get(child.id) ?? 0);
+
+            if (Number(rebatePips) < childPips) {
+              const childLabel = child.name || child.email || child.id;
+              throw new UnprocessableEntityException({
+                code: 'REBATE_LESS_THAN_CHILDREN',
+                message: `Số Rebate (${rebatePips} pips) không đủ để chia cho cấp dưới trực tiếp (${childLabel} đang nhận ${childPips} pips) của sản phẩm ${assetType}`,
+                details: {
+                  targetIbId,
+                  childId: child.id,
+                  childName: childLabel,
+                  assetType,
+                  rebatePips,
+                  childPips,
+                },
+              });
+            }
           }
         }
 
@@ -661,8 +740,12 @@ export class RebateService {
     });
 
     await this.prisma.$transaction(async (tx: any) => {
+      const products = tx.product ? await tx.product.findMany({ where: { isActive: true } }) : [];
+
       for (const node of dto.nodes) {
-        const targetAccType = node.accountType || dto.accountType;
+        const targetAccType = node.accountType || dto.accountType || 'STD';
+
+        // 1. Cập nhật các config hiện có cho accountType này
         await tx.rebateConfig.updateMany({
           where: {
             ibId: node.ibId,
@@ -673,6 +756,50 @@ export class RebateService {
             markupPips: node.markupPips,
           },
         });
+
+        // 2. Đảm bảo mọi sản phẩm active đều có record trong DB cho node và targetAccType này
+        if (targetAccType && tx.rebateConfig.findMany && tx.rebateConfig.upsert && products.length > 0) {
+          const existingConfigs = await tx.rebateConfig.findMany({
+            where: { ibId: node.ibId, accountType: targetAccType },
+            select: { assetType: true },
+          });
+          const existingAssets = new Set(existingConfigs.map((c: any) => c.assetType));
+
+          const stdConfigs = await tx.rebateConfig.findMany({
+            where: { ibId: node.ibId, accountType: 'STD' },
+          });
+          const stdMap = new Map(stdConfigs.map((c: any) => [c.assetType, c]));
+
+          for (const prod of products) {
+            if (!existingAssets.has(prod.symbol)) {
+              const stdBase: any = stdMap.get(prod.symbol);
+              await tx.rebateConfig.upsert({
+                where: {
+                  ibId_accountType_assetType_rebateType: {
+                    ibId: node.ibId,
+                    accountType: targetAccType,
+                    assetType: prod.symbol,
+                    rebateType: 'STP_REBATE',
+                  },
+                },
+                update: {
+                  markupPercent: node.markupPercent,
+                  markupPips: node.markupPips,
+                },
+                create: {
+                  ibId: node.ibId,
+                  accountType: targetAccType,
+                  assetType: prod.symbol,
+                  rebateType: 'STP_REBATE',
+                  rebatePips: stdBase ? stdBase.rebatePips : 0,
+                  maxPips: stdBase ? stdBase.maxPips : prod.defaultMax,
+                  markupPercent: node.markupPercent,
+                  markupPips: node.markupPips,
+                },
+              });
+            }
+          }
+        }
       }
     });
 
@@ -710,7 +837,7 @@ export class RebateService {
 
   async setMibMaxOverride(
     mibId: string,
-    overrides: { assetType: AssetType; rebateType: string; maxPips: number }[],
+    overrides: { assetType: string; rebateType: string; maxPips: number }[],
     changedById: string,
   ) {
     const mib = await this.prisma.ibNode.findUnique({ where: { id: mibId }, select: { level: true } });
@@ -726,7 +853,7 @@ export class RebateService {
     // TẤT CẢ, dù chỉ 1 asset thực sự thay đổi -> 1 lần bấm Lưu ra hàng chục bản
     // ghi audit thừa + hàng chục notification trùng lặp cho cùng 1 người.
     // Giờ so sánh với giá trị cũ trước, asset nào KHÔNG đổi thì bỏ qua hoàn toàn.
-    const changedOverrides: { assetType: AssetType; rebateType: string; maxPips: number }[] = [];
+    const changedOverrides: { assetType: string; rebateType: string; maxPips: number }[] = [];
 
     for (const ov of overrides) {
       if (ov.maxPips < 0) {
@@ -801,7 +928,7 @@ export class RebateService {
 
   private async resetSubtreeAssetsBatch(
     rootId: string,
-    changedAssets: { assetType: AssetType; rebateType: string }[],
+    changedAssets: { assetType: string; rebateType: string }[],
     changedById: string,
   ) {
     const subtree: any[] = await this.prisma.$queryRaw`
@@ -866,7 +993,7 @@ export class RebateService {
    */
   private async smartCascadeCheckAndReset(
     parentId: string,
-    pendingCascades: Array<{ assetType: AssetType; rebateType: string }>,
+    pendingCascades: Array<{ assetType: string; rebateType: string }>,
     changedById: string,
   ) {
     const actorInfo = await this.prisma.ibNode.findUnique({
@@ -875,12 +1002,12 @@ export class RebateService {
     });
     const actorLabel = actorInfo?.name ? `${actorInfo.name} (${actorInfo.email})` : (actorInfo?.email || 'Cấp trên');
 
-    // Quản lý map recipientId -> Set<AssetType> bị ảnh hưởng để chỉ gửi ĐÚNG 1 thông báo tổng hợp
-    const affectedParentsMap = new Map<string, Set<AssetType>>();
+    // Quản lý map recipientId -> Set<string> bị ảnh hưởng để chỉ gửi ĐÚNG 1 thông báo tổng hợp
+    const affectedParentsMap = new Map<string, Set<string>>();
 
     const checkNode = async (
       currentParentId: string,
-      assetsToCheck: Array<{ assetType: AssetType; rebateType: string }>,
+      assetsToCheck: Array<{ assetType: string; rebateType: string }>,
     ) => {
       const parentConfigs = await this.prisma.rebateConfig.findMany({
         where: { ibId: currentParentId },
@@ -895,11 +1022,10 @@ export class RebateService {
       });
 
       for (const child of directChildren) {
-        const childViolatedAssets: Array<{ assetType: AssetType; rebateType: string }> = [];
+        const childViolatedAssets: Array<{ assetType: string; rebateType: string }> = [];
 
         for (const cascade of assetsToCheck) {
-          const parentPips = parentConfigMap.get(`${cascade.assetType}:${cascade.rebateType}`) || 0;
-          const childConfig = await this.prisma.rebateConfig.findFirst({
+          const childConfigs = await this.prisma.rebateConfig.findMany({
             where: {
               ibId: child.id,
               assetType: cascade.assetType,
@@ -907,22 +1033,32 @@ export class RebateService {
             },
           });
 
-          if (childConfig && Number(childConfig.rebatePips) > parentPips) {
-            childViolatedAssets.push(cascade);
+          for (const childConfig of childConfigs) {
+            const parentConfig = parentConfigs.find(
+              (pc: any) =>
+                pc.accountType === childConfig.accountType &&
+                pc.assetType === cascade.assetType &&
+                pc.rebateType === cascade.rebateType,
+            );
+            const parentPips = Number(parentConfig?.rebatePips || 0);
 
-            await this.prisma.rebateConfig.update({
-              where: { id: childConfig.id },
-              data: {
-                rebatePips: 0,
-                markupPips: 0,
-                maxPips: 0,
-              },
-            });
+            if (Number(childConfig.rebatePips) > parentPips) {
+              childViolatedAssets.push(cascade);
 
-            if (!affectedParentsMap.has(currentParentId)) {
-              affectedParentsMap.set(currentParentId, new Set());
+              await this.prisma.rebateConfig.update({
+                where: { id: childConfig.id },
+                data: {
+                  rebatePips: 0,
+                  markupPips: 0,
+                  maxPips: 0,
+                },
+              });
+
+              if (!affectedParentsMap.has(currentParentId)) {
+                affectedParentsMap.set(currentParentId, new Set());
+              }
+              affectedParentsMap.get(currentParentId)!.add(cascade.assetType);
             }
-            affectedParentsMap.get(currentParentId)!.add(cascade.assetType);
           }
         }
 
@@ -953,7 +1089,7 @@ export class RebateService {
 
   async calculateCascadeDistribution(
     ibId: string,
-    assetType: AssetType,
+    assetType: string,
     lots: number,
     rebateType: string = 'STP_REBATE',
     accountType?: string,
@@ -999,7 +1135,7 @@ export class RebateService {
       FROM ancestor_tree a
       JOIN rebate_configs c
         ON c."ibId" = a.id
-        AND c."assetType" = ${assetType}::"AssetType"
+        AND c."assetType" = ${assetType}
         AND c."rebateType" = ${rebateType}
       ORDER BY a.level ASC
     `;
@@ -1085,22 +1221,47 @@ export class RebateService {
     return { data: items, meta: { page, limit, total } };
   }
 
-  async getDisabledAssetTypes(): Promise<{ success: boolean; data: AssetType[] }> {
+  async getDisabledAssetTypes(): Promise<{ success: boolean; data: string[] }> {
+    const inactiveProducts = await this.prisma.product.findMany({
+      where: { isActive: false },
+      select: { symbol: true },
+    });
+
+    if (inactiveProducts.length > 0) {
+      return { success: true, data: inactiveProducts.map((p) => p.symbol) };
+    }
+
     const config = await this.prisma.systemConfig.findUnique({
       where: { key: 'DISABLED_ASSET_TYPES' },
     });
-    const disabledAssetTypes = Array.isArray(config?.value) ? (config.value as AssetType[]) : [];
+    const disabledAssetTypes = Array.isArray(config?.value) ? (config.value as string[]) : [];
     return { success: true, data: disabledAssetTypes };
   }
 
   async updateDisabledAssetTypes(
-    disabledAssetTypes: AssetType[],
+    disabledAssetTypes: string[],
     actorId: string,
-  ): Promise<{ success: boolean; data: AssetType[] }> {
+  ): Promise<{ success: boolean; data: string[] }> {
     const beforeConfig = await this.prisma.systemConfig.findUnique({
       where: { key: 'DISABLED_ASSET_TYPES' },
     });
     const beforeValue = Array.isArray(beforeConfig?.value) ? beforeConfig.value : [];
+
+    // Sync directly with products table
+    if (disabledAssetTypes.length > 0) {
+      await this.prisma.product.updateMany({
+        where: { symbol: { in: disabledAssetTypes } },
+        data: { isActive: false },
+      });
+      await this.prisma.product.updateMany({
+        where: { symbol: { notIn: disabledAssetTypes } },
+        data: { isActive: true },
+      });
+    } else {
+      await this.prisma.product.updateMany({
+        data: { isActive: true },
+      });
+    }
 
     const updatedConfig = await this.prisma.systemConfig.upsert({
       where: { key: 'DISABLED_ASSET_TYPES' },
@@ -1119,7 +1280,7 @@ export class RebateService {
 
     return {
       success: true,
-      data: Array.isArray(updatedConfig.value) ? (updatedConfig.value as AssetType[]) : [],
+      data: Array.isArray(updatedConfig.value) ? (updatedConfig.value as string[]) : [],
     };
   }
 }

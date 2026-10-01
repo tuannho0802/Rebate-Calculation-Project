@@ -14,6 +14,7 @@ import { getErrorMessage } from '@/lib/error-messages';
 import { toast } from 'sonner';
 
 import { useDisabledAssetTypes } from '@/hooks/useDisabledAssetTypes';
+import { useProducts } from '@/hooks/useProducts';
 
 function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -23,6 +24,8 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
   const id = unwrappedParams.id;
 
   const { activeAssetTypes } = useDisabledAssetTypes();
+  const { products } = useProducts(true);
+  const productMap = new Map(products.map((p) => [p.symbol, p]));
 
   const user = useAuthStore((s) => s.user);
   const [targetIb, setTargetIb] = useState<IbNode | null>(null);
@@ -34,8 +37,14 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
   const [mounted, setMounted] = useState(false);
 
   // Maps by accountType:
+  // Maps by accountType:
   // parentConfigsMap[accType] -> RebateConfig of parent for that accType
   const [parentConfigsMap, setParentConfigsMap] = useState<Record<string, RebateConfig>>({});
+  // targetConfigsMap[accType] -> RebateConfig of the target IB (useful for MIB level 0 base ceilings)
+  const [targetConfigsMap, setTargetConfigsMap] = useState<Record<string, RebateConfig>>({});
+  // childrenConfigsMap[accType] -> RebateConfig[] of direct children of target IB (floor constraints)
+  const [directChildren, setDirectChildren] = useState<IbNode[]>([]);
+  const [childrenConfigsMap, setChildrenConfigsMap] = useState<Record<string, RebateConfig[]>>({});
   
   // rebateValues keyed by `${accType}:${assetType}`
   const [rebateValues, setRebateValues] = useState<Record<string, string>>({});
@@ -64,9 +73,10 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
 
     const loadData = async () => {
       try {
-        const [profileRes, targetRes] = await Promise.all([
+        const [profileRes, targetRes, childrenRes] = await Promise.all([
           ibApi.getMe().catch(() => null),
           ibApi.getById(id).catch(() => null),
+          ibApi.getChildren(id, 1, 100).catch(() => null),
         ]);
 
         let loadedProfile: IbNode | null = null;
@@ -74,6 +84,9 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
           loadedProfile = profileRes.data;
           setProfile(loadedProfile);
         }
+
+        const loadedChildren = (childrenRes?.data?.items || []) as IbNode[];
+        setDirectChildren(loadedChildren);
 
         let targetTypes = ['STD'];
         if (targetRes?.data) {
@@ -95,20 +108,37 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
 
         // Fetch configs for all target account types concurrently
         const pConfigsMap: Record<string, RebateConfig> = {};
+        const tConfigsMap: Record<string, RebateConfig> = {};
+        const cConfigsMap: Record<string, RebateConfig[]> = {};
         const initRebateVals: Record<string, string> = {};
 
-        const parentSourceId = targetRes?.data?.parentId || loadedProfile?.id;
+        const isTargetMib = targetRes?.data?.level === 0;
+        const parentSourceId = isTargetMib ? null : (targetRes?.data?.parentId || null);
+
+        // Always fetch 'STD' to ensure target IB's base config is present
+        const typesToFetch = Array.from(new Set([...targetTypes, 'STD']));
 
         await Promise.all(
-          targetTypes.map(async (accType) => {
-            const [tConfigRes, pConfigRes] = await Promise.all([
+          typesToFetch.map(async (accType) => {
+            const childConfigsForType: RebateConfig[] = [];
+            const [tConfigRes, pConfigRes, ...cResList] = await Promise.all([
               rebateApi.getConfig(id, accType).catch(() => null),
               parentSourceId ? rebateApi.getConfig(parentSourceId, accType).catch(() => null) : null,
+              ...loadedChildren.map(c => rebateApi.getConfig(c.id, accType).catch(() => null)),
             ]);
+
+            if (tConfigRes?.data) {
+              tConfigsMap[accType] = tConfigRes.data;
+            }
 
             if (pConfigRes?.data) {
               pConfigsMap[accType] = pConfigRes.data;
             }
+
+            cResList.forEach(cr => {
+              if (cr?.data) childConfigsForType.push(cr.data);
+            });
+            cConfigsMap[accType] = childConfigsForType;
 
             if (tConfigRes?.data?.assets) {
               tConfigRes.data.assets.forEach((asset: RebateAssetConfig) => {
@@ -119,7 +149,9 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
           })
         );
 
+        setTargetConfigsMap(tConfigsMap);
         setParentConfigsMap(pConfigsMap);
+        setChildrenConfigsMap(cConfigsMap);
         setRebateValues(initRebateVals);
         setInitialRebateValues(initRebateVals);
 
@@ -151,16 +183,24 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
   }, [id, user?.id]);
 
   const loadMissingAccountTypes = async (typesToLoad: string[], currentTargetIb: IbNode | null) => {
-    const parentSourceId = currentTargetIb?.parentId || targetIb?.parentId || profile?.id;
+    const isTargetMib = (currentTargetIb?.level ?? targetIb?.level) === 0;
+    const parentSourceId = isTargetMib ? null : (currentTargetIb?.parentId || targetIb?.parentId || null);
     const pConfigsMap = { ...parentConfigsMap };
+    const tConfigsMap = { ...targetConfigsMap };
     const newRebateVals = { ...rebateValues };
 
+    const typesToFetch = Array.from(new Set([...typesToLoad, 'STD']));
+
     await Promise.all(
-      typesToLoad.map(async (accType) => {
+      typesToFetch.map(async (accType) => {
         const [tConfigRes, pConfigRes] = await Promise.all([
           rebateApi.getConfig(id, accType).catch(() => null),
           parentSourceId ? rebateApi.getConfig(parentSourceId, accType).catch(() => null) : null,
         ]);
+
+        if (tConfigRes?.data) {
+          tConfigsMap[accType] = tConfigRes.data;
+        }
 
         if (pConfigRes?.data) {
           pConfigsMap[accType] = pConfigRes.data;
@@ -177,6 +217,7 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
       })
     );
 
+    setTargetConfigsMap(tConfigsMap);
     setParentConfigsMap(pConfigsMap);
     setRebateValues(newRebateVals);
   };
@@ -242,12 +283,21 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
 
   const isMibNode = targetIb?.level === 0;
 
-  const getAddedMarkupPips = (accountTypeStr: string, links: MarkupLinkRow[]): number => {
+  const getAddedMarkupPips = (accountTypeStr: string, links: MarkupLinkRow[], asset?: string): number => {
+    if (asset) {
+      const prod = productMap.get(asset);
+      if (prod && prod.allowMarkup === false) {
+        return 0; // Sàn BCR không cho phép cộng Link Markup cho sản phẩm này
+      }
+    }
+
+    if (accountTypeStr === 'STD' || !accountTypeStr) return 0;
+
     const matched = links.find((l) => l.name === accountTypeStr);
     if (matched !== undefined && matched !== null && matched.share !== undefined && Number(matched.share) > 0) {
       return Number(matched.share);
     }
-    if (accountTypeStr === 'STD' || !accountTypeStr) return 0;
+
     const match = accountTypeStr.match(/(\d+(?:\.\d+)?)/);
     if (match) {
       const num = parseFloat(match[1]);
@@ -257,19 +307,43 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
   };
 
   const getAvailableBudget = (accType: string, asset: AssetType) => {
-    const parentConfig = parentConfigsMap[accType];
+    const isTargetMib = targetIb?.level === 0;
 
-    if (!targetIb || targetIb.level === 0 || targetIb.level === 1) {
-      const addedMarkup = getAddedMarkupPips(accType, markupLinks);
-      if (parentConfig?.assets) {
-        const ownAsset = parentConfig.assets.find((a) => a.assetType === asset);
+    // 1. Trường hợp Target là MIB (Level 0)
+    if (isTargetMib) {
+      const addedMarkup = getAddedMarkupPips(accType, markupLinks, asset);
+      const prod = productMap.get(asset);
+      const baseDefaultMax = prod ? prod.defaultMax : (MAX_PIPS[asset] || 0);
+
+      // Cấu hình gốc của MIB (lấy từ config accType hoặc fallback về config STD của MIB)
+      const mibOwnConfig = targetConfigsMap[accType] || targetConfigsMap['STD'];
+      if (mibOwnConfig?.assets) {
+        const ownAsset = mibOwnConfig.assets.find((a) => a.assetType === asset);
         if (ownAsset && Number(ownAsset.maxPips) > 0) {
           return Number(ownAsset.maxPips) + addedMarkup;
         }
       }
-      return (MAX_PIPS[asset] || 0) + addedMarkup;
+      return baseDefaultMax + addedMarkup;
     }
 
+    // 2. Trường hợp Target là Level 1 (con trực tiếp của MIB)
+    if (targetIb?.level === 1) {
+      const addedMarkup = getAddedMarkupPips(accType, markupLinks, asset);
+      const prod = productMap.get(asset);
+      const baseDefaultMax = prod ? prod.defaultMax : (MAX_PIPS[asset] || 0);
+
+      const parentConfig = parentConfigsMap[accType] || parentConfigsMap['STD'];
+      if (parentConfig?.assets) {
+        const pAsset = parentConfig.assets.find((a) => a.assetType === asset);
+        if (pAsset && Number(pAsset.maxPips) > 0) {
+          return Number(pAsset.maxPips) + addedMarkup;
+        }
+      }
+      return baseDefaultMax + addedMarkup;
+    }
+
+    // 3. Trường hợp Target là Level >= 2 (con của Sub-IB khác)
+    const parentConfig = parentConfigsMap[accType];
     if (parentConfig?.assets) {
       const pAsset = parentConfig.assets.find((a) => a.assetType === asset);
       if (pAsset) return Number(pAsset.rebatePips || 0);
@@ -281,30 +355,70 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
     return getAvailableBudget(accType, asset);
   };
 
+  const getCombinedRebateMin = (accType: string, asset: AssetType): { minPips: number; childName?: string } => {
+    const childCfgs = childrenConfigsMap[accType] || [];
+    let maxChildPips = 0;
+    let childName = '';
+    for (const c of childCfgs) {
+      const a = c.assets?.find((ca) => ca.assetType === asset);
+      const pips = Number(a?.rebatePips || 0);
+      if (pips > maxChildPips) {
+        maxChildPips = pips;
+        const childNode = directChildren.find(dc => dc.id === c.ibId);
+        childName = childNode?.name || childNode?.email || 'Cấp dưới';
+      }
+    }
+    return { minPips: maxChildPips, childName };
+  };
+
   // Check form validity across displayed account types
   const isAnyRebateInvalid = displayedAccountTypes.some((accType) =>
     activeAssetTypes.some((asset) => {
       const key = `${accType}:${asset}`;
+      const parsed = parsePipsValue(rebateValues[key] || '0');
       const maxBudget = getCombinedRebateMax(accType, asset);
-      return parsePipsValue(rebateValues[key] || '0') > maxBudget;
+      const { minPips } = getCombinedRebateMin(accType, asset);
+      return parsed > maxBudget || (minPips > 0 && parsed < minPips);
     })
   );
 
   const isFormInvalid = isAnyRebateInvalid;
 
   const handleSave = () => {
+    // Kiểm tra tính hợp lệ trước khi mở modal
+    for (const accType of availableAccountTypes) {
+      for (const asset of activeAssetTypes) {
+        const key = `${accType}:${asset}`;
+        const parsedRebate = parsePipsValue(rebateValues[key] || '0');
+        const maxBudget = getCombinedRebateMax(accType, asset);
+        const { minPips, childName } = getCombinedRebateMin(accType, asset);
+
+        if (parsedRebate > maxBudget) {
+          toast.error(`Số Pips cho ${asset} (${accType}) vượt quá mức cấp trên cấp (${maxBudget} pips)`);
+          return;
+        }
+
+        if (minPips > 0 && parsedRebate < minPips) {
+          toast.error(
+            `Số Pips cho ${asset} (${accType}) không được nhỏ hơn ${minPips} pips đã chia cho cấp dưới (${childName})`
+          );
+          return;
+        }
+      }
+    }
+
     const updatesByAccType: Record<string, RebateAssetConfig[]> = {};
     let totalChangesCount = 0;
 
     availableAccountTypes.forEach((accType) => {
       const assetsToUpdate: RebateAssetConfig[] = [];
-      const addedMarkup = getAddedMarkupPips(accType, markupLinks);
 
       activeAssetTypes.forEach((asset) => {
         const key = `${accType}:${asset}`;
         const rebateVal = rebateValues[key] || '0';
         const parsedRebate = parsePipsValue(rebateVal);
         const initialRebate = parsePipsValue(initialRebateValues[key] || '0');
+        const assetMarkup = getAddedMarkupPips(accType, markupLinks, asset);
 
         if (parsedRebate !== initialRebate) {
           assetsToUpdate.push({
@@ -312,7 +426,7 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
             rebateType: RebateType.STP_REBATE,
             accountType: accType,
             rebatePips: parsedRebate,
-            markupPips: addedMarkup,
+            markupPips: assetMarkup,
             markupPercent: 100,
           });
         }
@@ -455,11 +569,15 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
                 <tbody className="divide-y divide-gray-50">
                   {activeAssetTypes.map((asset) => {
                     const combinedMax = getCombinedRebateMax(accType, asset);
+                    const { minPips, childName } = getCombinedRebateMin(accType, asset);
                     const unit = unitMap[asset] || 'pips';
                     const key = `${accType}:${asset}`;
 
                     const currentVal = rebateValues[key] || '0';
-                    const isRebateInvalid = parsePipsValue(currentVal) > combinedMax;
+                    const parsedVal = parsePipsValue(currentVal);
+                    const isExceedsMax = parsedVal > combinedMax;
+                    const isLessThanMin = minPips > 0 && parsedVal < minPips;
+                    const isRebateInvalid = isExceedsMax || isLessThanMin;
                     const isHighlighted = highlightAssets.has(asset);
 
                     return (
@@ -468,12 +586,17 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
                         className={`transition-colors ${
                           isHighlighted
                             ? 'ring-2 ring-inset ring-amber-500 bg-amber-50/70'
-                            : 'hover:bg-gray-50/50'
+                            : (isRebateInvalid ? 'bg-red-50/60' : 'hover:bg-gray-50/50')
                         }`}
                       >
                         <td className="px-6 py-4 font-bold text-gray-900">{asset}</td>
                         <td className="px-6 py-4 text-amber-950 font-bold">
-                          Hoa hồng được nhận: {combinedMax}
+                          <div>Hoa hồng được nhận: {combinedMax} {unit}</div>
+                          {minPips > 0 && (
+                            <div className="text-xs text-red-600 font-semibold mt-0.5">
+                              Tối thiểu đã chia cấp dưới: {minPips} {unit} ({childName})
+                            </div>
+                          )}
                         </td>
                         {!isMibNode && (
                           <td className="px-6 py-4">
@@ -493,9 +616,14 @@ function EditIbRebatePageInner({ params }: { params: Promise<{ id: string }> }) 
                                     : 'border-gray-300 focus:ring-amber-500 focus:border-amber-500 bg-white'
                                 }`}
                               />
-                              {isRebateInvalid && (
+                              {isExceedsMax && (
                                 <span className="text-red-500 text-xs mt-1 font-medium">
-                                  Bạn chỉ còn có thể chia tối đa {combinedMax}
+                                  Vượt quá mức trần: Bạn chỉ có thể nhận tối đa {combinedMax} {unit}
+                                </span>
+                              )}
+                              {isLessThanMin && (
+                                <span className="text-red-500 text-xs mt-1 font-medium">
+                                  Không hợp lệ: Cần tối thiểu {minPips} {unit} đã chia cho cấp dưới ({childName})
                                 </span>
                               )}
                             </div>

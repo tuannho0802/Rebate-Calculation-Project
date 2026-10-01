@@ -9,7 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { CreateIbDto } from './dto/create-ib.dto';
 import { UpdateIbDto } from './dto/update-ib.dto';
 import * as bcrypt from 'bcrypt';
-import { AssetType } from '@prisma/client';
+import { AssetType } from '../../common/constants/asset-type.enum';
 import { AuditService } from '../audit/audit.service';
 import { AUDIT_ACTIONS } from '../audit/audit.constants';
 import { getSubtreeIds } from '../../common/utils/subtree.util';
@@ -29,6 +29,7 @@ export class IbService {
     const mibs = await this.prisma.ibNode.findMany({
       where: {
         role: 'IB',
+        isActive: true,
         OR: [
           { level: 0 },
           { parentId: null }
@@ -119,21 +120,23 @@ export class IbService {
       where: { id: rootId },
     });
 
-    if (!current) {
+    if (!current || !current.isActive) {
       throw new NotFoundException({
         code: 'IB_NOT_FOUND',
-        message: 'Không tìm thấy IB',
+        message: 'Không tìm thấy IB hoặc IB đã bị vô hiệu hóa',
       });
     }
 
     if (depth === 'all') {
-      const allNodes = await this.prisma.ibNode.findMany();
+      const allNodes = await this.prisma.ibNode.findMany({
+        where: { isActive: true },
+      });
       const map = this.buildTreeNodeMap(allNodes);
       return map.get(rootId);
     }
 
     const children = await this.prisma.ibNode.findMany({
-      where: { parentId: rootId },
+      where: { parentId: rootId, isActive: true },
       select: { id: true, name: true, email: true, level: true, accountType: true, accountTypes: true, isActive: true },
     });
 
@@ -173,12 +176,15 @@ export class IbService {
   }
 
   private async buildAdminForest() {
-    const allNodes = await this.prisma.ibNode.findMany();
+    const allNodes = await this.prisma.ibNode.findMany({
+      where: { isActive: true },
+    });
     const map = this.buildTreeNodeMap(allNodes);
 
     return allNodes
-      .filter((node: any) => node.parentId === null && node.role === 'IB')
-      .map((node: any) => map.get(node.id));
+      .filter((node: any) => node.parentId === null && node.role === 'IB' && node.isActive)
+      .map((node: any) => map.get(node.id))
+      .filter(Boolean);
   }
 
   async getById(id: string) {
@@ -1030,49 +1036,72 @@ export class IbService {
       });
     }
 
-    // 3. Rebate Validation: Verify movedIb's rebate <= newParent's rebate max limit for matching accountTypes
-    const movedIbConfigs = await this.prisma.rebateConfig.findMany({
-      where: { ibId: targetIbId },
+    // 3. Fetch all nodes in movedIb's subtree for level & accountType update
+    const allSubtreeNodes = await this.getAllSubtreeNodes(targetIbId);
+    const allSubtreeNodeIds = [targetIbId, ...allSubtreeNodes.map((n) => n.id)];
+
+    // 4. Rebate Validation: Verify newParent's rebate limit is sufficient for movedIb and its entire subtree
+    const allSubtreeConfigs = await this.prisma.rebateConfig.findMany({
+      where: { ibId: { in: allSubtreeNodeIds } },
     });
 
-    if (movedIbConfigs.length > 0) {
-      const newParentConfigs = await this.prisma.rebateConfig.findMany({
-        where: { ibId: targetParentId },
-      });
+    const maxSubtreePipsMap = new Map<string, number>();
 
-      for (const movedConfig of movedIbConfigs) {
-        const movedPips = Number(movedConfig.rebatePips || 0);
-        if (movedPips > 0) {
-          const parentConfig = newParentConfigs.find(
-            (pc) =>
-              pc.accountType === movedConfig.accountType &&
-              pc.assetType === movedConfig.assetType &&
-              pc.rebateType === movedConfig.rebateType,
-          );
+    if (allSubtreeConfigs.length > 0) {
+      const [newParentConfigs, products] = await Promise.all([
+        this.prisma.rebateConfig.findMany({
+          where: { ibId: targetParentId },
+        }),
+        this.prisma.product.findMany({
+          select: { symbol: true, allowMarkup: true, defaultMax: true },
+        }),
+      ]);
 
-          let parentLimit = 0;
-          if (newParent.level === 0) {
-            const addedMarkup = this.parseAccountTypePips(movedConfig.accountType);
-            const baseMax = (parentConfig && Number(parentConfig.maxPips) > 0)
-              ? Number(parentConfig.maxPips)
-              : (MAX_PIPS[movedConfig.assetType as AssetType] || 0);
-            parentLimit = baseMax + addedMarkup;
-          } else {
-            parentLimit = Number(parentConfig?.rebatePips || 0);
-          }
+      const allowMarkupMap = new Map(products.map((p: any) => [p.symbol, p.allowMarkup]));
+      const defaultMaxMap = new Map(products.map((p: any) => [p.symbol, Number(p.defaultMax)]));
 
-          if (movedPips > parentLimit) {
-            throw new BadRequestException({
-              code: 'REBATE_INSUFFICIENT',
-              message: `Chuyển nhánh thất bại do số Rebate cấp trên không đủ cho loại link ${movedConfig.accountType} (${movedConfig.assetType}).`,
-            });
-          }
+      // Gom nhóm theo (accountType, assetType, rebateType) để tìm số pips tối đa trong subtree
+      for (const sc of allSubtreeConfigs) {
+        const pips = Number(sc.rebatePips || 0);
+        const key = `${sc.accountType}:${sc.assetType}:${sc.rebateType}`;
+        const curr = maxSubtreePipsMap.get(key) || 0;
+        if (pips > curr) {
+          maxSubtreePipsMap.set(key, pips);
+        }
+      }
+
+      for (const [key, neededPips] of maxSubtreePipsMap.entries()) {
+        if (neededPips <= 0) continue;
+        const [accType, assetType, rebateType] = key.split(':');
+
+        const parentConfig = newParentConfigs.find(
+          (pc) =>
+            pc.accountType === accType &&
+            pc.assetType === assetType &&
+            pc.rebateType === rebateType,
+        );
+
+        let parentLimit = 0;
+        if (newParent.level === 0) {
+          const isMarkupAllowed = allowMarkupMap.get(assetType) ?? true;
+          const addedMarkup = isMarkupAllowed ? this.parseAccountTypePips(accType) : 0;
+          const fallbackMax = defaultMaxMap.get(assetType) ?? ((MAX_PIPS as any)[assetType] || 0);
+          const baseMax = (parentConfig && Number(parentConfig.maxPips) > 0)
+            ? Number(parentConfig.maxPips)
+            : fallbackMax;
+          parentLimit = baseMax + addedMarkup;
+        } else {
+          parentLimit = Number(parentConfig?.rebatePips || 0);
+        }
+
+        if (neededPips > parentLimit) {
+          throw new BadRequestException({
+            code: 'REBATE_INSUFFICIENT',
+            message: `Chuyển nhánh thất bại: Cấp trên mới (${newParent.name || newParent.email}) có Rebate (${parentLimit} pips) không đủ để chia cho nhánh chuyển (yêu cầu tối thiểu ${neededPips} pips) ở sản phẩm ${assetType} - loại link ${accType}.`,
+          });
         }
       }
     }
-
-    // 3. Fetch all nodes in movedIb's subtree for level & accountType update
-    const allSubtreeNodes = await this.getAllSubtreeNodes(targetIbId);
 
     // Calculate level delta
     const oldLevel = movedIb.level;
@@ -1100,6 +1129,18 @@ export class IbService {
               level: node.level + levelDelta,
               accountType: newParent.accountType || undefined,
             },
+          });
+        }
+      }
+
+      if (movedIb.level === 0) {
+        // Cựu MIB (level 0) giờ chuyển thành Sub-IB (level >= 1), gán rebatePips
+        // bằng mức tối đa mà nhánh con của nó yêu cầu để bảo đảm parent >= child
+        for (const [key, neededPips] of maxSubtreePipsMap.entries()) {
+          const [accType, assetType, rebateType] = key.split(':');
+          await tx.rebateConfig.updateMany({
+            where: { ibId: targetIbId, accountType: accType, assetType, rebateType: rebateType as any },
+            data: { rebatePips: neededPips },
           });
         }
       }
