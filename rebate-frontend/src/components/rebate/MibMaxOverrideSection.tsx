@@ -31,7 +31,6 @@ export function MibMaxOverrideSection() {
     isUpdating,
   } = useProducts(true); // true = include inactive for admin
 
-  const [selectedMibId, setSelectedMibId] = useState('');
   const [rows, setRows] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,39 +50,16 @@ export function MibMaxOverrideSection() {
     [treeRes?.data],
   );
 
+  // Synchronize rows with products defaultMax
   useEffect(() => {
-    if (!selectedMibId && mibs.length > 0) {
-      setSelectedMibId(mibs[0].id);
-    }
-  }, [mibs, selectedMibId]);
-
-  // Synchronize rows with products defaultMax initially
-  useEffect(() => {
-    if (products.length > 0 && Object.keys(rows).length === 0) {
+    if (products.length > 0) {
       const initialMap: Record<string, string> = {};
       products.forEach((p) => {
         initialMap[p.symbol] = String(p.defaultMax);
       });
       setRows(initialMap);
     }
-  }, [products, rows]);
-
-  useEffect(() => {
-    if (!selectedMibId) return;
-    rebateApi.getConfig(selectedMibId).then((res) => {
-      if (!res.success) return;
-      const initialMap: Record<string, string> = {};
-      products.forEach((p) => {
-        initialMap[p.symbol] = String(p.defaultMax);
-      });
-      res.data.assets.forEach((a) => {
-        if (a.rebateType === RebateType.STP_REBATE && a.maxPips !== undefined && Number(a.maxPips) > 0) {
-          initialMap[a.assetType] = String(a.maxPips);
-        }
-      });
-      setRows(initialMap);
-    });
-  }, [selectedMibId]);
+  }, [products]);
 
   const filteredProducts = useMemo(() => {
     if (!searchQuery.trim()) return products;
@@ -119,8 +95,8 @@ export function MibMaxOverrideSection() {
         queryClient.invalidateQueries({ queryKey: ['products'] });
       }
 
-      // 2. Nếu có MIB được chọn, lưu mức max overrides cho MIB đó và cascade xuống tuyến
-      if (selectedMibId) {
+      // 2. Đồng bộ mức trần cho toàn bộ MIB (Level 0)
+      if (mibs.length > 0) {
         const overrides = Object.entries(rows)
           .filter(([_, val]) => val !== undefined && val.trim() !== '')
           .map(([symbol, val]) => ({
@@ -130,10 +106,9 @@ export function MibMaxOverrideSection() {
           }));
 
         if (overrides.length > 0) {
-          const res = await rebateApi.setMibMaxOverride(selectedMibId, overrides);
-          if (!res.success) {
-            throw new Error('Lưu trần cho MIB thất bại');
-          }
+          await Promise.all(
+            mibs.map((m) => rebateApi.setMibMaxOverride(m.id, overrides)),
+          );
         }
       }
 
@@ -189,7 +164,7 @@ export function MibMaxOverrideSection() {
             </span>
           </h3>
           <p className="text-sm text-gray-500 mt-1">
-            Quản lý danh sách sản phẩm sàn và gán mức trần hoa hồng tối đa cho từng MIB (Level 0).
+            Quản lý danh sách sản phẩm sàn và gán mức trần hoa hồng tối đa chung cho toàn bộ MIB (Level 0).
           </p>
         </div>
 
@@ -203,21 +178,15 @@ export function MibMaxOverrideSection() {
         </button>
       </div>
 
-      {/* Select MIB & Search Filter Bar */}
+      {/* Info Status & Search Filter Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-amber-50/50 p-3 rounded-xl border border-amber-100">
-        <div className="flex items-center gap-3">
-          <label className="text-sm font-extrabold text-gray-800 whitespace-nowrap">Chọn MIB:</label>
-          <select
-            value={selectedMibId}
-            onChange={(e) => setSelectedMibId(e.target.value)}
-            className="px-3 py-2 bg-white border border-gray-300 rounded-lg text-sm font-semibold text-gray-900 focus:ring-2 focus:ring-amber-500 shadow-sm min-w-[220px]"
-          >
-            {mibs.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name || m.email} ({m.email})
-              </option>
-            ))}
-          </select>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-200/70 text-amber-900 border border-amber-300">
+            Mức trần chung cho toàn bộ MIB
+          </span>
+          <span className="text-xs text-gray-500">
+            (Áp dụng đồng bộ cho tất cả các MIB Level 0)
+          </span>
         </div>
 
         <div className="relative max-w-xs w-full">
@@ -226,7 +195,7 @@ export function MibMaxOverrideSection() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Tìm theo mã, tên, danh mục..."
+            placeholder="Tìm theo mã sản phẩm (Symbol)..."
             className="w-full pl-9 pr-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-900 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 shadow-sm"
           />
         </div>
@@ -237,7 +206,7 @@ export function MibMaxOverrideSection() {
         <table className="w-full text-sm text-left border-collapse">
           <thead className="bg-amber-50/90 text-gray-900 font-extrabold border-b border-amber-200">
             <tr>
-              <th className="p-3.5">Mã & Tên Sản Phẩm</th>
+              <th className="p-3.5">Mã Sản Phẩm</th>
               <th className="p-3.5">Mức Max Pips (Pips/USD)</th>
               <th className="p-3.5 text-center min-w-[280px]">Quản Lý & Thao Tác</th>
             </tr>
